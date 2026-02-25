@@ -1,0 +1,6 @@
+# 키움 브릿지 전용 의존성
+# 주의: 32-bit Python 3.9+ 필요 (키움 OCX가 32-bit COM)
+# 설치: pip install -r requirements.txt
+
+PyQt5==5.15.9
+redis==5.0.1

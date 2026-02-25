@@ -1,0 +1,76 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+    },
+    {
+      path: '/',
+      component: () => import('@/layouts/AppLayout.vue'),
+      meta: { requiresAuth: true },
+      children: [
+        {
+          path: '',
+          redirect: '/dashboard',
+        },
+        {
+          path: 'dashboard',
+          name: 'dashboard',
+          component: () => import('@/views/DashboardView.vue'),
+        },
+        {
+          path: 'market',
+          name: 'market',
+          component: () => import('@/views/MarketView.vue'),
+        },
+        {
+          path: 'market/:ticker',
+          name: 'stock-detail',
+          component: () => import('@/views/StockDetailView.vue'),
+        },
+        {
+          path: 'strategies',
+          name: 'strategies',
+          component: () => import('@/views/StrategyView.vue'),
+        },
+        {
+          path: 'strategies/:id',
+          name: 'strategy-detail',
+          component: () => import('@/views/StrategyDetailView.vue'),
+        },
+        {
+          path: 'bots',
+          name: 'bots',
+          component: () => import('@/views/BotView.vue'),
+        },
+        {
+          path: 'bots/:id',
+          name: 'bot-detail',
+          component: () => import('@/views/BotDetailView.vue'),
+        },
+        {
+          path: 'connection',
+          name: 'connection',
+          component: () => import('@/views/ConnectionView.vue'),
+        },
+      ],
+    },
+  ],
+})
+
+router.beforeEach((to) => {
+  const auth = useAuthStore()
+  if (to.meta.requiresAuth && !auth.isLoggedIn) {
+    return { name: 'login' }
+  }
+  if (to.name === 'login' && auth.isLoggedIn) {
+    return { name: 'dashboard' }
+  }
+})
+
+export default router
