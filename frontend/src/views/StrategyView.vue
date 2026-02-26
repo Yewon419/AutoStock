@@ -47,6 +47,20 @@
           <input v-model="form.description" type="text" placeholder="간단한 설명" />
         </div>
 
+        <!-- 프리셋 -->
+        <div class="field" v-if="!editTarget">
+          <label>빠른 시작 (프리셋)</label>
+          <div class="preset-list">
+            <button
+              v-for="p in PRESETS"
+              :key="p.name"
+              class="preset-btn"
+              :class="{ active: selectedPreset === p.name }"
+              @click="applyPreset(p)"
+            >{{ p.name }}</button>
+          </div>
+        </div>
+
         <div class="conditions-label">
           <label>조건 (모두 충족 시 매수)</label>
           <button class="add-cond-btn" @click="addCondition">+ 조건 추가</button>
@@ -124,15 +138,64 @@ function conditionLabel(key) {
   return CONDITIONS.find(c => c.key === key)?.label ?? key
 }
 
+const PRESETS = [
+  {
+    name: 'RSI 과매도',
+    description: 'RSI 30 이하 과매도 구간 진입 종목 매수',
+    conditions: [
+      { indicator: 'rsi', condition: 'below', value: 30, value2: null },
+    ],
+  },
+  {
+    name: 'RSI 과매수 모멘텀',
+    description: 'RSI 70 이상 + ADX 25 이상 강한 상승 추세',
+    conditions: [
+      { indicator: 'rsi', condition: 'above', value: 70, value2: null },
+      { indicator: 'adx', condition: 'above', value: 25, value2: null },
+    ],
+  },
+  {
+    name: 'MACD 골든크로스',
+    description: 'MACD가 0선을 상향 돌파하는 시점 매수',
+    conditions: [
+      { indicator: 'macd', condition: 'golden_cross', value: 0, value2: null },
+    ],
+  },
+  {
+    name: '스토캐스틱 반전',
+    description: 'Stoch %K/%D 모두 20 이하 과매도 반전 신호',
+    conditions: [
+      { indicator: 'stoch_k', condition: 'below', value: 20, value2: null },
+      { indicator: 'stoch_d', condition: 'below', value: 20, value2: null },
+    ],
+  },
+  {
+    name: '강세장 눌림목',
+    description: 'ADX 25 이상 추세장 + RSI 40~60 눌림목 구간',
+    conditions: [
+      { indicator: 'adx', condition: 'above', value: 25, value2: null },
+      { indicator: 'rsi', condition: 'between', value: 40, value2: 60 },
+    ],
+  },
+]
+
 const strategies = ref([])
 const loading = ref(false)
 const modal = ref(false)
 const saving = ref(false)
 const editTarget = ref(null)
 const formError = ref('')
+const selectedPreset = ref('')
 
 const defaultCondition = () => ({ indicator: 'rsi', condition: 'below', value: null, value2: null })
 const form = ref({ name: '', description: '', conditions: [defaultCondition()] })
+
+function applyPreset(preset) {
+  selectedPreset.value = preset.name
+  form.value.name = preset.name
+  form.value.description = preset.description
+  form.value.conditions = preset.conditions.map(c => ({ ...c }))
+}
 
 async function fetchStrategies() {
   loading.value = true
@@ -145,6 +208,7 @@ async function fetchStrategies() {
 
 function openCreate() {
   editTarget.value = null
+  selectedPreset.value = ''
   form.value = { name: '', description: '', conditions: [defaultCondition()] }
   formError.value = ''
   modal.value = true
@@ -401,4 +465,32 @@ onMounted(fetchStrategies)
   cursor: pointer;
 }
 .modal-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.preset-btn {
+  padding: 6px 14px;
+  background: #0f1117;
+  border: 1px solid #2a2d3e;
+  border-radius: 20px;
+  color: #9ca3af;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.preset-btn:hover {
+  border-color: #4f9eff;
+  color: #4f9eff;
+  background: #1e3a5f;
+}
+.preset-btn.active {
+  border-color: #4f9eff;
+  color: #fff;
+  background: #4f9eff;
+}
 </style>

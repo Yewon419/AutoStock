@@ -2,6 +2,7 @@ services:
   postgres:
     image: timescale/timescaledb:latest-pg16
     container_name: autostock-postgres
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-autostock}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autostock123}
@@ -19,6 +20,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: autostock-redis
+    restart: always
     ports:
       - "6379:6379"
     healthcheck:
@@ -46,6 +48,7 @@ services:
   celery-worker:
     build: ./backend
     container_name: autostock-celery-worker
+    restart: always
     env_file:
       - .env
     depends_on:
@@ -60,6 +63,7 @@ services:
   celery-beat:
     build: ./backend
     container_name: autostock-celery-beat
+    restart: always
     env_file:
       - .env
     depends_on:

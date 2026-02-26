@@ -166,7 +166,8 @@ async function setPeriod(days) {
 function renderCharts() {
   if (prices.value.length === 0) return
 
-  import('lightweight-charts').then(({ createChart, CrosshairMode }) => {
+  import('lightweight-charts').then((lc) => {
+    const { createChart, CrosshairMode, CandlestickSeries, LineSeries, HistogramSeries } = lc
     const chartOpts = {
       layout: { background: { color: '#1a1d27' }, textColor: '#9ca3af' },
       grid: { vertLines: { color: '#2a2d3e' }, horzLines: { color: '#2a2d3e' } },
@@ -183,7 +184,7 @@ function renderCharts() {
         width: candleRef.value.clientWidth,
         height: 320,
       })
-      candleSeries = candleChart.addCandlestickSeries({
+      candleSeries = candleChart.addSeries(CandlestickSeries, {
         upColor: '#ef4444',     // 한국: 빨강 = 상승
         downColor: '#3b82f6',   // 파랑 = 하락
         borderVisible: false,
@@ -202,11 +203,11 @@ function renderCharts() {
     }
 
     // 지표 차트
-    renderIndicatorChart(createChart, chartOpts)
+    renderIndicatorChart(createChart, chartOpts, { LineSeries, HistogramSeries })
   })
 }
 
-function renderIndicatorChart(createChart, chartOpts) {
+function renderIndicatorChart(createChart, chartOpts, { LineSeries, HistogramSeries }) {
   if (!indicatorRef.value || indicators.value.length === 0) return
 
   if (indicatorChart) indicatorChart.remove()
@@ -217,27 +218,27 @@ function renderIndicatorChart(createChart, chartOpts) {
   })
 
   if (selectedIndicator.value === 'rsi') {
-    indicatorSeries = indicatorChart.addLineSeries({ color: '#f59e0b', lineWidth: 1.5 })
+    indicatorSeries = indicatorChart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 1.5 })
     const data = indicators.value
       .filter((i) => i.rsi != null)
       .map((i) => ({ time: toTimestamp(i.date), value: i.rsi }))
     indicatorSeries.setData(data)
 
   } else if (selectedIndicator.value === 'macd') {
-    indicatorSeries = indicatorChart.addLineSeries({ color: '#4f9eff', lineWidth: 1.5 })
+    indicatorSeries = indicatorChart.addSeries(LineSeries, { color: '#4f9eff', lineWidth: 1.5 })
     const macdData = indicators.value
       .filter((i) => i.macd != null)
       .map((i) => ({ time: toTimestamp(i.date), value: i.macd }))
     indicatorSeries.setData(macdData)
 
-    const signalSeries = indicatorChart.addLineSeries({ color: '#f87171', lineWidth: 1 })
+    const signalSeries = indicatorChart.addSeries(LineSeries, { color: '#f87171', lineWidth: 1 })
     const signalData = indicators.value
       .filter((i) => i.macd_signal != null)
       .map((i) => ({ time: toTimestamp(i.date), value: i.macd_signal }))
     signalSeries.setData(signalData)
 
   } else if (selectedIndicator.value === 'volume') {
-    indicatorSeries = indicatorChart.addHistogramSeries({
+    indicatorSeries = indicatorChart.addSeries(HistogramSeries, {
       color: '#3b82f6',
       priceFormat: { type: 'volume' },
     })
@@ -263,14 +264,15 @@ async function collectThis() {
 }
 
 watch(selectedIndicator, () => {
-  import('lightweight-charts').then(({ createChart }) => {
+  import('lightweight-charts').then((lc) => {
+    const { createChart, LineSeries, HistogramSeries } = lc
     const chartOpts = {
       layout: { background: { color: '#1a1d27' }, textColor: '#9ca3af' },
       grid: { vertLines: { color: '#2a2d3e' }, horzLines: { color: '#2a2d3e' } },
       timeScale: { borderColor: '#2a2d3e', timeVisible: true },
       rightPriceScale: { borderColor: '#2a2d3e' },
     }
-    renderIndicatorChart(createChart, chartOpts)
+    renderIndicatorChart(createChart, chartOpts, { LineSeries, HistogramSeries })
   })
 })
 

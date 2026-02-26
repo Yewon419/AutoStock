@@ -41,6 +41,33 @@ def _get_recent_trading_date():
     return None
 
 
+@celery_app.task(name="tasks.collect.collect_missing_data")
+def collect_missing_data():
+    """
+    가장 최근 거래일 데이터가 DB에 없으면 수집 트리거.
+    매일 아침 9시 및 서비스 재시작 시 실행되어 누락된 날 자동 보완.
+    """
+    db = SessionLocal()
+    try:
+        trading_date = _get_recent_trading_date()
+        if not trading_date:
+            logger.warning("[collect_missing_data] 최근 거래일 확인 불가")
+            return {"status": "no_trading_date"}
+
+        target = date(int(trading_date[:4]), int(trading_date[4:6]), int(trading_date[6:]))
+        count = db.query(StockPrice).filter(StockPrice.date == target).count()
+
+        if count == 0:
+            logger.info(f"[collect_missing_data] {trading_date} 누락 → 수집 시작")
+            collect_all_stocks.delay()
+            return {"status": "triggered", "date": trading_date}
+        else:
+            logger.info(f"[collect_missing_data] {trading_date} 이미 존재 ({count}건) → 스킵")
+            return {"status": "ok", "date": trading_date, "count": count}
+    finally:
+        db.close()
+
+
 @celery_app.task(name="tasks.collect.collect_all_stocks", bind=True, max_retries=3)
 def collect_all_stocks(self):
     """

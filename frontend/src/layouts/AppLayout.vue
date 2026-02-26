@@ -30,6 +30,10 @@
           <span class="nav-icon">🤖</span>
           <span>자동매매</span>
         </RouterLink>
+        <RouterLink to="/ai" class="nav-item" active-class="active">
+          <span class="nav-icon">🧠</span>
+          <span>AI 분석</span>
+        </RouterLink>
         <RouterLink to="/connection" class="nav-item" active-class="active">
           <span class="nav-icon">🔌</span>
           <span>연결 설정</span>

@@ -1,0 +1,339 @@
+"""
+AI 태스크
+1. train_and_score: RandomForest로 ML 종목 스코어링
+2. optimize_strategy: Grid Search로 전략 파라미터 최적화
+"""
+import json
+import logging
+import math
+from datetime import date, timedelta
+from typing import Optional
+
+import numpy as np
+import redis
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+
+from tasks.celery_app import celery_app
+from core.config import settings
+from core.database import SessionLocal
+from models.market import StockPrice, TechnicalIndicator
+
+logger = logging.getLogger(__name__)
+
+ML_SCORES_KEY = "autostock:ml_scores"
+ML_SCORES_META_KEY = "autostock:ml_scores_meta"
+
+
+def _get_redis():
+    return redis.from_url(settings.REDIS_URL)
+
+
+def _safe_float(val, default=0.0):
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        return default if math.isnan(f) or math.isinf(f) else f
+    except (TypeError, ValueError):
+        return default
+
+
+@celery_app.task(name="tasks.ai_tasks.train_and_score")
+def train_and_score():
+    """
+    최근 6개월 데이터로 RandomForest 학습 → 최신 날짜 종목별 매수 확률 계산 → Redis 저장
+    """
+    db = SessionLocal()
+    try:
+        today = date.today()
+        lookback_start = today - timedelta(days=180)
+
+        # 최신 지표 날짜
+        latest = (
+            db.query(TechnicalIndicator.date)
+            .order_by(TechnicalIndicator.date.desc())
+            .first()
+        )
+        if not latest:
+            return {"status": "no_data"}
+        latest_date = latest[0]
+
+        logger.info(f"[ai] 데이터 로드 중... (기준일: {latest_date})")
+
+        # 가격 데이터 로드
+        prices = (
+            db.query(StockPrice)
+            .filter(StockPrice.date >= lookback_start)
+            .order_by(StockPrice.ticker, StockPrice.date)
+            .all()
+        )
+        # 지표 데이터 로드
+        inds = (
+            db.query(TechnicalIndicator)
+            .filter(TechnicalIndicator.date >= lookback_start)
+            .order_by(TechnicalIndicator.ticker, TechnicalIndicator.date)
+            .all()
+        )
+
+        # 가격 맵: {ticker: {date: close_price}}
+        price_map: dict = {}
+        for p in prices:
+            price_map.setdefault(p.ticker, {})[p.date] = float(p.close_price)
+
+        # 지표 맵: {ticker: {date: indicator_row}}
+        ind_map: dict = {}
+        for i in inds:
+            ind_map.setdefault(i.ticker, {})[i.date] = i
+
+        # 거래량 맵 (최신일 기준, 순위 가중치용)
+        vol_map = {
+            p.ticker: int(p.volume or 0)
+            for p in db.query(StockPrice)
+            .filter(StockPrice.date == latest_date)
+            .all()
+        }
+
+        logger.info(f"[ai] 피처 생성 중...")
+
+        train_X, train_y = [], []
+        predict_tickers = []
+        predict_X = []
+
+        for ticker, ticker_inds in ind_map.items():
+            ticker_prices = price_map.get(ticker, {})
+            price_dates = sorted(ticker_prices.keys())
+            ind_dates = sorted(ticker_inds.keys())
+
+            if len(ind_dates) < 10:
+                continue
+
+            for ind_date in ind_dates:
+                ind = ticker_inds[ind_date]
+                ma_20 = _safe_float(ind.ma_20)
+                ma_50 = _safe_float(ind.ma_50)
+                close = ticker_prices.get(ind_date)
+                if close is None or ma_20 == 0:
+                    continue
+
+                boll_upper = _safe_float(ind.bollinger_upper)
+                boll_lower = _safe_float(ind.bollinger_lower)
+                boll_range = boll_upper - boll_lower
+                boll_pos = (close - boll_lower) / boll_range if boll_range > 0 else 0.5
+
+                features = [
+                    _safe_float(ind.rsi),
+                    _safe_float(ind.macd_histogram) / ma_20 if ma_20 > 0 else 0,
+                    _safe_float(ind.stoch_k),
+                    _safe_float(ind.stoch_d),
+                    _safe_float(ind.adx),
+                    (ma_20 / ma_50 - 1) if ma_50 > 0 else 0,
+                    _safe_float(ind.atr) / ma_20 if ma_20 > 0 else 0,
+                    boll_pos,
+                ]
+
+                if ind_date == latest_date:
+                    predict_tickers.append(ticker)
+                    predict_X.append(features)
+                elif ind_date < latest_date:
+                    # 라벨: 5거래일 후 수익률 > 1%
+                    future_dates = [d for d in price_dates if d > ind_date]
+                    if len(future_dates) < 5:
+                        continue
+                    future_price = ticker_prices.get(future_dates[4])
+                    if future_price is None:
+                        continue
+                    ret = (future_price - close) / close
+                    train_X.append(features)
+                    train_y.append(1 if ret > 0.01 else 0)
+
+        if len(train_X) < 100 or not predict_X:
+            logger.warning(f"[ai] 훈련 데이터 부족: {len(train_X)}개")
+            return {"status": "insufficient_data", "train_samples": len(train_X)}
+
+        logger.info(f"[ai] 훈련 시작: {len(train_X)}개 샘플, {len(predict_X)}개 예측")
+
+        X_train = np.array(train_X)
+        y_train = np.array(train_y)
+        X_pred = np.array(predict_X)
+
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_pred_scaled = scaler.transform(X_pred)
+
+        clf = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=6,
+            min_samples_leaf=20,
+            random_state=42,
+            n_jobs=-1,
+        )
+        clf.fit(X_train_scaled, y_train)
+
+        # 매수 신호 확률 (class=1)
+        probas = clf.predict_proba(X_pred_scaled)[:, 1]
+
+        # 점수: 0~100
+        scores = {
+            ticker: round(float(proba) * 100, 1)
+            for ticker, proba in zip(predict_tickers, probas)
+        }
+
+        # 상위 50개 (점수 내림차순, 동점 시 거래량)
+        top_tickers = sorted(
+            scores.keys(),
+            key=lambda t: (scores[t], vol_map.get(t, 0)),
+            reverse=True,
+        )[:50]
+        top_scores = {t: scores[t] for t in top_tickers}
+
+        r = _get_redis()
+        r.set(ML_SCORES_KEY, json.dumps(top_scores), ex=86400 * 2)
+        r.set(ML_SCORES_META_KEY, json.dumps({
+            "date": str(latest_date),
+            "train_samples": len(train_X),
+            "positive_rate": round(float(y_train.mean()) * 100, 1),
+            "ticker_count": len(top_scores),
+        }), ex=86400 * 2)
+
+        logger.info(f"[ai] 완료: {len(top_scores)}개 종목 스코어링")
+        return {
+            "status": "ok",
+            "date": str(latest_date),
+            "train_samples": len(train_X),
+            "top_tickers": len(top_scores),
+        }
+
+    except Exception as e:
+        logger.error(f"[ai] train_and_score 오류: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="tasks.ai_tasks.optimize_strategy")
+def optimize_strategy(
+    strategy_id: int,
+    indicator: str,
+    condition: str,
+    value_min: float,
+    value_max: float,
+    value_step: float,
+    value2_fixed: Optional[float] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    """
+    전략 파라미터 Grid Search 최적화
+    - 지정한 indicator/condition의 value를 value_min~value_max 범위로 스캔
+    - 고거래량 100개 종목 샘플 백테스트
+    - 결과: [{value, sharpe, score, win_rate, total_return, num_trades}]
+    """
+    db = SessionLocal()
+    try:
+        from models.strategy import Strategy
+        from services.backtest_engine import run_backtest
+
+        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if not strategy:
+            return {"status": "error", "message": "전략을 찾을 수 없습니다"}
+
+        today = date.today()
+        if not end_date:
+            end_date = str(today)
+        if not start_date:
+            start_date = str(today - timedelta(days=365))
+
+        # 고거래량 종목 100개 샘플
+        latest_price = (
+            db.query(StockPrice.date)
+            .order_by(StockPrice.date.desc())
+            .first()
+        )
+        if not latest_price:
+            return {"status": "error", "message": "가격 데이터 없음"}
+
+        top_stocks = (
+            db.query(StockPrice.ticker)
+            .filter(StockPrice.date == latest_price[0])
+            .order_by(StockPrice.volume.desc())
+            .limit(100)
+            .all()
+        )
+        tickers = [t[0] for t in top_stocks]
+        if not tickers:
+            return {"status": "error", "message": "종목 없음"}
+
+        # 스텝 수 상한: 최대 30단계
+        raw_steps = round((value_max - value_min) / value_step) + 1
+        if raw_steps > 30:
+            value_step = (value_max - value_min) / 29
+
+        base_conditions = list(strategy.conditions) if strategy.conditions else []
+        results = []
+        value = value_min
+
+        while value <= value_max + 1e-9:
+            v = round(value, 4)
+            new_conditions = []
+            replaced = False
+
+            for cond in base_conditions:
+                if cond.get('indicator') == indicator and cond.get('condition') == condition:
+                    new_cond = {**cond, 'value': v}
+                    if value2_fixed is not None:
+                        new_cond['value2'] = value2_fixed
+                    new_conditions.append(new_cond)
+                    replaced = True
+                else:
+                    new_conditions.append(cond)
+
+            if not replaced:
+                new_cond = {'indicator': indicator, 'condition': condition, 'value': v}
+                if value2_fixed is not None:
+                    new_cond['value2'] = value2_fixed
+                new_conditions.append(new_cond)
+
+            try:
+                bt = run_backtest(
+                    db=db,
+                    conditions=new_conditions,
+                    tickers=tickers,
+                    start_date=start_date,
+                    end_date=end_date,
+                    initial_capital=10_000_000,
+                )
+                s = bt['summary']
+                results.append({
+                    'value': v,
+                    'sharpe': s.get('sharpe_ratio', 0),
+                    'score': s.get('total_score', 0),
+                    'win_rate': s.get('win_rate', 0),
+                    'total_return': s.get('total_return_pct', 0),
+                    'num_trades': s.get('num_trades', 0),
+                })
+            except Exception as e:
+                logger.warning(f"[ai] optimize v={v} 오류: {e}")
+                results.append({
+                    'value': v, 'sharpe': 0, 'score': 0,
+                    'win_rate': 0, 'total_return': 0, 'num_trades': 0,
+                })
+
+            value += value_step
+
+        best = max(results, key=lambda r: r['sharpe']) if results else None
+
+        return {
+            "status": "ok",
+            "strategy_id": strategy_id,
+            "indicator": indicator,
+            "condition": condition,
+            "results": results,
+            "best": best,
+        }
+
+    except Exception as e:
+        logger.error(f"[ai] optimize_strategy 오류: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
