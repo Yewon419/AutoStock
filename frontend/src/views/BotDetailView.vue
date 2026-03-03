@@ -21,7 +21,7 @@
       </div>
     </div>
 
-    <!-- 요약 카드 -->
+    <!-- 설정 요약 카드 -->
     <div class="summary-grid">
       <div class="summary-card">
         <span class="s-label">초기 자금</span>
@@ -49,6 +49,46 @@
       </div>
     </div>
 
+    <!-- 종합 성과 카드 -->
+    <div class="perf-section" v-if="perf">
+      <div class="perf-card" :class="perf.total_pnl >= 0 ? 'perf-pos' : 'perf-neg'">
+        <span class="p-label">누적 손익</span>
+        <span class="p-main">{{ fmtPnl(perf.total_pnl) }}</span>
+        <span class="p-sub" :class="pnlClass(perf.total_return_pct)">
+          {{ perf.total_return_pct >= 0 ? '+' : '' }}{{ perf.total_return_pct.toFixed(2) }}%
+        </span>
+      </div>
+      <div class="perf-card">
+        <span class="p-label">승률</span>
+        <span class="p-main">{{ perf.win_rate.toFixed(1) }}%</span>
+        <span class="p-sub">{{ perf.winning_trades }}승 {{ perf.losing_trades }}패 ({{ perf.total_trades }}건)</span>
+      </div>
+      <div class="perf-card">
+        <span class="p-label">손익비</span>
+        <span class="p-main" :class="perf.profit_factor >= 1 ? 'val-good' : 'val-bad'">
+          {{ perf.profit_factor > 0 ? perf.profit_factor.toFixed(2) : '-' }}
+        </span>
+        <span class="p-sub">평균수익 {{ fmtPnl(perf.avg_win) }}</span>
+      </div>
+      <div class="perf-card">
+        <span class="p-label">샤프 비율</span>
+        <span class="p-main" :class="perf.sharpe_ratio >= 1 ? 'val-good' : perf.sharpe_ratio >= 0 ? '' : 'val-bad'">
+          {{ perf.sharpe_ratio !== 0 ? perf.sharpe_ratio.toFixed(2) : '-' }}
+        </span>
+        <span class="p-sub">위험 대비 수익</span>
+      </div>
+      <div class="perf-card">
+        <span class="p-label">최대 낙폭</span>
+        <span class="p-main val-bad">{{ perf.max_drawdown > 0 ? '-' + perf.max_drawdown.toFixed(2) + '%' : '-' }}</span>
+        <span class="p-sub">최고점 대비</span>
+      </div>
+      <div class="perf-card">
+        <span class="p-label">총 수수료+세금</span>
+        <span class="p-main">{{ fmtMoney(perf.total_fee) }}</span>
+        <span class="p-sub">최대손실 {{ fmtPnl(perf.worst_trade) }}</span>
+      </div>
+    </div>
+
     <!-- 종목 태그 -->
     <div class="tickers-row">
       <span class="tickers-label">대상 종목</span>
@@ -61,7 +101,7 @@
     <!-- 탭 -->
     <div class="tabs">
       <button
-        v-for="tab in ['positions', 'orders', 'reports']"
+        v-for="tab in ['positions', 'orders', 'executions', 'reports']"
         :key="tab"
         class="tab-btn"
         :class="{ active: activeTab === tab }"
@@ -125,14 +165,57 @@
       </table>
     </div>
 
+    <!-- 체결 내역 탭 (매도 손익 중심) -->
+    <div v-if="activeTab === 'executions'">
+      <div v-if="executions.length === 0" class="empty-tab">체결 내역이 없습니다.</div>
+      <table v-else class="data-table">
+        <thead>
+          <tr>
+            <th>체결 시각</th>
+            <th>종목</th>
+            <th>구분</th>
+            <th>수량</th>
+            <th>체결가</th>
+            <th>손익</th>
+            <th>수익률</th>
+            <th>수수료+세금</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="e in executions" :key="e.id">
+            <td class="time-cell">{{ fmtDatetime(e.executed_at) }}</td>
+            <td class="ticker-cell">{{ e.ticker }}</td>
+            <td :class="e.execution_type === 'BUY' ? 'buy-cell' : 'sell-cell'">{{ e.execution_type }}</td>
+            <td>{{ e.quantity.toLocaleString() }}</td>
+            <td>{{ fmtPrice(e.price) }}</td>
+            <td :class="pnlClass(e.profit_loss)">
+              {{ e.profit_loss != null ? fmtPnl(e.profit_loss) : '-' }}
+            </td>
+            <td :class="pnlClass(e.profit_loss_pct)">
+              {{ e.profit_loss_pct != null ? (e.profit_loss_pct >= 0 ? '+' : '') + e.profit_loss_pct.toFixed(2) + '%' : '-' }}
+            </td>
+            <td class="fee-cell">{{ fmtPrice((e.fee || 0) + (e.tax || 0)) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <!-- 보고서 탭 -->
     <div v-if="activeTab === 'reports'">
       <div v-if="reports.length === 0" class="empty-tab">일별 보고서가 없습니다.</div>
       <div v-else>
-        <!-- 누적 손익 차트 -->
-        <div class="chart-container">
-          <div ref="chartEl" style="height: 200px;"></div>
+        <!-- 차트 영역 (누적손익 라인 + 일일손익 바) -->
+        <div class="charts-row">
+          <div class="chart-container chart-half">
+            <div class="chart-title">누적 손익</div>
+            <div ref="lineChartEl" style="height: 180px;"></div>
+          </div>
+          <div class="chart-container chart-half">
+            <div class="chart-title">일일 손익</div>
+            <div ref="barChartEl" style="height: 180px;"></div>
+          </div>
         </div>
+        <!-- 보고서 테이블 -->
         <table class="data-table">
           <thead>
             <tr>
@@ -144,6 +227,9 @@
               <th>누적 손익</th>
               <th>승률</th>
               <th>거래 수</th>
+              <th>MDD</th>
+              <th>샤프</th>
+              <th>손익비</th>
             </tr>
           </thead>
           <tbody>
@@ -156,6 +242,13 @@
               <td :class="pnlClass(r.total_pnl)">{{ fmtPnl(r.total_pnl) }}</td>
               <td>{{ r.win_rate.toFixed(1) }}%</td>
               <td>{{ r.total_trades }}</td>
+              <td class="mdd-cell">{{ r.max_drawdown > 0 ? '-' + r.max_drawdown.toFixed(2) + '%' : '-' }}</td>
+              <td :class="r.sharpe_ratio >= 1 ? 'val-good' : r.sharpe_ratio < 0 ? 'val-bad' : ''">
+                {{ r.sharpe_ratio !== 0 ? r.sharpe_ratio.toFixed(2) : '-' }}
+              </td>
+              <td :class="r.profit_factor >= 1 ? 'val-good' : r.profit_factor > 0 ? 'val-bad' : ''">
+                {{ r.profit_factor > 0 ? r.profit_factor.toFixed(2) : '-' }}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -177,13 +270,16 @@ const auth = useAuthStore()
 const API = 'http://localhost:8001/api/v1'
 
 const bot = ref(null)
+const perf = ref(null)
 const positions = ref([])
 const orders = ref([])
+const executions = ref([])
 const reports = ref([])
 const activeTab = ref('positions')
-const chartEl = ref(null)
-let chart = null
-let lineSeries = null
+const lineChartEl = ref(null)
+const barChartEl = ref(null)
+let lineChart = null
+let barChart = null
 
 function headers() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -196,6 +292,11 @@ async function fetchBot() {
   if (res.ok) bot.value = await res.json()
 }
 
+async function fetchPerf() {
+  const res = await fetch(`${API}/bots/${botId}/performance`, { headers: headers() })
+  if (res.ok) perf.value = await res.json()
+}
+
 async function fetchPositions() {
   const res = await fetch(`${API}/bots/${botId}/positions`, { headers: headers() })
   if (res.ok) positions.value = await res.json()
@@ -206,50 +307,73 @@ async function fetchOrders() {
   if (res.ok) orders.value = await res.json()
 }
 
+async function fetchExecutions() {
+  const res = await fetch(`${API}/bots/${botId}/executions`, { headers: headers() })
+  if (res.ok) executions.value = await res.json()
+}
+
 async function fetchReports() {
   const res = await fetch(`${API}/bots/${botId}/reports`, { headers: headers() })
   if (res.ok) {
     const data = await res.json()
-    // 최신순 → 오래된순 정렬 (차트용)
     reports.value = data
     await nextTick()
-    renderChart(data.slice().reverse())
+    renderCharts(data.slice().reverse())
   }
 }
 
-async function renderChart(data) {
-  if (!chartEl.value || !data.length) return
+async function renderCharts(data) {
+  if (!data.length) return
   const { createChart } = await import('lightweight-charts')
-  if (chart) { chart.remove(); chart = null }
-  chart = createChart(chartEl.value, {
+
+  const commonOpts = {
     layout: { background: { color: '#1a1d27' }, textColor: '#9ca3af' },
     grid: { vertLines: { color: '#2a2d3e' }, horzLines: { color: '#2a2d3e' } },
     rightPriceScale: { borderColor: '#2a2d3e' },
-    timeScale: { borderColor: '#2a2d3e', timeVisible: true },
-    height: 200,
-  })
-  lineSeries = chart.addLineSeries({
-    color: '#4f9eff',
-    lineWidth: 2,
-    priceFormat: { type: 'price', precision: 0, minMove: 1 },
-  })
-  lineSeries.setData(data.map(r => ({
-    time: r.date,
-    value: r.total_pnl,
-  })))
-  chart.timeScale().fitContent()
+    timeScale: { borderColor: '#2a2d3e', timeVisible: false },
+  }
+
+  // 누적 손익 라인 차트
+  if (lineChartEl.value) {
+    if (lineChart) { lineChart.remove(); lineChart = null }
+    lineChart = createChart(lineChartEl.value, { ...commonOpts, height: 180 })
+    const ls = lineChart.addLineSeries({
+      color: '#4f9eff',
+      lineWidth: 2,
+      priceFormat: { type: 'price', precision: 0, minMove: 1 },
+    })
+    ls.setData(data.map(r => ({ time: r.date, value: r.total_pnl })))
+    lineChart.timeScale().fitContent()
+  }
+
+  // 일일 손익 히스토그램 차트
+  if (barChartEl.value) {
+    if (barChart) { barChart.remove(); barChart = null }
+    barChart = createChart(barChartEl.value, { ...commonOpts, height: 180 })
+    const hs = barChart.addHistogramSeries({
+      priceFormat: { type: 'price', precision: 0, minMove: 1 },
+    })
+    hs.setData(data.map(r => ({
+      time: r.date,
+      value: r.daily_pnl,
+      color: r.daily_pnl >= 0 ? 'rgba(239,68,68,0.7)' : 'rgba(16,185,129,0.7)',
+    })))
+    barChart.timeScale().fitContent()
+  }
 }
 
 async function switchTab(tab) {
   activeTab.value = tab
   if (tab === 'positions') await fetchPositions()
   else if (tab === 'orders') await fetchOrders()
+  else if (tab === 'executions') await fetchExecutions()
   else if (tab === 'reports') await fetchReports()
 }
 
 async function startBot() {
   await fetch(`${API}/bots/${botId}/start`, { method: 'POST', headers: headers() })
   fetchBot()
+  fetchPerf()
 }
 
 async function stopBot() {
@@ -264,7 +388,12 @@ function statusClass(s) {
 }
 
 function tabLabel(tab) {
-  return { positions: '보유 포지션', orders: '주문 내역', reports: '일별 보고서' }[tab]
+  return {
+    positions: '보유 포지션',
+    orders: '주문 내역',
+    executions: '체결 내역',
+    reports: '일별 보고서',
+  }[tab]
 }
 
 function fmtMoney(v) {
@@ -303,12 +432,12 @@ function pnlClass(v) {
 
 onMounted(async () => {
   await fetchBot()
-  await fetchPositions()
+  await Promise.all([fetchPositions(), fetchPerf()])
 })
 </script>
 
 <style scoped>
-.bot-detail { max-width: 1100px; }
+.bot-detail { max-width: 1200px; }
 
 .loading { text-align: center; color: #6b7280; padding: 80px 0; }
 
@@ -363,11 +492,12 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 .btn-stop { background: rgba(239,68,68,.2); color: #ef4444; }
 .btn-stop:hover { background: rgba(239,68,68,.3); }
 
+/* 설정 요약 */
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .summary-card {
@@ -383,6 +513,34 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 .s-label { font-size: 11px; color: #6b7280; }
 .s-value { font-size: 14px; color: #e5e7eb; font-weight: 600; }
 
+/* 종합 성과 카드 */
+.perf-section {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.perf-card {
+  background: #1a1d27;
+  border: 1px solid #2a2d3e;
+  border-radius: 8px;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.perf-pos { border-color: rgba(239,68,68,.3); }
+.perf-neg { border-color: rgba(16,185,129,.3); }
+
+.p-label { font-size: 11px; color: #6b7280; }
+.p-main { font-size: 18px; font-weight: 700; color: #e5e7eb; }
+.p-sub { font-size: 11px; color: #6b7280; }
+
+.val-good { color: #10b981; }
+.val-bad  { color: #ef4444; }
+
+/* 종목 태그 */
 .tickers-row {
   display: flex;
   align-items: center;
@@ -395,9 +553,7 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 }
 
 .tickers-label { font-size: 12px; color: #6b7280; white-space: nowrap; }
-
 .ticker-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-
 .ticker-tag {
   background: #2a2d3e;
   color: #9ca3af;
@@ -405,9 +561,9 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
   border-radius: 4px;
   font-size: 12px;
 }
-
 .no-tickers { font-size: 12px; color: #4b5563; }
 
+/* 탭 */
 .tabs {
   display: flex;
   gap: 4px;
@@ -435,14 +591,28 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
   font-size: 14px;
 }
 
+/* 차트 */
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
 .chart-container {
   background: #1a1d27;
   border: 1px solid #2a2d3e;
   border-radius: 8px;
   padding: 16px;
-  margin-bottom: 20px;
 }
 
+.chart-title {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+
+/* 테이블 */
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -473,6 +643,8 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 .time-cell { color: #9ca3af; font-size: 12px; }
 .buy-cell { color: #ef4444; font-weight: 600; }
 .sell-cell { color: #10b981; font-weight: 600; }
+.fee-cell { color: #6b7280; font-size: 12px; }
+.mdd-cell { color: #ef4444; }
 
 .profit { color: #ef4444; }
 .loss { color: #10b981; }

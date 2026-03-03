@@ -18,7 +18,13 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str = ""
 
     # Broker
-    BROKER_MODE: str = "mock"  # mock | real
+    BROKER_MODE: str = "mock"  # mock | paper | real
+
+    # KIS (한국투자증권)
+    KIS_APP_KEY: str = ""
+    KIS_APP_SECRET: str = ""
+    KIS_ACCOUNT_NO: str = ""      # 예: 12345678-01
+    KIS_IS_PAPER: bool = True     # True=모의투자, False=실계좌
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"

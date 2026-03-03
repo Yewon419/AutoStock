@@ -1,3 +1,4 @@
+import math
 from sqlalchemy.orm import Session
 from models.trading import Account, TradingBot, Order, Execution, Position, BotReport
 from core.security import get_encryption_service
@@ -157,3 +158,82 @@ def get_reports(db: Session, bot_id: int, limit: int = 30):
         .limit(limit)
         .all()
     )
+
+
+def get_performance_stats(db: Session, bot: TradingBot) -> dict:
+    """봇 종합 성과 통계 계산 (전체 누적 기준)"""
+    initial = float(bot.initial_cash or 0)
+    cash = float(bot.cash or 0)
+
+    # 전체 매도 체결
+    sells = db.query(Execution).filter(
+        Execution.bot_id == bot.id,
+        Execution.execution_type == 'SELL',
+    ).all()
+
+    total_trades = len(sells)
+    wins = [e for e in sells if float(e.profit_loss or 0) > 0]
+    losses = [e for e in sells if float(e.profit_loss or 0) < 0]
+
+    total_pnl = sum(float(e.profit_loss or 0) for e in sells)
+    win_rate = len(wins) / total_trades * 100 if total_trades else 0
+    total_return_pct = total_pnl / initial * 100 if initial else 0
+
+    avg_win = sum(float(e.profit_loss) for e in wins) / len(wins) if wins else 0
+    avg_loss = sum(float(e.profit_loss) for e in losses) / len(losses) if losses else 0
+    best_trade = max((float(e.profit_loss or 0) for e in sells), default=0)
+    worst_trade = min((float(e.profit_loss or 0) for e in sells), default=0)
+    total_fee = sum(float(e.fee or 0) + float(e.tax or 0) for e in sells)
+
+    total_gain = sum(float(e.profit_loss) for e in wins)
+    total_loss_amt = sum(abs(float(e.profit_loss)) for e in losses)
+    profit_factor = round(total_gain / total_loss_amt, 4) if total_loss_amt > 0 else (
+        round(total_gain, 4) if total_gain > 0 else 0.0
+    )
+
+    # MDD: 보고서 이력 기반
+    reports = db.query(BotReport).filter(BotReport.bot_id == bot.id).order_by(BotReport.date).all()
+    peak = initial
+    max_dd = 0.0
+    for r in reports:
+        a = float(r.total_assets or 0)
+        if a > peak:
+            peak = a
+        dd = (peak - a) / peak * 100 if peak > 0 else 0
+        if dd > max_dd:
+            max_dd = dd
+
+    # 샤프 비율
+    daily_returns = []
+    prev_a = initial
+    for r in reports:
+        ta = float(r.total_assets or 0)
+        if prev_a > 0:
+            daily_returns.append((ta - prev_a) / prev_a * 100)
+        prev_a = ta
+    if len(daily_returns) >= 2:
+        mean_r = sum(daily_returns) / len(daily_returns)
+        variance = sum((x - mean_r) ** 2 for x in daily_returns) / len(daily_returns)
+        std_r = math.sqrt(variance)
+        sharpe = round(mean_r / std_r * math.sqrt(252), 4) if std_r > 0 else 0.0
+    else:
+        sharpe = 0.0
+
+    return {
+        'total_pnl': round(total_pnl, 2),
+        'total_return_pct': round(total_return_pct, 2),
+        'win_rate': round(win_rate, 2),
+        'total_trades': total_trades,
+        'winning_trades': len(wins),
+        'losing_trades': len(losses),
+        'avg_win': round(avg_win, 2),
+        'avg_loss': round(avg_loss, 2),
+        'best_trade': round(best_trade, 2),
+        'worst_trade': round(worst_trade, 2),
+        'profit_factor': profit_factor,
+        'max_drawdown': round(max_dd, 4),
+        'sharpe_ratio': sharpe,
+        'total_fee': round(total_fee, 2),
+        'current_cash': round(cash, 2),
+        'initial_cash': round(initial, 2),
+    }

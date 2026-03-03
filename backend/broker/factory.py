@@ -7,14 +7,14 @@ def get_broker(bot_mode: str = None) -> BaseBroker:
 
     bot_mode:
       'mock'  → MockBroker (인라인 가상 체결)
-      'paper' → KiwoomBroker (키움 모의투자 계좌)
-      'real'  → KiwoomBroker (키움 실계좌)
+      'paper' → KisBroker (KIS 모의투자 계좌)
+      'real'  → KisBroker (KIS 실계좌)
       None    → 환경변수 BROKER_MODE 사용
     """
     mode = bot_mode or settings.BROKER_MODE
     if mode in ("paper", "real"):
-        from broker.kiwoom_broker import KiwoomBroker
-        return KiwoomBroker()
+        from broker.kis_broker import KisBroker
+        return KisBroker()
     else:
         from broker.mock_broker import MockBroker
         return MockBroker()

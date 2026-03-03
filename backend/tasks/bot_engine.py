@@ -7,6 +7,7 @@
 """
 import json
 import logging
+import math
 from datetime import datetime, date, time, timezone
 from zoneinfo import ZoneInfo
 
@@ -27,6 +28,8 @@ SEOUL = ZoneInfo('Asia/Seoul')
 COMMISSION = 0.00015  # 매수/매도 0.015%
 TAX = 0.002           # 증권거래세 0.2% (매도 시)
 ALERTS_KEY = "autostock:alerts"
+
+_redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 
 @celery_app.task(name="tasks.bot_engine.run_all_bots")
@@ -115,7 +118,8 @@ def _run_cycle(db, bot: TradingBot):
             Position.ticker == ticker,
         ).first()
 
-        curr_price = float(latest_price.close_price)
+        rt = _redis_client.get(f"rt:price:{ticker}")
+        curr_price = float(rt) if rt else float(latest_price.close_price)
 
         if position is None:
             # 매수 신호 체크
@@ -185,6 +189,8 @@ def _execute_sell(db, bot, position, price, order_number=None):
     tax = round(price * qty * TAX, 2)
     avg = float(position.avg_price)
     profit_loss = round((price - avg) * qty - fee - tax, 2)
+    cost_basis = avg * qty
+    profit_loss_pct = round(profit_loss / cost_basis * 100, 4) if cost_basis else 0.0
 
     order = Order(bot_id=bot.id, ticker=position.ticker, order_type='SELL',
                   quantity=qty, price=price, status='FILLED',
@@ -194,7 +200,8 @@ def _execute_sell(db, bot, position, price, order_number=None):
     db.add(Execution(
         order_id=order.id, bot_id=bot.id, ticker=position.ticker,
         execution_type='SELL', quantity=qty, price=price,
-        fee=fee, tax=tax, profit_loss=profit_loss, executed_at=now,
+        fee=fee, tax=tax, profit_loss=profit_loss,
+        profit_loss_pct=profit_loss_pct, executed_at=now,
     ))
     bot.cash = float(bot.cash) + (price * qty - fee - tax)
     db.delete(position)
@@ -270,12 +277,57 @@ def generate_daily_reports():
             wins = sum(1 for e in today_sells if float(e.profit_loss or 0) > 0)
             win_rate = wins / len(today_sells) * 100 if today_sells else 0
 
+            # MDD: 전체 보고서 이력 기반 (초기 자금 대비 최고점→최저점)
+            all_reports = db.query(BotReport).filter(
+                BotReport.bot_id == bot.id
+            ).order_by(BotReport.date).all()
+            assets_series = [float(r.total_assets or 0) for r in all_reports] + [total]
+            initial = float(bot.initial_cash or 1)
+            peak = initial
+            max_dd = 0.0
+            for a in assets_series:
+                if a > peak:
+                    peak = a
+                dd = (peak - a) / peak * 100 if peak > 0 else 0
+                if dd > max_dd:
+                    max_dd = dd
+
+            # 샤프 비율: 일별 수익률 평균/표준편차 × √252
+            daily_returns = []
+            prev_a = initial
+            for r in all_reports:
+                ta = float(r.total_assets or 0)
+                if prev_a > 0:
+                    daily_returns.append((ta - prev_a) / prev_a * 100)
+                prev_a = ta
+            if len(daily_returns) >= 2:
+                mean_r = sum(daily_returns) / len(daily_returns)
+                variance = sum((x - mean_r) ** 2 for x in daily_returns) / len(daily_returns)
+                std_r = math.sqrt(variance)
+                sharpe = round(mean_r / std_r * math.sqrt(252), 4) if std_r > 0 else 0.0
+            else:
+                sharpe = 0.0
+
+            # 손익비: 누적 전체 매도 체결 기준
+            all_sells = db.query(Execution).filter(
+                Execution.bot_id == bot.id,
+                Execution.execution_type == 'SELL',
+            ).all()
+            total_gain = sum(float(e.profit_loss) for e in all_sells if (e.profit_loss or 0) > 0)
+            total_loss = sum(abs(float(e.profit_loss)) for e in all_sells if (e.profit_loss or 0) < 0)
+            profit_factor = round(total_gain / total_loss, 4) if total_loss > 0 else (
+                round(total_gain, 4) if total_gain > 0 else 0.0
+            )
+
             db.add(BotReport(
                 bot_id=bot.id, date=today,
                 total_assets=round(total, 2), cash=round(cash, 2),
                 holdings_value=round(holdings, 2),
                 daily_pnl=round(daily_pnl, 2), total_pnl=round(total_pnl, 2),
                 win_rate=round(win_rate, 2), total_trades=len(today_sells),
+                max_drawdown=round(max_dd, 4),
+                sharpe_ratio=sharpe,
+                profit_factor=profit_factor,
             ))
 
         db.commit()

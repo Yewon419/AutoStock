@@ -7,7 +7,11 @@ celery_app = Celery(
     "autostock",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["tasks.collect", "tasks.indicators", "tasks.backtest", "tasks.bot_engine", "tasks.scanner", "tasks.ai_tasks"],
+    include=[
+        "tasks.collect", "tasks.indicators", "tasks.backtest",
+        "tasks.bot_engine", "tasks.scanner", "tasks.ai_tasks",
+        "tasks.kis_price_stream",
+    ],
 )
 
 celery_app.conf.update(
@@ -48,6 +52,11 @@ celery_app.conf.beat_schedule = {
     "ml-score-stocks": {
         "task": "tasks.ai_tasks.train_and_score",
         "schedule": crontab(hour=17, minute=30, day_of_week="1-5"),
+    },
+    # 평일 08:55 - 장 시작 전 KIS WebSocket 실시간 시세 스트림 시작
+    "start-price-stream": {
+        "task": "tasks.kis_price_stream.start_price_stream",
+        "schedule": crontab(hour=8, minute=55, day_of_week="1-5"),
     },
 }
 

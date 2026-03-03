@@ -86,14 +86,5 @@ services:
       - ./frontend:/app
       - /app/node_modules
 
-  kiwoom_bridge:
-    build: ./kiwoom_bridge
-    container_name: autostock-kiwoom-bridge
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-
 volumes:
   postgres_data:

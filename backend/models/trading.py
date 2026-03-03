@@ -81,6 +81,7 @@ class Execution(Base):
     fee = Column(DECIMAL(10, 2), default=0)
     tax = Column(DECIMAL(10, 2), default=0)
     profit_loss = Column(DECIMAL(12, 2))
+    profit_loss_pct = Column(DECIMAL(7, 4))   # 손익률 (%) — 매도 시 기록
     executed_at = Column(DateTime(timezone=True), nullable=False)
 
 
@@ -112,4 +113,7 @@ class BotReport(Base):
     total_pnl = Column(DECIMAL(12, 2))
     win_rate = Column(DECIMAL(5, 2))
     total_trades = Column(Integer, default=0)
+    max_drawdown = Column(DECIMAL(8, 4))    # 최대 낙폭 (%) — 초기 자금 대비 최저점
+    sharpe_ratio = Column(DECIMAL(8, 4))    # 샤프 비율 (일별 수익률 기반)
+    profit_factor = Column(DECIMAL(8, 4))   # 손익비 (총수익 / 총손실)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
