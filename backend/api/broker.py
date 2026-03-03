@@ -31,25 +31,38 @@ def _redis():
 @router.get("/status")
 def get_broker_status(_: dict = Depends(get_current_user)):
     mode = settings.BROKER_MODE
-    connected = None
+    r = _redis()
 
-    if mode == "real":
-        r = _redis()
-        val = r.get(BRIDGE_STATUS_KEY)
-        connected = val is not None and val.decode() == "connected"
+    if mode in ("paper", "real"):
+        token = r.get("kis:access_token")
+        token_ok = token is not None
+        ttl = r.ttl("kis:access_token")
+        return {
+            "mode": mode,
+            "connected": token_ok,
+            "kis_account": settings.KIS_ACCOUNT_NO,
+            "kis_is_paper": settings.KIS_IS_PAPER,
+            "token_ttl": ttl if ttl and ttl > 0 else None,
+        }
 
-    return {"mode": mode, "connected": connected}
+    return {"mode": mode, "connected": None, "kis_account": None, "kis_is_paper": None, "token_ttl": None}
 
 
 @router.post("/connect")
 def connect_broker(_: dict = Depends(get_current_user)):
-    """키움 브릿지에 로그인 명령 발행"""
-    if settings.BROKER_MODE != "real":
+    """KIS access_token 강제 갱신"""
+    if settings.BROKER_MODE not in ("paper", "real"):
         return {"message": "mock 모드에서는 연결이 필요 없습니다", "mode": "mock"}
 
     r = _redis()
-    r.publish(CMD_CHANNEL, json.dumps({"type": "CONNECT"}))
-    return {"message": "CONNECT 명령을 전송했습니다. 브릿지 응답을 대기 중입니다."}
+    r.delete("kis:access_token")   # 캐시 삭제 → 다음 주문 시 자동 재발급
+
+    from broker.kis_broker import KisBroker
+    try:
+        token = KisBroker()._get_token()
+        return {"message": "KIS 토큰 발급 성공", "success": True}
+    except Exception as e:
+        return {"message": f"KIS 토큰 발급 실패: {e}", "success": False}
 
 
 @router.post("/emergency-stop")

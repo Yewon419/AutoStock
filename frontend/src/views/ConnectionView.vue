@@ -4,37 +4,50 @@
 
     <!-- 브로커 상태 카드 -->
     <div class="section">
-      <h2>브로커 모드</h2>
+      <h2>브로커 상태</h2>
       <div class="broker-card">
         <div class="broker-info">
-          <div class="mode-badge" :class="brokerStatus.mode === 'real' ? 'mode-real' : 'mode-mock'">
-            {{ brokerStatus.mode === 'real' ? '실거래 (키움)' : 'Mock (가상)' }}
-          </div>
-          <div v-if="brokerStatus.mode === 'real'" class="conn-status">
+          <div class="mode-badge" :class="modeBadgeClass">{{ modeLabel }}</div>
+          <div class="conn-status">
             <span class="dot" :class="brokerStatus.connected ? 'dot-green' : 'dot-red'"></span>
-            <span>{{ brokerStatus.connected ? '브릿지 연결됨' : '브릿지 미연결' }}</span>
-          </div>
-          <div v-else class="conn-status">
-            <span class="dot dot-green"></span>
-            <span>Mock 모드 활성</span>
+            <span>{{ connLabel }}</span>
           </div>
         </div>
         <div class="broker-actions">
           <button
-            v-if="brokerStatus.mode === 'real'"
+            v-if="brokerStatus.mode !== 'mock'"
             class="btn-connect"
-            :disabled="connecting || brokerStatus.connected"
+            :disabled="connecting"
             @click="connectBroker"
           >
-            {{ connecting ? '연결 중...' : brokerStatus.connected ? '연결됨' : '키움 연결' }}
+            {{ connecting ? '발급 중...' : 'KIS 토큰 갱신' }}
           </button>
           <button class="btn-refresh" @click="fetchStatus">새로고침</button>
         </div>
       </div>
 
-      <div v-if="brokerStatus.mode === 'real' && !brokerStatus.connected" class="notice">
-        <p>키움 브릿지 프로세스가 실행 중이어야 합니다.</p>
-        <p class="code">cd kiwoom_bridge && python bridge.py</p>
+      <!-- KIS 계좌 정보 -->
+      <div v-if="brokerStatus.mode !== 'mock'" class="kis-info">
+        <div class="kis-row">
+          <span class="kis-label">계좌번호</span>
+          <span class="kis-val">{{ brokerStatus.kis_account || '미설정' }}</span>
+        </div>
+        <div class="kis-row">
+          <span class="kis-label">투자 구분</span>
+          <span class="kis-val" :class="brokerStatus.kis_is_paper ? 'val-paper' : 'val-real'">
+            {{ brokerStatus.kis_is_paper ? '모의투자' : '실전투자' }}
+          </span>
+        </div>
+        <div class="kis-row">
+          <span class="kis-label">토큰 만료</span>
+          <span class="kis-val">
+            {{ brokerStatus.token_ttl ? fmtTtl(brokerStatus.token_ttl) + ' 후 갱신' : '-' }}
+          </span>
+        </div>
+      </div>
+
+      <div v-if="connectMsg" class="connect-result" :class="connectOk ? 'msg-ok' : 'msg-fail'">
+        {{ connectMsg }}
       </div>
     </div>
 
@@ -67,7 +80,7 @@
         <h3>계좌 추가</h3>
         <div class="form-group">
           <label>계좌번호</label>
-          <input v-model="accountForm.account_number" type="text" placeholder="예: 1234567890" />
+          <input v-model="accountForm.account_number" type="text" placeholder="예: XXXXXXXX-XX" />
         </div>
         <div class="form-group">
           <label>예금주</label>
@@ -76,6 +89,7 @@
         <div class="form-group">
           <label>증권사</label>
           <select v-model="accountForm.broker">
+            <option value="kis">한국투자증권 (KIS)</option>
             <option value="kiwoom">키움증권</option>
           </select>
         </div>
@@ -94,36 +108,43 @@
       </div>
     </div>
 
-    <!-- BROKER_MODE 변경 안내 -->
+    <!-- 브로커 전환 방법 -->
     <div class="section guide">
       <h2>브로커 전환 방법</h2>
       <div class="guide-steps">
         <div class="step">
           <span class="step-num">1</span>
           <div>
-            <p class="step-title">Mock → 키움 전환</p>
-            <p class="step-desc">backend/.env 파일에서 <code>BROKER_MODE=real</code> 설정</p>
+            <p class="step-title">Mock → KIS 전환</p>
+            <p class="step-desc"><code>.env</code> 파일에서 <code>BROKER_MODE=paper</code> 로 변경</p>
           </div>
         </div>
         <div class="step">
           <span class="step-num">2</span>
+          <div>
+            <p class="step-title">KIS 키 설정</p>
+            <p class="step-desc"><code>KIS_APP_KEY</code>, <code>KIS_APP_SECRET</code>, <code>KIS_ACCOUNT_NO</code> 입력</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <div>
+            <p class="step-title">실전 / 모의투자 선택</p>
+            <p class="step-desc">실전: <code>KIS_IS_PAPER=false</code> &nbsp;|&nbsp; 모의투자: <code>KIS_IS_PAPER=true</code></p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">4</span>
           <div>
             <p class="step-title">Docker 재시작</p>
             <p class="step-desc"><code>docker compose up --force-recreate -d backend celery-worker celery-beat</code></p>
           </div>
         </div>
         <div class="step">
-          <span class="step-num">3</span>
+          <span class="step-num">5</span>
           <div>
-            <p class="step-title">키움 브릿지 실행</p>
-            <p class="step-desc">Windows에서 32-bit Python으로 <code>python kiwoom_bridge/bridge.py</code> 실행</p>
-          </div>
-        </div>
-        <div class="step">
-          <span class="step-num">4</span>
-          <div>
-            <p class="step-title">연결 확인</p>
-            <p class="step-desc">이 페이지에서 "키움 연결" 버튼 클릭 → 로그인 창 확인</p>
+            <p class="step-title">토큰 확인</p>
+            <p class="step-desc">이 페이지에서 "KIS 토큰 갱신" 버튼 클릭 → 초록 점 확인</p>
           </div>
         </div>
       </div>
@@ -132,22 +153,44 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const API = 'http://localhost:8001/api/v1'
 
-const brokerStatus = ref({ mode: 'mock', connected: null })
+const brokerStatus = ref({ mode: 'mock', connected: null, kis_account: null, kis_is_paper: null, token_ttl: null })
 const accounts = ref([])
 const connecting = ref(false)
+const connectMsg = ref('')
+const connectOk = ref(true)
 const showAddAccount = ref(false)
 const accountError = ref('')
-const accountForm = ref({ account_number: '', owner_name: '', broker: 'kiwoom', account_type: 'paper' })
+const accountForm = ref({ account_number: '', owner_name: '', broker: 'kis', account_type: 'real' })
 
 function headers() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
+
+const modeLabel = computed(() => {
+  const m = brokerStatus.value.mode
+  if (m === 'paper') return 'KIS (paper)'
+  if (m === 'real') return 'KIS (real)'
+  return 'Mock (가상)'
+})
+
+const modeBadgeClass = computed(() => {
+  const m = brokerStatus.value.mode
+  if (m === 'paper') return 'mode-paper'
+  if (m === 'real') return 'mode-real'
+  return 'mode-mock'
+})
+
+const connLabel = computed(() => {
+  const s = brokerStatus.value
+  if (s.mode === 'mock') return 'Mock 모드 활성'
+  return s.connected ? 'KIS 토큰 유효' : 'KIS 토큰 없음 (갱신 필요)'
+})
 
 async function fetchStatus() {
   const res = await fetch(`${API}/broker/status`, { headers: headers() })
@@ -161,9 +204,13 @@ async function fetchAccounts() {
 
 async function connectBroker() {
   connecting.value = true
+  connectMsg.value = ''
   try {
-    await fetch(`${API}/broker/connect`, { method: 'POST', headers: headers() })
-    setTimeout(fetchStatus, 3000)  // 3초 후 상태 재확인
+    const res = await fetch(`${API}/broker/connect`, { method: 'POST', headers: headers() })
+    const data = await res.json()
+    connectOk.value = data.success !== false
+    connectMsg.value = data.message
+    await fetchStatus()
   } finally {
     connecting.value = false
   }
@@ -182,7 +229,7 @@ async function addAccount() {
   })
   if (res.ok) {
     showAddAccount.value = false
-    accountForm.value = { account_number: '', owner_name: '', broker: 'kiwoom', account_type: 'paper' }
+    accountForm.value = { account_number: '', owner_name: '', broker: 'kis', account_type: 'real' }
     fetchAccounts()
   } else {
     accountError.value = '추가 실패'
@@ -193,6 +240,12 @@ async function deleteAccount(id) {
   if (!confirm('계좌를 삭제하시겠습니까?')) return
   await fetch(`${API}/accounts/${id}`, { method: 'DELETE', headers: headers() })
   fetchAccounts()
+}
+
+function fmtTtl(sec) {
+  if (sec >= 3600) return Math.floor(sec / 3600) + '시간'
+  if (sec >= 60) return Math.floor(sec / 60) + '분'
+  return sec + '초'
 }
 
 onMounted(() => {
@@ -243,21 +296,46 @@ h3 { font-size: 14px; font-weight: 600; color: #e5e7eb; margin: 0 0 14px; }
   font-size: 13px;
   font-weight: 600;
 }
-.mode-real { background: rgba(245,158,11,.15); color: #f59e0b; }
-.mode-mock { background: rgba(79,158,255,.15); color: #4f9eff; }
+.mode-real  { background: rgba(239,68,68,.15); color: #ef4444; }
+.mode-paper { background: rgba(245,158,11,.15); color: #f59e0b; }
+.mode-mock  { background: rgba(79,158,255,.15); color: #4f9eff; }
 
 .conn-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #9ca3af; }
 
-.dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .dot-green { background: #10b981; box-shadow: 0 0 6px #10b981; }
-.dot-red { background: #ef4444; }
+.dot-red   { background: #ef4444; }
 
 .broker-actions { display: flex; gap: 8px; }
 
+/* KIS 계좌 정보 */
+.kis-info {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  background: #0f1117;
+  border-radius: 8px;
+  border: 1px solid #2a2d3e;
+}
+
+.kis-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.kis-label { color: #6b7280; width: 80px; flex-shrink: 0; }
+.kis-val { color: #e5e7eb; font-weight: 500; }
+.val-paper { color: #f59e0b; }
+.val-real  { color: #ef4444; }
+
+.connect-result {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.msg-ok   { background: rgba(16,185,129,.1); color: #10b981; border: 1px solid rgba(16,185,129,.2); }
+.msg-fail { background: rgba(239,68,68,.1);  color: #ef4444; border: 1px solid rgba(239,68,68,.2); }
+
+/* 버튼 */
 .btn-connect {
   padding: 8px 18px;
   background: #10b981;
@@ -282,21 +360,8 @@ h3 { font-size: 14px; font-weight: 600; color: #e5e7eb; margin: 0 0 14px; }
 }
 .btn-refresh:hover { border-color: #4b5563; color: #e5e7eb; }
 
-.notice {
-  margin-top: 14px;
-  padding: 12px 16px;
-  background: rgba(245,158,11,.08);
-  border: 1px solid rgba(245,158,11,.2);
-  border-radius: 8px;
-  font-size: 13px;
-  color: #d97706;
-}
-.notice p { margin: 4px 0; }
-.notice .code { font-family: monospace; background: rgba(0,0,0,.3); padding: 4px 8px; border-radius: 4px; }
-
 /* 계좌 목록 */
 .empty-accounts { color: #4b5563; font-size: 14px; text-align: center; padding: 24px 0; }
-
 .account-list { display: flex; flex-direction: column; gap: 8px; }
 
 .account-item {
@@ -314,7 +379,7 @@ h3 { font-size: 14px; font-weight: 600; color: #e5e7eb; margin: 0 0 14px; }
 .acc-broker { font-size: 12px; color: #6b7280; background: #2a2d3e; padding: 2px 8px; border-radius: 4px; }
 .acc-type { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
 .type-paper { background: rgba(245,158,11,.15); color: #f59e0b; }
-.type-real { background: rgba(239,68,68,.15); color: #ef4444; }
+.type-real  { background: rgba(239,68,68,.15); color: #ef4444; }
 
 .btn-delete {
   padding: 5px 12px;
@@ -351,12 +416,10 @@ h3 { font-size: 14px; font-weight: 600; color: #e5e7eb; margin: 0 0 14px; }
 .form-group input:focus, .form-group select:focus { outline: none; border-color: #4f9eff; }
 
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-
 .error-msg { color: #ef4444; font-size: 13px; margin: 8px 0 0; }
 
 /* 가이드 */
 .guide .guide-steps { display: flex; flex-direction: column; gap: 16px; }
-
 .step { display: flex; gap: 14px; align-items: flex-start; }
 
 .step-num {
