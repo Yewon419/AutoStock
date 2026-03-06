@@ -37,8 +37,9 @@ BOT_SETTINGS = {
     "max_drawdown_pct":   10.0,
     "position_size_pct":  20.0,   # 자금의 20%씩 진입 (최대 5포지션 = 100%)
     "max_positions":      5,
-    "max_daily_trades":   30,
+    "max_daily_trades":   100,
     "intraday_close":     True,
+    "max_order_amount":   5_000_000,   # 포지션 크기(20%) 기준 여유있게
     # intraday_close_time은 기존 값 유지 (14:50 default)
 }
 

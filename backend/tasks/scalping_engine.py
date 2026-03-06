@@ -203,10 +203,11 @@ def _run_scalping_cycle(db, bot: TradingBot):
                 db.commit()
             return
 
-    # 오늘 거래 수
+    # 오늘 매수 건수 (max_daily_trades 기준: 매수만 카운트)
     today_start = datetime.combine(now_kr.date(), time.min, tzinfo=timezone.utc)
     today_count = db.query(Order).filter(
         Order.bot_id == bot.id,
+        Order.order_type == "BUY",
         Order.created_at >= today_start,
     ).count()
 
@@ -308,7 +309,6 @@ def _run_scalping_cycle(db, bot: TradingBot):
                     _execute_sell(db, bot, position, result.filled_price, result.order_number)
                     _redis_client.delete(_peak_key(bot.id, ticker))
                     _redis_client.delete(_signal_key(bot.id, ticker))
-                    today_count += 1
                     logger.info("[scalping_engine] bot_id=%d %s SELL %s pnl=%.1f%%",
                                 bot.id, sell_reason, ticker, pnl_pct)
                 except Exception as e:
