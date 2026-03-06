@@ -52,6 +52,16 @@
         <span class="s-label">거래 시간</span>
         <span class="s-value">{{ fmtTime(bot.trading_start_time) }} ~ {{ fmtTime(bot.trading_end_time) }}</span>
       </div>
+      <template v-if="bot.bot_type === 'scalping'">
+        <div class="summary-card">
+          <span class="s-label">트레일링 스탑</span>
+          <span class="s-value">{{ bot.trailing_stop_pct != null ? bot.trailing_stop_pct + '%' : 'OFF' }}</span>
+        </div>
+        <div class="summary-card">
+          <span class="s-label">연속 확인 봉</span>
+          <span class="s-value">{{ bot.confirm_bars ?? 1 }}봉</span>
+        </div>
+      </template>
     </div>
 
     <!-- 종합 성과 카드 -->
@@ -187,9 +197,10 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="e in executions" :key="e.id">
+          <tr v-for="e in executions" :key="e.id"
+            :class="e.profit_loss != null && e.profit_loss > 0 ? 'exec-profit' : e.profit_loss != null && e.profit_loss < 0 ? 'exec-loss' : ''">
             <td class="time-cell">{{ fmtDatetime(e.executed_at) }}</td>
-            <td class="ticker-cell">{{ e.ticker }}</td>
+            <td class="ticker-cell">{{ tickerName(e.ticker) }}</td>
             <td :class="e.execution_type === 'BUY' ? 'buy-cell' : 'sell-cell'">{{ e.execution_type }}</td>
             <td>{{ e.quantity.toLocaleString() }}</td>
             <td>{{ fmtPrice(e.price) }}</td>
@@ -306,6 +317,16 @@
                 </div>
               </div>
             </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>트레일링 스탑 (%) <span class="label-hint">고가 대비 하락 시 청산. 비워두면 비활성화</span></label>
+                <input v-model.number="editForm.trailing_stop_pct" type="number" min="0.1" max="10" step="0.1" placeholder="비활성화=빈칸" />
+              </div>
+              <div class="form-group">
+                <label>연속 신호 확인 봉 수 <span class="label-hint">1=즉시 진입, 2=2봉 연속 확인</span></label>
+                <input v-model.number="editForm.confirm_bars" type="number" min="1" max="5" step="1" />
+              </div>
+            </div>
           </div>
 
           <div class="form-group">
@@ -405,6 +426,7 @@ const lineChartEl = ref(null)
 const barChartEl = ref(null)
 let lineChart = null
 let barChart = null
+const stockNames = ref({})
 
 // 수정 모달
 const showEdit = ref(false)
@@ -451,6 +473,8 @@ function openEdit() {
     candle_interval: b.candle_interval ?? 1,
     intraday_close: b.intraday_close ?? false,
     intraday_close_time: fmtTime(b.intraday_close_time) || '14:50',
+    trailing_stop_pct: b.trailing_stop_pct ?? null,
+    confirm_bars: b.confirm_bars ?? 1,
   }
   editTickersInput.value = (b.tickers || []).join(',')
   editError.value = ''
@@ -509,6 +533,20 @@ async function fetchOrders() {
 async function fetchExecutions() {
   const res = await fetch(`${API}/bots/${botId}/executions`, { headers: headers() })
   if (res.ok) executions.value = await res.json()
+}
+
+async function fetchStockNames() {
+  const res = await fetch(`${API}/market/stocks?limit=200`, { headers: headers() })
+  if (res.ok) {
+    const data = await res.json()
+    const map = {}
+    for (const s of data.items) map[s.ticker] = s.company_name
+    stockNames.value = map
+  }
+}
+
+function tickerName(ticker) {
+  return stockNames.value[ticker] || ticker
 }
 
 async function fetchReports() {
@@ -631,7 +669,7 @@ function pnlClass(v) {
 
 onMounted(async () => {
   await fetchBot()
-  await Promise.all([fetchPositions(), fetchPerf(), fetchStrategies()])
+  await Promise.all([fetchPositions(), fetchPerf(), fetchStrategies(), fetchStockNames()])
 })
 </script>
 
@@ -694,7 +732,7 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 /* 설정 요약 */
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -846,7 +884,12 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 .mdd-cell { color: #ef4444; }
 
 .profit { color: #ef4444; }
-.loss { color: #10b981; }
+.loss { color: #60a5fa; }
+
+.exec-profit { background: rgba(239,68,68,.06); }
+.exec-loss   { background: rgba(96,165,250,.06); }
+.data-table tbody tr.exec-profit:hover { background: rgba(239,68,68,.12); }
+.data-table tbody tr.exec-loss:hover   { background: rgba(96,165,250,.12); }
 
 /* 수정 버튼 */
 .btn-edit {
@@ -965,6 +1008,7 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 }
 .time-inline:focus { outline: none; border-color: #fbbf24; }
 .toggle-off-label { font-size: 12px; color: #4b5563; }
+.label-hint { font-size: 10px; color: #4b5563; font-weight: 400; }
 
 .btn-primary {
   background: #4f9eff; color: #fff; border: none;

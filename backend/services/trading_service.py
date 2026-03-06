@@ -68,6 +68,8 @@ def create_bot(db: Session, user_id: int, data: dict):
         candle_interval=data.get('candle_interval', 5),
         intraday_close=data.get('intraday_close', False),
         intraday_close_time=data.get('intraday_close_time'),
+        trailing_stop_pct=data.get('trailing_stop_pct'),
+        confirm_bars=data.get('confirm_bars', 1),
     )
     db.add(bot)
     db.commit()

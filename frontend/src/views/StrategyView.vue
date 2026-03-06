@@ -106,7 +106,7 @@
         <!-- 지표 설명 -->
         <div class="indicator-hint" v-if="form.strategy_type === 'scalping'">
           <span class="hint-icon">⚡</span>
-          분봉 지표 사용 — RSI·MACD·볼린저밴드·MA(5/10/20)·거래량비율·시가대비등락률
+          분봉 지표 사용 — RSI·MACD·볼린저밴드·MA(5/10/20)·거래량비율·시가대비등락률·VWAP·ATR·MA크로스(ma5_minus_ma20 golden_cross 0)
         </div>
         <div class="indicator-hint swing" v-else>
           <span class="hint-icon">📈</span>
@@ -185,18 +185,30 @@ const SWING_INDICATORS = [
 ]
 
 const SCALPING_INDICATORS = [
-  { key: 'rsi',              label: 'RSI (분봉)' },
-  { key: 'macd',             label: 'MACD (분봉)' },
-  { key: 'macd_signal',      label: 'MACD Signal' },
-  { key: 'macd_histogram',   label: 'MACD Histogram' },
-  { key: 'bollinger_upper',  label: '볼린저 상단' },
-  { key: 'bollinger_middle', label: '볼린저 중단' },
-  { key: 'bollinger_lower',  label: '볼린저 하단' },
-  { key: 'ma_5',             label: 'MA 5' },
-  { key: 'ma_10',            label: 'MA 10' },
-  { key: 'ma_20',            label: 'MA 20' },
-  { key: 'volume_ratio',     label: '거래량 비율' },
-  { key: 'opening_gap',      label: '시가대비 등락률(%)' },
+  // 기본 모멘텀
+  { key: 'rsi',                label: 'RSI (분봉)' },
+  { key: 'macd',               label: 'MACD (분봉)' },
+  { key: 'macd_signal',        label: 'MACD Signal' },
+  { key: 'macd_histogram',     label: 'MACD Histogram' },
+  // 볼린저
+  { key: 'bollinger_upper',    label: '볼린저 상단' },
+  { key: 'bollinger_middle',   label: '볼린저 중단' },
+  { key: 'bollinger_lower',    label: '볼린저 하단' },
+  // 이동평균
+  { key: 'ma_5',               label: 'MA 5' },
+  { key: 'ma_10',              label: 'MA 10' },
+  { key: 'ma_20',              label: 'MA 20' },
+  // 거래량/가격
+  { key: 'volume_ratio',       label: '거래량 비율 (현재/20봉평균)' },
+  { key: 'opening_gap',        label: '시가대비 등락률(%)' },
+  // 신규: VWAP
+  { key: 'vwap',               label: 'VWAP (세션 평균)' },
+  { key: 'price_vs_vwap',      label: 'VWAP 대비 등락률(%) — above 0 = 가격>VWAP' },
+  // 신규: ATR
+  { key: 'atr',                label: 'ATR 14 (분봉 변동성)' },
+  // 신규: MA 크로스 차이값 (golden_cross value=0 으로 MA↔MA 크로스 표현)
+  { key: 'ma5_minus_ma10',     label: 'MA5−MA10 (골든크로스 value=0)' },
+  { key: 'ma5_minus_ma20',     label: 'MA5−MA20 (골든크로스 value=0)' },
 ]
 
 const ALL_INDICATORS = [...SWING_INDICATORS, ...SCALPING_INDICATORS]
@@ -262,46 +274,50 @@ const SWING_PRESETS = [
 
 const SCALPING_PRESETS = [
   {
-    name: '과매도 거래량 반등',
-    description: 'RSI 35 이하 과매도 + 거래량 급증 반등 포착 (분봉)',
+    name: '★ 과매도 반등 + 거래량 (추천)',
+    description: 'RSI 35 이하 과매도 + 거래량 2배 급증. Mock/Real 모두 안정적으로 신호 발생',
     strategy_type: 'scalping',
     conditions: [
-      { indicator: 'rsi', condition: 'below', value: 35, value2: null },
-      { indicator: 'volume_ratio', condition: 'above', value: 1.5, value2: null },
-    ],
-  },
-  {
-    name: 'MACD 0선 돌파',
-    description: 'MACD가 0선을 상향 돌파하는 단타 진입 시점 (분봉)',
-    strategy_type: 'scalping',
-    conditions: [
-      { indicator: 'macd', condition: 'golden_cross', value: 0, value2: null },
-    ],
-  },
-  {
-    name: '거래량 급증 모멘텀',
-    description: '거래량 2배 이상 + RSI 중립 구간, 강한 방향성 포착 (분봉)',
-    strategy_type: 'scalping',
-    conditions: [
+      { indicator: 'rsi',          condition: 'below', value: 35,  value2: null },
       { indicator: 'volume_ratio', condition: 'above', value: 2.0, value2: null },
-      { indicator: 'rsi', condition: 'between', value: 45, value2: 65 },
+    ],
+  },
+  {
+    name: 'VWAP 위 + 거래량 모멘텀',
+    description: '가격이 VWAP 위 + 거래량 1.5배 확인. 추세 방향 필터 포함 (Real 최적)',
+    strategy_type: 'scalping',
+    conditions: [
+      { indicator: 'price_vs_vwap', condition: 'above', value: 0,   value2: null },
+      { indicator: 'volume_ratio',  condition: 'above', value: 1.5, value2: null },
+      { indicator: 'rsi',           condition: 'between', value: 40, value2: 65 },
+    ],
+  },
+  {
+    name: 'MA5↑MA20 크로스 + VWAP',
+    description: 'MA5가 MA20 위로 골든크로스 + 가격이 VWAP 위. 단기 추세 전환 포착',
+    strategy_type: 'scalping',
+    conditions: [
+      { indicator: 'ma5_minus_ma20', condition: 'golden_cross', value: 0,   value2: null },
+      { indicator: 'price_vs_vwap', condition: 'above',        value: 0,   value2: null },
+      { indicator: 'volume_ratio',  condition: 'above',        value: 1.3, value2: null },
+    ],
+  },
+  {
+    name: 'MACD Histogram 반전',
+    description: 'MACD Histogram 음→양 전환 + 거래량 확인. 단기 추세 반전 포착',
+    strategy_type: 'scalping',
+    conditions: [
+      { indicator: 'macd_histogram', condition: 'golden_cross', value: 0,   value2: null },
+      { indicator: 'volume_ratio',   condition: 'above',        value: 1.5, value2: null },
     ],
   },
   {
     name: '갭업 초반 모멘텀',
-    description: '시가 대비 1.5% 이상 갭업 + 거래량 확인 (분봉)',
+    description: '시가 대비 1.5% 이상 갭업 + 거래량 확인. 오전 강세 초반 포착',
     strategy_type: 'scalping',
     conditions: [
-      { indicator: 'opening_gap', condition: 'above', value: 1.5, value2: null },
+      { indicator: 'opening_gap',  condition: 'above', value: 1.5, value2: null },
       { indicator: 'volume_ratio', condition: 'above', value: 1.2, value2: null },
-    ],
-  },
-  {
-    name: 'MACD 히스토그램 전환',
-    description: 'MACD Histogram 음→양 전환, 단기 추세 반전 포착 (분봉)',
-    strategy_type: 'scalping',
-    conditions: [
-      { indicator: 'macd_histogram', condition: 'golden_cross', value: 0, value2: null },
     ],
   },
 ]

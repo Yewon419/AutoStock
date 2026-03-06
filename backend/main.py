@@ -15,6 +15,8 @@ _MIGRATIONS = [
     "ALTER TABLE bot_reports ADD COLUMN IF NOT EXISTS sharpe_ratio DECIMAL(8,4)",
     "ALTER TABLE bot_reports ADD COLUMN IF NOT EXISTS profit_factor DECIMAL(8,4)",
     "ALTER TABLE strategies ADD COLUMN IF NOT EXISTS strategy_type VARCHAR(20) DEFAULT 'swing'",
+    "ALTER TABLE trading_bots ADD COLUMN IF NOT EXISTS trailing_stop_pct DECIMAL(5,2)",
+    "ALTER TABLE trading_bots ADD COLUMN IF NOT EXISTS confirm_bars INTEGER DEFAULT 1",
 ]
 with engine.connect() as conn:
     for stmt in _MIGRATIONS:

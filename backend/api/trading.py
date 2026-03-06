@@ -58,6 +58,8 @@ class BotCreate(BaseModel):
     candle_interval: int = 5                       # 분봉 단위 (1,3,5,10,15)
     intraday_close: bool = False                   # 당일 강제 청산 여부
     intraday_close_time: Optional[str] = "14:50"  # "HH:MM"
+    trailing_stop_pct: Optional[float] = None      # 트레일링 스탑 % (None=비활성화)
+    confirm_bars: int = 1                          # 연속 신호 확인 봉 수 (1=즉시 진입)
 
 
 class BotUpdate(BaseModel):
@@ -79,6 +81,8 @@ class BotUpdate(BaseModel):
     candle_interval: Optional[int] = None
     intraday_close: Optional[bool] = None
     intraday_close_time: Optional[str] = None
+    trailing_stop_pct: Optional[float] = None
+    confirm_bars: Optional[int] = None
 
 
 class BotResponse(BaseModel):
@@ -106,6 +110,8 @@ class BotResponse(BaseModel):
     candle_interval: Optional[int] = None
     intraday_close: Optional[bool] = None
     intraday_close_time: Optional[time] = None
+    trailing_stop_pct: Optional[float] = None
+    confirm_bars: Optional[int] = None
 
     class Config:
         from_attributes = True

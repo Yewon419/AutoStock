@@ -132,6 +132,16 @@
                 </div>
               </div>
             </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>트레일링 스탑 (%) <span class="label-hint">고가 대비 하락 시 청산. 비워두면 비활성화</span></label>
+                <input v-model.number="form.trailing_stop_pct" type="number" min="0.1" max="10" step="0.1" placeholder="예: 2.0 (비활성화=빈칸)" />
+              </div>
+              <div class="form-group">
+                <label>연속 신호 확인 봉 수 <span class="label-hint">1=즉시 진입, 2=2봉 연속 확인</span></label>
+                <input v-model.number="form.confirm_bars" type="number" min="1" max="5" step="1" />
+              </div>
+            </div>
           </div>
 
           <div class="form-group">
@@ -254,6 +264,8 @@ const SCALPING_DEFAULTS = {
   max_drawdown_pct: 10.0,
   max_daily_trades: 50,
   trading_end_time: '15:10',
+  trailing_stop_pct: 2.0,
+  confirm_bars: 2,
 }
 
 const defaultForm = () => ({
@@ -273,6 +285,8 @@ const defaultForm = () => ({
   candle_interval: 1,
   intraday_close: false,
   intraday_close_time: '14:50',
+  trailing_stop_pct: null,
+  confirm_bars: 1,
 })
 const form = ref(defaultForm())
 
@@ -674,6 +688,7 @@ onMounted(() => {
 .time-inline:focus { outline: none; border-color: #fbbf24; }
 
 .toggle-off-label { font-size: 12px; color: #4b5563; }
+.label-hint { font-size: 10px; color: #4b5563; font-weight: 400; }
 
 /* 모달 */
 .modal-overlay {

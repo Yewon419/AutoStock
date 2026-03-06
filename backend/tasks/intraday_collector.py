@@ -192,11 +192,27 @@ def _calc_indicators(candles: list[dict], ticker: str) -> dict:
         curr_price = float(close.iloc[-1])
         opening_gap = round((curr_price - open_price) / open_price * 100, 4) if open_price else 0.0
 
+        # VWAP (세션 누적: 첫 봉부터 현재까지)
+        typical_price = (high + low + close) / 3
+        cum_vol = volume.cumsum()
+        vwap_series = (typical_price * volume).cumsum() / cum_vol.replace(0, float("nan"))
+
+        # ATR(14) — 분봉 변동성
+        atr_series = ta.volatility.AverageTrueRange(high, low, close, window=14).average_true_range()
+
+        # MA 크로스 차이값 — golden_cross/dead_cross value=0 으로 MA↔MA 크로스 표현
+        # 예: {"indicator": "ma5_minus_ma20", "condition": "golden_cross", "value": 0} → MA5가 MA20 위로 돌파
+        ma5_minus_ma10_series = ma5 - ma10
+        ma5_minus_ma20_series = ma5 - ma20
+
         def _last(series):
             return round(float(series.iloc[-1]), 4) if not series.empty else None
 
         def _prev(series):
             return round(float(series.iloc[-2]), 4) if len(series) >= 2 else None
+
+        last_vwap = _last(vwap_series)
+        price_vs_vwap = round((curr_price - last_vwap) / last_vwap * 100, 4) if last_vwap else 0.0
 
         return {
             "rsi": _last(rsi_series),
@@ -220,6 +236,16 @@ def _calc_indicators(candles: list[dict], ticker: str) -> dict:
             "prev_ma_20": _prev(ma20),
             "volume_ratio": _last(vol_ratio),
             "opening_gap": opening_gap,
+            # ── 신규 지표 ──────────────────────────────────────────────
+            "vwap": last_vwap,
+            "prev_vwap": _prev(vwap_series),
+            "price_vs_vwap": price_vs_vwap,          # (close-vwap)/vwap*100, above 0 = 가격>VWAP
+            "atr": _last(atr_series),
+            "prev_atr": _prev(atr_series),
+            "ma5_minus_ma10": _last(ma5_minus_ma10_series),
+            "prev_ma5_minus_ma10": _prev(ma5_minus_ma10_series),
+            "ma5_minus_ma20": _last(ma5_minus_ma20_series),
+            "prev_ma5_minus_ma20": _prev(ma5_minus_ma20_series),
         }
 
     except ImportError:

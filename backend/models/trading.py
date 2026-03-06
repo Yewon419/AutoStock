@@ -44,6 +44,8 @@ class TradingBot(Base):
     candle_interval = Column(Integer, default=5)             # 분봉 단위 (1,3,5,10,15)
     intraday_close = Column(Boolean, default=False)          # 당일 강제 청산 여부
     intraday_close_time = Column(Time, default=func.cast("14:50:00", Time))
+    trailing_stop_pct = Column(DECIMAL(5, 2), default=None)  # 트레일링 스탑 % (None=비활성화)
+    confirm_bars = Column(Integer, default=1)                 # 연속 신호 확인 봉 수 (1=즉시 진입)
 
     # 가상 자금 (mock/paper 모드)
     tickers = Column(JSON, default=list)
