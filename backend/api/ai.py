@@ -2,9 +2,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from core.security import get_current_user
 from core.config import settings
+from core.database import get_db
+from models.user import User
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -88,3 +91,65 @@ def trigger_optimize(req: OptimizeRequest, _: dict = Depends(get_current_user)):
 @router.get("/optimize/{task_id}")
 def get_optimize_result(task_id: str, _: dict = Depends(get_current_user)):
     return _task_status(task_id)
+
+
+# ── LLM 전략 생성 ────────────────────────────────────────────────────
+
+@router.post("/generate-strategy")
+def trigger_generate_strategy(
+    current_user: User = Depends(get_current_user),
+):
+    """LLM 전략 생성 태스크 실행 (수동 트리거)"""
+    from tasks.llm_strategy import generate_strategy
+    task = generate_strategy.delay(user_id=current_user.id)
+    return {"task_id": str(task.id), "status": "queued"}
+
+
+@router.get("/generate-strategy/{task_id}")
+def get_generate_strategy_result(
+    task_id: str,
+    _: User = Depends(get_current_user),
+):
+    return _task_status(task_id)
+
+
+@router.get("/generated-strategies")
+def get_generated_strategies(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """AI가 생성한 전략 목록 (최신 20개)"""
+    from models.strategy import Strategy
+    strategies = (
+        db.query(Strategy)
+        .filter(
+            Strategy.user_id == current_user.id,
+            Strategy.source == "ai_generated",
+        )
+        .order_by(Strategy.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "strategy_type": s.strategy_type,
+            "conditions": s.conditions,
+            "ai_analysis": s.ai_analysis,
+            "ai_confidence": s.ai_confidence,
+            "created_at": s.created_at,
+        }
+        for s in strategies
+    ]
+
+
+@router.get("/market-context")
+def get_market_context(_: User = Depends(get_current_user)):
+    """현재 시장 컨텍스트 수집 (미리보기용)"""
+    from tasks.news_crawler import collect_market_context
+    try:
+        ctx = collect_market_context()
+        return {"status": "ok", "context": ctx}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

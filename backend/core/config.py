@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     KIS_ACCOUNT_NO: str = ""      # 예: 12345678-01
     KIS_IS_PAPER: bool = True     # True=모의투자, False=실계좌
 
+    # Anthropic (Claude API)
+    ANTHROPIC_API_KEY: str = ""
+
+    # DART 전자공시 (2단계용)
+    DART_API_KEY: str = ""
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
 

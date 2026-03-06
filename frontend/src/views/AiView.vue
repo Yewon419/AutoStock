@@ -2,7 +2,7 @@
   <div class="ai-view">
     <div class="page-header">
       <h1>AI 분석</h1>
-      <p class="subtitle">머신러닝 기반 종목 스코어링 및 전략 파라미터 최적화</p>
+      <p class="subtitle">ML 스코어링 · 파라미터 최적화 · LLM 전략 자동 생성</p>
     </div>
 
     <!-- 탭 -->
@@ -12,6 +12,9 @@
       </button>
       <button class="tab-btn" :class="{ active: tab === 'optimize' }" @click="tab = 'optimize'">
         파라미터 최적화
+      </button>
+      <button class="tab-btn llm-tab" :class="{ active: tab === 'llm' }" @click="switchLlmTab">
+        ✦ LLM 전략 생성기
       </button>
     </div>
 
@@ -256,6 +259,187 @@
         </table>
       </div>
     </div>
+    <!-- ============================================================ -->
+    <!-- LLM 전략 생성기 탭                                            -->
+    <!-- ============================================================ -->
+    <div v-if="tab === 'llm'" class="tab-content">
+
+      <!-- 시장 컨텍스트 미리보기 + 생성 버튼 -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="header-info">
+            <span class="panel-title">✦ LLM 전략 생성기</span>
+            <span class="meta-info">시장 데이터를 분석하여 Claude AI가 최적 전략 조건을 자동 생성합니다</span>
+          </div>
+          <div class="header-actions">
+            <button class="btn-secondary" @click="loadMarketContext" :disabled="ctxLoading">
+              시장 현황 미리보기
+            </button>
+            <button class="btn-llm" @click="runGenerate" :disabled="llmLoading">
+              {{ llmLoading ? 'AI 분석 중...' : '✦ 전략 생성' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 시장 컨텍스트 -->
+        <div v-if="ctxLoading" class="loading-box">
+          <div class="spinner"></div><span>시장 데이터 수집 중...</span>
+        </div>
+        <div v-else-if="marketCtx" class="ctx-grid">
+          <!-- 국내 지수 -->
+          <div class="ctx-card" v-if="Object.keys(marketCtx.krx_indices || {}).length">
+            <div class="ctx-title">국내 지수</div>
+            <div v-for="(v, k) in marketCtx.krx_indices" :key="k" class="ctx-row">
+              <span class="ctx-label">{{ k }}</span>
+              <span class="ctx-val" :class="v.change_pct >= 0 ? 'up' : 'down'">
+                {{ v.close.toLocaleString() }}
+                <span class="chg">({{ v.change_pct >= 0 ? '+' : '' }}{{ v.change_pct }}%)</span>
+              </span>
+            </div>
+          </div>
+          <!-- 글로벌 -->
+          <div class="ctx-card" v-if="Object.keys(marketCtx.global_indices || {}).length">
+            <div class="ctx-title">글로벌 시장</div>
+            <div v-for="(v, k) in marketCtx.global_indices" :key="k" class="ctx-row">
+              <span class="ctx-label">{{ k }}</span>
+              <span class="ctx-val" :class="v.change_pct >= 0 ? 'up' : 'down'">
+                {{ v.close.toLocaleString() }}
+                <span class="chg">({{ v.change_pct >= 0 ? '+' : '' }}{{ v.change_pct }}%)</span>
+              </span>
+            </div>
+          </div>
+          <!-- 투자자 동향 -->
+          <div class="ctx-card" v-if="Object.keys(marketCtx.investor_trend || {}).length">
+            <div class="ctx-title">투자자 순매수 (KOSPI)</div>
+            <div v-for="(v, k) in marketCtx.investor_trend" :key="k" class="ctx-row">
+              <span class="ctx-label">{{ {foreign:'외국인', institution:'기관', retail:'개인'}[k] || k }}</span>
+              <span class="ctx-val" :class="v >= 0 ? 'up' : 'down'">
+                {{ (v >= 0 ? '+' : '') + Math.round(v / 1e8).toLocaleString() }}억원
+              </span>
+            </div>
+          </div>
+          <!-- 섹터 -->
+          <div class="ctx-card" v-if="marketCtx.sector_trend?.top?.length">
+            <div class="ctx-title">섹터 동향</div>
+            <div class="ctx-sub">▲ 상승</div>
+            <div v-for="[name, chg] in (marketCtx.sector_trend.top || [])" :key="name" class="ctx-row">
+              <span class="ctx-label">{{ name }}</span>
+              <span class="ctx-val up">+{{ chg }}%</span>
+            </div>
+            <div class="ctx-sub" style="margin-top:6px">▼ 하락</div>
+            <div v-for="[name, chg] in (marketCtx.sector_trend.bottom || [])" :key="name" class="ctx-row">
+              <span class="ctx-label">{{ name }}</span>
+              <span class="ctx-val down">{{ chg }}%</span>
+            </div>
+          </div>
+          <!-- 뉴스 -->
+          <div class="ctx-card ctx-news" v-if="marketCtx.news?.length">
+            <div class="ctx-title">주요 뉴스</div>
+            <div v-for="(n, i) in marketCtx.news.slice(0,6)" :key="i" class="news-item">
+              <span class="news-num">{{ i + 1 }}</span>{{ n }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LLM 생성 로딩 -->
+      <div v-if="llmLoading" class="panel">
+        <div class="loading-box">
+          <div class="spinner spinner-llm"></div>
+          <div>
+            <div style="color:#a78bfa;font-weight:600">Claude AI 분석 중...</div>
+            <div style="font-size:12px;margin-top:4px">시장 데이터 수집 → 기술 지표 요약 → 전략 생성 (30초~1분 소요)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 방금 생성된 전략 결과 -->
+      <div v-if="llmResult" class="panel llm-result-panel">
+        <div class="panel-header">
+          <span class="panel-title">생성된 전략</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="confidence-badge" :class="confidenceClass(llmResult.confidence)">
+              신뢰도 {{ llmResult.confidence }}%
+            </span>
+            <span class="risk-badge" :class="'risk-' + llmResult.risk_level">
+              {{ {low:'저위험', medium:'중위험', high:'고위험'}[llmResult.risk_level] || llmResult.risk_level }}
+            </span>
+          </div>
+        </div>
+        <div class="result-body">
+          <div class="result-name">{{ llmResult.strategy_name }}</div>
+          <div class="result-analysis">{{ llmResult.analysis }}</div>
+          <div class="conditions-list">
+            <div v-for="(c, i) in llmResult.conditions" :key="i" class="condition-chip">
+              <span class="c-ind">{{ c.indicator }}</span>
+              <span class="c-cond">{{ c.condition }}</span>
+              <span class="c-val">{{ c.value }}{{ c.value2 != null ? ' ~ ' + c.value2 : '' }}</span>
+            </div>
+          </div>
+          <div class="result-actions">
+            <span class="result-hint">전략 탭에서 봇에 적용할 수 있습니다</span>
+            <button class="btn-secondary" @click="loadGeneratedStrategies">히스토리 새로고침</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 생성 이력 -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">생성 이력</span>
+          <span class="meta-info">매일 08:30 자동 생성 · 최근 20개</span>
+        </div>
+        <div v-if="generatedStrategies.length === 0" class="empty-state">
+          아직 생성된 전략이 없습니다.<br/>
+          <small>"✦ 전략 생성" 버튼을 클릭하거나 매일 08:30에 자동 실행됩니다.</small>
+        </div>
+        <div v-else>
+          <div
+            v-for="s in generatedStrategies"
+            :key="s.id"
+            class="history-item"
+            :class="{ expanded: expandedId === s.id }"
+            @click="expandedId = expandedId === s.id ? null : s.id"
+          >
+            <div class="history-row">
+              <div class="history-left">
+                <span class="history-name">{{ s.name }}</span>
+                <span class="history-type">{{ s.strategy_type }}</span>
+              </div>
+              <div class="history-right">
+                <span class="confidence-badge sm" :class="confidenceClass(s.ai_confidence)">
+                  {{ s.ai_confidence }}%
+                </span>
+                <span class="history-date">{{ fmtDate(s.created_at) }}</span>
+                <span class="expand-icon">{{ expandedId === s.id ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+            <div v-if="expandedId === s.id" class="history-detail">
+              <div class="result-analysis">{{ s.ai_analysis }}</div>
+              <div class="conditions-list">
+                <div v-for="(c, i) in s.conditions" :key="i" class="condition-chip">
+                  <span class="c-ind">{{ c.indicator }}</span>
+                  <span class="c-cond">{{ c.condition }}</span>
+                  <span class="c-val">{{ c.value }}{{ c.value2 != null ? ' ~ ' + c.value2 : '' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 사용 데이터 안내 -->
+      <div class="info-box">
+        <strong>데이터 소스</strong>
+        <ul>
+          <li>pykrx — KOSPI/KOSDAQ 지수, 투자자별 순매수(외국인/기관/개인), 섹터별 등락</li>
+          <li>yfinance — S&P500, 나스닥, VIX(공포지수), 달러/원 환율</li>
+          <li>네이버 금융 — 시장 뉴스 헤드라인 10건</li>
+          <li>DB 기술 지표 — RSI 분포, MACD, MA20 상회 종목 비율</li>
+        </ul>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -459,6 +643,94 @@ const xLabels = computed(() => {
     .filter(({ i }) => i % step === 0 || i === results.length - 1)
 })
 
+// ── LLM 전략 생성 ──────────────────────────────────────────────
+const llmLoading = ref(false)
+const llmResult = ref(null)
+const marketCtx = ref(null)
+const ctxLoading = ref(false)
+const generatedStrategies = ref([])
+const expandedId = ref(null)
+let llmTaskId = null
+let llmPollTimer = null
+
+async function switchLlmTab() {
+  tab.value = 'llm'
+  if (generatedStrategies.value.length === 0) await loadGeneratedStrategies()
+}
+
+async function loadMarketContext() {
+  ctxLoading.value = true
+  try {
+    const res = await fetch(`${API}/ai/market-context`, { headers: headers() })
+    const data = await res.json()
+    if (data.status === 'ok') marketCtx.value = data.context
+  } catch {
+    // 무시
+  } finally {
+    ctxLoading.value = false
+  }
+}
+
+async function loadGeneratedStrategies() {
+  try {
+    const res = await fetch(`${API}/ai/generated-strategies`, { headers: headers() })
+    if (res.ok) generatedStrategies.value = await res.json()
+  } catch {
+    // 무시
+  }
+}
+
+async function runGenerate() {
+  llmLoading.value = true
+  llmResult.value = null
+  try {
+    const res = await fetch(`${API}/ai/generate-strategy`, { method: 'POST', headers: headers() })
+    const data = await res.json()
+    llmTaskId = data.task_id
+    pollGenerate()
+  } catch {
+    llmLoading.value = false
+  }
+}
+
+async function pollGenerate() {
+  if (!llmTaskId) return
+  try {
+    const res = await fetch(`${API}/ai/generate-strategy/${llmTaskId}`, { headers: headers() })
+    const data = await res.json()
+    if (data.status === 'completed') {
+      llmLoading.value = false
+      llmTaskId = null
+      const r = data.result
+      if (r.status === 'ok') {
+        llmResult.value = r
+        await loadGeneratedStrategies()
+      } else {
+        alert('전략 생성 실패: ' + (r.message || ''))
+      }
+    } else if (data.status === 'failed') {
+      llmLoading.value = false
+      llmTaskId = null
+      alert('전략 생성 오류: ' + (data.error || ''))
+    } else {
+      llmPollTimer = setTimeout(pollGenerate, 3000)
+    }
+  } catch {
+    llmPollTimer = setTimeout(pollGenerate, 5000)
+  }
+}
+
+function confidenceClass(c) {
+  if (c >= 70) return 'conf-high'
+  if (c >= 40) return 'conf-mid'
+  return 'conf-low'
+}
+
+function fmtDate(dt) {
+  if (!dt) return ''
+  return new Date(dt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 // ─────────────────────────────────────────────────────────────────
 onMounted(() => {
   loadScores()
@@ -468,6 +740,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (scorePollTimer) clearTimeout(scorePollTimer)
   if (optPollTimer) clearTimeout(optPollTimer)
+  if (llmPollTimer) clearTimeout(llmPollTimer)
 })
 </script>
 
@@ -711,6 +984,89 @@ onUnmounted(() => {
   padding: 16px 16px 8px;
   overflow-x: auto;
 }
-
 .opt-svg { display: block; }
+
+/* LLM 탭 버튼 */
+.tab-btn.llm-tab { color: #a78bfa; }
+.tab-btn.llm-tab.active { color: #a78bfa; border-bottom-color: #a78bfa; }
+
+/* LLM 전략 생성 버튼 */
+.btn-llm {
+  padding: 7px 18px;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.btn-llm:hover:not(:disabled) { background: linear-gradient(135deg, #6d28d9, #9333ea); }
+.btn-llm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 시장 컨텍스트 그리드 */
+.ctx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1px;
+  background: #2a2d3e;
+}
+.ctx-card {
+  background: #1a1d27;
+  padding: 16px 18px;
+}
+.ctx-news { grid-column: 1 / -1; }
+.ctx-title { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+.ctx-sub { font-size: 10px; color: #4b5563; margin-bottom: 4px; }
+.ctx-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+.ctx-label { font-size: 12px; color: #9ca3af; }
+.ctx-val { font-size: 13px; font-weight: 600; color: #e5e7eb; }
+.ctx-val.up { color: #ef4444; }
+.ctx-val.down { color: #60a5fa; }
+.chg { font-size: 11px; font-weight: 400; margin-left: 4px; }
+.news-item { font-size: 12px; color: #9ca3af; padding: 3px 0; display: flex; gap: 8px; line-height: 1.5; }
+.news-num { color: #4b5563; flex-shrink: 0; width: 14px; }
+
+/* 스피너 LLM 색상 */
+.spinner-llm { border-top-color: #a78bfa; }
+
+/* LLM 결과 패널 */
+.llm-result-panel { border-color: rgba(167,139,250,.3); }
+.result-body { padding: 20px 24px; }
+.result-name { font-size: 17px; font-weight: 700; color: #e5e7eb; margin-bottom: 10px; }
+.result-analysis { font-size: 13px; color: #9ca3af; line-height: 1.7; margin-bottom: 16px; background: rgba(167,139,250,.05); border-left: 2px solid #7c3aed; padding: 10px 14px; border-radius: 0 6px 6px 0; }
+.conditions-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.condition-chip { display: flex; align-items: center; gap: 6px; background: #0f1117; border: 1px solid #2a2d3e; border-radius: 20px; padding: 5px 12px; font-size: 12px; }
+.c-ind { color: #a78bfa; font-weight: 600; }
+.c-cond { color: #6b7280; }
+.c-val { color: #e5e7eb; font-weight: 600; }
+.result-actions { display: flex; align-items: center; justify-content: space-between; }
+.result-hint { font-size: 12px; color: #4b5563; }
+
+/* 신뢰도 배지 */
+.confidence-badge { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+.confidence-badge.conf-high { background: rgba(16,185,129,.15); color: #10b981; }
+.confidence-badge.conf-mid  { background: rgba(245,158,11,.15); color: #f59e0b; }
+.confidence-badge.conf-low  { background: rgba(107,114,128,.15); color: #9ca3af; }
+.confidence-badge.sm { font-size: 11px; padding: 2px 7px; }
+
+/* 위험도 배지 */
+.risk-badge { font-size: 11px; padding: 3px 9px; border-radius: 999px; font-weight: 600; }
+.risk-low    { background: rgba(16,185,129,.15); color: #10b981; }
+.risk-medium { background: rgba(245,158,11,.15); color: #f59e0b; }
+.risk-high   { background: rgba(239,68,68,.15);  color: #ef4444; }
+
+/* 생성 이력 */
+.history-item { border-bottom: 1px solid #1f2235; cursor: pointer; transition: background 0.1s; }
+.history-item:last-child { border-bottom: none; }
+.history-item:hover { background: #1f2235; }
+.history-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; }
+.history-left { display: flex; align-items: center; gap: 10px; }
+.history-name { font-size: 13px; color: #e5e7eb; font-weight: 500; }
+.history-type { font-size: 11px; color: #4b5563; background: #2a2d3e; padding: 2px 7px; border-radius: 4px; }
+.history-right { display: flex; align-items: center; gap: 10px; }
+.history-date { font-size: 11px; color: #4b5563; }
+.expand-icon { font-size: 10px; color: #4b5563; }
+.history-detail { padding: 0 18px 16px; }
 </style>
