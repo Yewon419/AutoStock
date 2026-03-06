@@ -19,8 +19,8 @@ def get_strategy(db: Session, strategy_id: int, user_id: int):
     )
 
 
-def create_strategy(db: Session, user_id: int, name: str, description, conditions: list):
-    strategy = Strategy(user_id=user_id, name=name, description=description, conditions=conditions)
+def create_strategy(db: Session, user_id: int, name: str, description, conditions: list, strategy_type: str = 'swing'):
+    strategy = Strategy(user_id=user_id, name=name, description=description, conditions=conditions, strategy_type=strategy_type)
     db.add(strategy)
     db.commit()
     db.refresh(strategy)

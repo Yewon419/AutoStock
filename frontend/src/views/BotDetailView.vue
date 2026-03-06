@@ -10,6 +10,11 @@
       <div class="header-actions">
         <button
           v-if="bot.status !== 'RUNNING'"
+          class="btn-edit"
+          @click="openEdit"
+        >✏️ 수정</button>
+        <button
+          v-if="bot.status !== 'RUNNING'"
           class="btn-start"
           @click="startBot"
         >▶ 시작</button>
@@ -254,6 +259,125 @@
         </table>
       </div>
     </div>
+    <!-- 수정 모달 -->
+    <div v-if="showEdit" class="modal-overlay" @click.self="closeEdit">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>봇 설정 수정</h2>
+          <button class="close-btn" @click="closeEdit">✕</button>
+        </div>
+
+        <!-- 봇 타입 탭 -->
+        <div class="bot-type-tabs">
+          <button class="type-tab" :class="{ active: editForm.bot_type === 'swing' }" @click="setEditBotType('swing')">
+            📈 스윙 (Swing)
+            <span class="tab-desc">일봉 기반 · 5분 주기</span>
+          </button>
+          <button class="type-tab" :class="{ active: editForm.bot_type === 'scalping' }" @click="setEditBotType('scalping')">
+            ⚡ 단타 (Scalping)
+            <span class="tab-desc">분봉 기반 · 1분 주기</span>
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <!-- 단타 설정 -->
+          <div v-if="editForm.bot_type === 'scalping'" class="scalping-section">
+            <div class="section-title">⚡ 단타 설정</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>분봉 단위</label>
+                <select v-model.number="editForm.candle_interval">
+                  <option :value="1">1분봉</option>
+                  <option :value="3">3분봉</option>
+                  <option :value="5">5분봉</option>
+                  <option :value="10">10분봉</option>
+                  <option :value="15">15분봉</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>당일 강제 청산</label>
+                <div class="toggle-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" v-model="editForm.intraday_close" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <input v-if="editForm.intraday_close" v-model="editForm.intraday_close_time" type="time" class="time-inline" />
+                  <span v-else class="toggle-off-label">OFF</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>봇 이름 *</label>
+            <input v-model="editForm.name" type="text" />
+          </div>
+          <div class="form-group">
+            <label>전략</label>
+            <select v-model="editForm.strategy_id">
+              <option :value="null">전략 없음</option>
+              <option v-for="s in strategies" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>종목 (쉼표로 구분)</label>
+            <input v-model="editTickersInput" type="text" placeholder="예: 005930,000660" />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>손절 (%)</label>
+              <input v-model.number="editForm.stop_loss_pct" type="number" min="0" step="0.5" />
+            </div>
+            <div class="form-group">
+              <label>익절 (%)</label>
+              <input v-model.number="editForm.take_profit_pct" type="number" min="0" step="0.5" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>최대 낙폭 (%)</label>
+              <input v-model.number="editForm.max_drawdown_pct" type="number" min="0" step="0.5" />
+            </div>
+            <div class="form-group">
+              <label>포지션 크기 (%)</label>
+              <input v-model.number="editForm.position_size_pct" type="number" min="1" max="100" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>최대 동시 포지션</label>
+              <input v-model.number="editForm.max_positions" type="number" min="1" max="20" />
+            </div>
+            <div class="form-group">
+              <label>일일 최대 거래 수</label>
+              <input v-model.number="editForm.max_daily_trades" type="number" min="1" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>단일 주문 최대 금액 (원)</label>
+            <input v-model.number="editForm.max_order_amount" type="number" min="0" />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>거래 시작 시간</label>
+              <input v-model="editForm.trading_start_time" type="time" />
+            </div>
+            <div class="form-group">
+              <label>거래 종료 시간</label>
+              <input v-model="editForm.trading_end_time" type="time" />
+            </div>
+          </div>
+          <p v-if="editError" class="error-msg">{{ editError }}</p>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closeEdit">취소</button>
+          <button class="btn-primary" @click="submitEdit" :disabled="editSubmitting">
+            {{ editSubmitting ? '저장 중...' : '저장' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div v-else class="loading">불러오는 중...</div>
@@ -275,14 +399,26 @@ const positions = ref([])
 const orders = ref([])
 const executions = ref([])
 const reports = ref([])
+const strategies = ref([])
 const activeTab = ref('positions')
 const lineChartEl = ref(null)
 const barChartEl = ref(null)
 let lineChart = null
 let barChart = null
 
+// 수정 모달
+const showEdit = ref(false)
+const editSubmitting = ref(false)
+const editError = ref('')
+const editTickersInput = ref('')
+const editForm = ref({})
+
 function headers() {
   return { Authorization: `Bearer ${auth.token}` }
+}
+
+function jsonHeaders() {
+  return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
 
 const botId = route.params.id
@@ -290,6 +426,69 @@ const botId = route.params.id
 async function fetchBot() {
   const res = await fetch(`${API}/bots/${botId}`, { headers: headers() })
   if (res.ok) bot.value = await res.json()
+}
+
+async function fetchStrategies() {
+  const res = await fetch(`${API}/strategies`, { headers: headers() })
+  if (res.ok) strategies.value = await res.json()
+}
+
+function openEdit() {
+  const b = bot.value
+  editForm.value = {
+    name: b.name,
+    strategy_id: b.strategy_id ?? null,
+    stop_loss_pct: b.stop_loss_pct,
+    take_profit_pct: b.take_profit_pct,
+    max_drawdown_pct: b.max_drawdown_pct,
+    position_size_pct: b.position_size_pct,
+    max_positions: b.max_positions,
+    max_daily_trades: b.max_daily_trades,
+    max_order_amount: b.max_order_amount,
+    trading_start_time: fmtTime(b.trading_start_time),
+    trading_end_time: fmtTime(b.trading_end_time),
+    bot_type: b.bot_type ?? 'swing',
+    candle_interval: b.candle_interval ?? 1,
+    intraday_close: b.intraday_close ?? false,
+    intraday_close_time: fmtTime(b.intraday_close_time) || '14:50',
+  }
+  editTickersInput.value = (b.tickers || []).join(',')
+  editError.value = ''
+  showEdit.value = true
+}
+
+function closeEdit() {
+  showEdit.value = false
+}
+
+function setEditBotType(type) {
+  editForm.value.bot_type = type
+}
+
+async function submitEdit() {
+  if (!editForm.value.name?.trim()) { editError.value = '봇 이름을 입력하세요'; return }
+  editError.value = ''
+  editSubmitting.value = true
+  try {
+    const payload = {
+      ...editForm.value,
+      tickers: editTickersInput.value.split(',').map(t => t.trim()).filter(Boolean),
+    }
+    const res = await fetch(`${API}/bots/${botId}`, {
+      method: 'PUT',
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      editError.value = data.detail || '저장 실패'
+      return
+    }
+    closeEdit()
+    await fetchBot()
+  } finally {
+    editSubmitting.value = false
+  }
 }
 
 async function fetchPerf() {
@@ -432,7 +631,7 @@ function pnlClass(v) {
 
 onMounted(async () => {
   await fetchBot()
-  await Promise.all([fetchPositions(), fetchPerf()])
+  await Promise.all([fetchPositions(), fetchPerf(), fetchStrategies()])
 })
 </script>
 
@@ -648,4 +847,137 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 
 .profit { color: #ef4444; }
 .loss { color: #10b981; }
+
+/* 수정 버튼 */
+.btn-edit {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  border: 1px solid #2a2d3e;
+  background: none;
+  color: #9ca3af;
+  cursor: pointer;
+  font-weight: 500;
+}
+.btn-edit:hover { border-color: #4b5563; color: #e5e7eb; }
+
+/* 모달 */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #1a1d27;
+  border: 1px solid #2a2d3e;
+  border-radius: 12px;
+  width: 560px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #2a2d3e;
+}
+.modal-header h2 { margin: 0; font-size: 17px; color: #e5e7eb; }
+
+.close-btn { background: none; border: none; color: #6b7280; font-size: 18px; cursor: pointer; }
+
+.modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid #2a2d3e;
+}
+
+.form-group { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.form-group label { font-size: 12px; color: #9ca3af; }
+.form-group input,
+.form-group select {
+  background: #0f1117;
+  border: 1px solid #2a2d3e;
+  border-radius: 6px;
+  color: #e5e7eb;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.form-group input:focus,
+.form-group select:focus { outline: none; border-color: #4f9eff; }
+
+.form-row { display: flex; gap: 12px; }
+
+/* 봇 타입 탭 */
+.bot-type-tabs { display: flex; border-bottom: 1px solid #2a2d3e; }
+.type-tab {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 12px 16px; background: none; border: none;
+  border-bottom: 2px solid transparent; color: #6b7280;
+  font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; margin-bottom: -1px;
+}
+.type-tab:hover { color: #9ca3af; background: rgba(255,255,255,.03); }
+.type-tab.active { color: #e5e7eb; border-bottom-color: #4f9eff; }
+.type-tab.active:last-child { border-bottom-color: #fbbf24; color: #fbbf24; }
+.tab-desc { font-size: 11px; font-weight: 400; color: #4b5563; }
+.type-tab.active .tab-desc { color: #6b7280; }
+
+/* 단타 섹션 */
+.scalping-section {
+  background: rgba(251,191,36,.05);
+  border: 1px solid rgba(251,191,36,.2);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.section-title { font-size: 12px; font-weight: 700; color: #fbbf24; letter-spacing: 0.05em; }
+.toggle-row { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; inset: 0;
+  background: #2a2d3e; border-radius: 999px; cursor: pointer; transition: background 0.2s;
+}
+.toggle-slider::before {
+  content: ''; position: absolute;
+  width: 14px; height: 14px; left: 3px; top: 3px;
+  background: #6b7280; border-radius: 50%; transition: transform 0.2s, background 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: rgba(251,191,36,.2); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); background: #fbbf24; }
+.time-inline {
+  background: #0f1117; border: 1px solid #2a2d3e; border-radius: 6px;
+  color: #e5e7eb; padding: 5px 8px; font-size: 13px; width: 100px;
+}
+.time-inline:focus { outline: none; border-color: #fbbf24; }
+.toggle-off-label { font-size: 12px; color: #4b5563; }
+
+.btn-primary {
+  background: #4f9eff; color: #fff; border: none;
+  border-radius: 6px; padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.btn-primary:hover { background: #3b8ae8; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-secondary {
+  background: none; border: 1px solid #2a2d3e;
+  border-radius: 6px; color: #9ca3af; padding: 8px 18px; font-size: 14px; cursor: pointer;
+}
+.btn-secondary:hover { border-color: #4b5563; color: #e5e7eb; }
+
+.error-msg { color: #ef4444; font-size: 13px; }
 </style>

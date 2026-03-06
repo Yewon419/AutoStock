@@ -39,6 +39,12 @@ class TradingBot(Base):
     trading_start_time = Column(Time, default=func.cast("09:00:00", Time))
     trading_end_time = Column(Time, default=func.cast("15:20:00", Time))
 
+    # 단타 설정
+    bot_type = Column(String(10), default='swing')          # swing | scalping
+    candle_interval = Column(Integer, default=5)             # 분봉 단위 (1,3,5,10,15)
+    intraday_close = Column(Boolean, default=False)          # 당일 강제 청산 여부
+    intraday_close_time = Column(Time, default=func.cast("14:50:00", Time))
+
     # 가상 자금 (mock/paper 모드)
     tickers = Column(JSON, default=list)
     initial_cash = Column(Numeric(15, 2), default=10_000_000)

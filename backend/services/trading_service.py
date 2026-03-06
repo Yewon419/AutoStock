@@ -62,6 +62,12 @@ def create_bot(db: Session, user_id: int, data: dict):
         max_positions=data.get('max_positions', 5),
         max_daily_trades=data.get('max_daily_trades', 20),
         max_order_amount=data.get('max_order_amount', 1_000_000),
+        trading_start_time=data.get('trading_start_time'),
+        trading_end_time=data.get('trading_end_time'),
+        bot_type=data.get('bot_type', 'swing'),
+        candle_interval=data.get('candle_interval', 5),
+        intraday_close=data.get('intraday_close', False),
+        intraday_close_time=data.get('intraday_close_time'),
     )
     db.add(bot)
     db.commit()

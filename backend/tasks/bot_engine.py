@@ -36,7 +36,10 @@ _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
 def run_all_bots():
     db = SessionLocal()
     try:
-        bots = db.query(TradingBot).filter(TradingBot.status == 'RUNNING').all()
+        bots = db.query(TradingBot).filter(
+            TradingBot.status == 'RUNNING',
+            TradingBot.bot_type != 'scalping',
+        ).all()
         if not bots:
             return
         logger.info(f"[bot_engine] 실행 봇: {len(bots)}개")

@@ -11,6 +11,7 @@ celery_app = Celery(
         "tasks.collect", "tasks.indicators", "tasks.backtest",
         "tasks.bot_engine", "tasks.scanner", "tasks.ai_tasks",
         "tasks.kis_price_stream",
+        "tasks.intraday_collector", "tasks.scalping_engine",
     ],
 )
 
@@ -57,6 +58,16 @@ celery_app.conf.beat_schedule = {
     "start-price-stream": {
         "task": "tasks.kis_price_stream.start_price_stream",
         "schedule": crontab(hour=8, minute=55, day_of_week="1-5"),
+    },
+    # 평일 09:00~15:00 매 1분 - scalping 봇 분봉 수집 & 지표 계산
+    "collect-intraday-data": {
+        "task": "tasks.intraday_collector.collect_intraday_data",
+        "schedule": crontab(minute="*", hour="9-15", day_of_week="1-5"),
+    },
+    # 평일 09:00~15:00 매 1분 - scalping 봇 매매 엔진
+    "run-scalping-bots": {
+        "task": "tasks.scalping_engine.run_scalping_bots",
+        "schedule": crontab(minute="*", hour="9-15", day_of_week="1-5"),
     },
 }
 

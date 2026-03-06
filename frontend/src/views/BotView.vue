@@ -21,7 +21,10 @@
         @click="goDetail(bot.id)"
       >
         <div class="bot-card-header">
-          <span class="bot-name">{{ bot.name }}</span>
+          <div class="bot-name-row">
+            <span class="bot-name">{{ bot.name }}</span>
+            <span v-if="bot.bot_type === 'scalping'" class="type-badge type-scalping">⚡ SCALPING</span>
+          </div>
           <div class="badges">
             <span class="mode-badge" :class="modeClass(bot.mode)">{{ bot.mode }}</span>
             <span class="badge" :class="statusClass(bot.status)">{{ bot.status }}</span>
@@ -76,7 +79,61 @@
           <h2>봇 생성</h2>
           <button class="close-btn" @click="closeModal">✕</button>
         </div>
+
+        <!-- 봇 타입 탭 -->
+        <div class="bot-type-tabs">
+          <button
+            class="type-tab"
+            :class="{ active: form.bot_type === 'swing' }"
+            @click="setBotType('swing')"
+          >
+            📈 스윙 (Swing)
+            <span class="tab-desc">일봉 기반 · 5분 주기</span>
+          </button>
+          <button
+            class="type-tab"
+            :class="{ active: form.bot_type === 'scalping' }"
+            @click="setBotType('scalping')"
+          >
+            ⚡ 단타 (Scalping)
+            <span class="tab-desc">분봉 기반 · 1분 주기</span>
+          </button>
+        </div>
+
         <div class="modal-body">
+          <!-- 단타 설정 섹션 -->
+          <div v-if="form.bot_type === 'scalping'" class="scalping-section">
+            <div class="section-title">⚡ 단타 설정</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>분봉 단위</label>
+                <select v-model.number="form.candle_interval">
+                  <option :value="1">1분봉</option>
+                  <option :value="3">3분봉</option>
+                  <option :value="5">5분봉</option>
+                  <option :value="10">10분봉</option>
+                  <option :value="15">15분봉</option>
+                </select>
+              </div>
+              <div class="form-group intraday-close-group">
+                <label>당일 강제 청산</label>
+                <div class="toggle-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" v-model="form.intraday_close" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <input
+                    v-if="form.intraday_close"
+                    v-model="form.intraday_close_time"
+                    type="time"
+                    class="time-inline"
+                  />
+                  <span v-else class="toggle-off-label">OFF</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>봇 이름 *</label>
             <input v-model="form.name" type="text" placeholder="예: RSI 전략 봇" />
@@ -183,21 +240,39 @@ const submitting = ref(false)
 const error = ref('')
 const tickersInput = ref('')
 
+const SWING_DEFAULTS = {
+  stop_loss_pct: 5.0,
+  take_profit_pct: 10.0,
+  max_drawdown_pct: 15.0,
+  max_daily_trades: 20,
+  trading_end_time: '15:20',
+}
+
+const SCALPING_DEFAULTS = {
+  stop_loss_pct: 2.0,
+  take_profit_pct: 3.0,
+  max_drawdown_pct: 10.0,
+  max_daily_trades: 50,
+  trading_end_time: '15:10',
+}
+
 const defaultForm = () => ({
   name: '',
   mode: 'mock',
   strategy_id: null,
   tickers: [],
   initial_cash: 10000000,
-  stop_loss_pct: 5.0,
-  take_profit_pct: 10.0,
-  max_drawdown_pct: 15.0,
   position_size_pct: 10.0,
   max_positions: 5,
-  max_daily_trades: 20,
   max_order_amount: 1000000,
   trading_start_time: '09:00',
-  trading_end_time: '15:20',
+  // 스윙 기본값
+  ...SWING_DEFAULTS,
+  // 단타 설정
+  bot_type: 'swing',
+  candle_interval: 1,
+  intraday_close: false,
+  intraday_close_time: '14:50',
 })
 const form = ref(defaultForm())
 
@@ -225,6 +300,12 @@ function openCreate() {
   tickersInput.value = ''
   error.value = ''
   showModal.value = true
+}
+
+function setBotType(type) {
+  form.value.bot_type = type
+  const defaults = type === 'scalping' ? SCALPING_DEFAULTS : SWING_DEFAULTS
+  Object.assign(form.value, defaults)
 }
 
 function closeModal() {
@@ -366,11 +447,31 @@ onMounted(() => {
 .bot-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 16px;
 }
 
+.bot-name-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .bot-name { font-size: 16px; font-weight: 600; color: #e5e7eb; }
+
+.type-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.type-scalping {
+  background: rgba(251,191,36,.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251,191,36,.25);
+}
 
 .badges { display: flex; gap: 6px; align-items: center; }
 
@@ -454,6 +555,125 @@ onMounted(() => {
 .btn-stop:hover { background: rgba(239,68,68,.3); }
 .btn-danger { background: rgba(107,114,128,.15); color: #9ca3af; margin-left: auto; }
 .btn-danger:hover { background: rgba(239,68,68,.2); color: #ef4444; }
+
+/* 봇 타입 탭 */
+.bot-type-tabs {
+  display: flex;
+  border-bottom: 1px solid #2a2d3e;
+}
+
+.type-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: -1px;
+}
+
+.type-tab:hover { color: #9ca3af; background: rgba(255,255,255,.03); }
+
+.type-tab.active {
+  color: #e5e7eb;
+  border-bottom-color: #4f9eff;
+}
+
+.type-tab.active:last-child {
+  border-bottom-color: #fbbf24;
+  color: #fbbf24;
+}
+
+.tab-desc {
+  font-size: 11px;
+  font-weight: 400;
+  color: #4b5563;
+}
+
+.type-tab.active .tab-desc { color: #6b7280; }
+
+/* 단타 설정 섹션 */
+.scalping-section {
+  background: rgba(251,191,36,.05);
+  border: 1px solid rgba(251,191,36,.2);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fbbf24;
+  letter-spacing: 0.05em;
+}
+
+.intraday-close-group { justify-content: flex-start; }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: #2a2d3e;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  left: 3px; top: 3px;
+  background: #6b7280;
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider { background: rgba(251,191,36,.2); }
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+  background: #fbbf24;
+}
+
+.time-inline {
+  background: #0f1117;
+  border: 1px solid #2a2d3e;
+  border-radius: 6px;
+  color: #e5e7eb;
+  padding: 5px 8px;
+  font-size: 13px;
+  width: 100px;
+}
+.time-inline:focus { outline: none; border-color: #fbbf24; }
+
+.toggle-off-label { font-size: 12px; color: #4b5563; }
 
 /* 모달 */
 .modal-overlay {

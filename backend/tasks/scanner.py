@@ -3,20 +3,34 @@
 - 매일 17:00 (데이터 수집 완료 후) 실행
 - RUNNING 상태 봇의 전략 조건을 전체 종목에 적용해 tickers 자동 갱신
 - 조건 충족 종목이 많으면 거래량 상위 순으로 최대 MAX_TICKERS개만 선택
+
+스윙 봇: 일봉 DB 지표로 전체 조건 평가
+단타 봇: 일봉 DB로 평가 가능한 조건만 선(先)스크리닝 → 거래량 상위 필터
+         (volume_ratio, opening_gap 등 인트라데이 전용 조건은 실행 엔진에서 실시간 최종 판단)
 """
 import logging
-from datetime import date
 
 from tasks.celery_app import celery_app
 from core.database import SessionLocal
 from models.trading import TradingBot
 from models.market import TechnicalIndicator, StockPrice
 from models.strategy import Strategy
-from services.backtest_engine import _all_conditions_met
+from services.backtest_engine import _all_conditions_met, SUPPORTED_INDICATORS
 
 logger = logging.getLogger(__name__)
 
 MAX_TICKERS = 30  # 봇당 최대 종목 수
+
+# 일봉 DB에 없는 인트라데이 전용 지표 — 단타 스캐너에서 건너뜀
+_INTRADAY_ONLY = {'volume_ratio', 'opening_gap', 'bb_upper', 'bb_middle', 'bb_lower',
+                  'ma_5', 'ma_10', 'macd_histogram'}
+
+
+def _daily_conditions(conditions: list) -> list:
+    """단타 전략 조건 중 일봉 DB(TechnicalIndicator)로 평가 가능한 것만 반환"""
+    return [c for c in conditions
+            if c.get('indicator', '').lower() in SUPPORTED_INDICATORS
+            and c.get('indicator', '').lower() not in _INTRADAY_ONLY]
 
 
 @celery_app.task(name="tasks.scanner.scan_bot_tickers")
@@ -86,23 +100,44 @@ def scan_bot_tickers():
             if not strategy or not strategy.conditions:
                 continue
 
-            matched = [
-                ticker
-                for ticker, ind in ind_map.items()
-                if _all_conditions_met(strategy.conditions, ind, prev_map.get(ticker))
-            ]
+            is_scalping = getattr(bot, 'bot_type', 'swing') == 'scalping'
 
-            # 거래량 많은 순으로 정렬 후 상위 MAX_TICKERS개 선택
+            if is_scalping:
+                # 단타 봇: 일봉으로 평가 가능한 조건만 선스크리닝
+                daily_conds = _daily_conditions(strategy.conditions)
+                if daily_conds:
+                    # 일봉 조건이 하나라도 있으면 적용
+                    matched = [
+                        ticker
+                        for ticker, ind in ind_map.items()
+                        if _all_conditions_met(daily_conds, ind, prev_map.get(ticker))
+                    ]
+                else:
+                    # 전략 조건이 전부 인트라데이 전용인 경우 → 전 종목 거래량 필터만 적용
+                    matched = list(ind_map.keys())
+                    logger.info(
+                        f"[scanner] bot_id={bot.id} 단타 봇 — 일봉 조건 없음, 거래량 상위 {MAX_TICKERS}개 선택"
+                    )
+            else:
+                # 스윙 봇: 기존 로직 (전체 조건 일봉 평가)
+                matched = [
+                    ticker
+                    for ticker, ind in ind_map.items()
+                    if _all_conditions_met(strategy.conditions, ind, prev_map.get(ticker))
+                ]
+
+            # 공통: 거래량 많은 순 정렬 후 상위 MAX_TICKERS개
             matched.sort(key=lambda t: vol_map.get(t, 0), reverse=True)
             matched = matched[:MAX_TICKERS]
 
             old_count = len(bot.tickers or [])
             bot.tickers = matched
+            mode_label = "단타" if is_scalping else "스윙"
             logger.info(
-                f"[scanner] bot_id={bot.id} ({bot.name}): "
+                f"[scanner] bot_id={bot.id} ({bot.name}) [{mode_label}]: "
                 f"{old_count}개 → {len(matched)}개 | 기준일: {latest_date}"
             )
-            results.append({"bot_id": bot.id, "ticker_count": len(matched)})
+            results.append({"bot_id": bot.id, "bot_type": mode_label, "ticker_count": len(matched)})
 
         db.commit()
         return {"status": "ok", "date": str(latest_date), "bots": results}

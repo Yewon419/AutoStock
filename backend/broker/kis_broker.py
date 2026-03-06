@@ -131,3 +131,51 @@ class KisBroker(BaseBroker):
         filled = price if price else float(data.get("output", {}).get("EXEC_PRC", price))
         logger.info("[KisBroker] SELL bot=%d %s %d주 @%.0f order=%s", bot_id, ticker, quantity, filled, order_no)
         return OrderResult(filled_price=filled, order_number=order_no)
+
+    # ------------------------------------------------------------------
+    # Intraday (minute candles)
+    # ------------------------------------------------------------------
+
+    def get_minute_candles(self, ticker: str, interval: int = 1) -> list[dict]:
+        """KIS 분봉 시세 조회 (TR: FHKST03010200)
+        반환: [{"t": "HH:MM", "o": float, "h": float, "l": float, "c": float, "v": int}, ...]
+        최신순 정렬 (index 0이 가장 최근)
+        """
+        now_str = datetime.now(timezone.utc).strftime("%H%M%S")
+        params = {
+            "FID_ETC_CLS_CODE": "",
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_INPUT_ISCD": ticker,
+            "FID_INPUT_HOUR_1": now_str,
+            "FID_PW_DATA_INCU_YN": "Y",
+        }
+        url = f"{self._base_url}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
+        headers = self._headers("FHKST03010200")
+        headers["tr_id"] = "FHKST03010200"
+
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if data.get("rt_cd") != "0":
+            logger.warning("[KisBroker] 분봉 조회 오류: %s", data.get("msg1"))
+            return []
+
+        candles = []
+        for item in data.get("output2", []):
+            try:
+                t_raw = item.get("stck_bsop_hour", "")  # "HHMMSS"
+                t_str = f"{t_raw[:2]}:{t_raw[2:4]}" if len(t_raw) >= 4 else t_raw
+                candles.append({
+                    "t": t_str,
+                    "o": float(item.get("stck_oprc", 0)),
+                    "h": float(item.get("stck_hgpr", 0)),
+                    "l": float(item.get("stck_lwpr", 0)),
+                    "c": float(item.get("stck_prpr", 0)),
+                    "v": int(item.get("cntg_vol", 0)),
+                })
+            except (ValueError, KeyError):
+                continue
+
+        logger.debug("[KisBroker] 분봉 수집 %s interval=%d count=%d", ticker, interval, len(candles))
+        return candles

@@ -25,6 +25,7 @@ class StrategyCreate(BaseModel):
     name: str
     description: Optional[str] = None
     conditions: List[ConditionItem]
+    strategy_type: str = 'swing'  # swing | scalping
 
 
 class StrategyUpdate(BaseModel):
@@ -32,6 +33,7 @@ class StrategyUpdate(BaseModel):
     description: Optional[str] = None
     conditions: Optional[List[ConditionItem]] = None
     is_active: Optional[bool] = None
+    strategy_type: Optional[str] = None
 
 
 class StrategyResponse(BaseModel):
@@ -39,6 +41,7 @@ class StrategyResponse(BaseModel):
     name: str
     description: Optional[str] = None
     conditions: list
+    strategy_type: str = 'swing'
     is_active: bool
     created_at: Optional[datetime] = None
 
@@ -91,6 +94,7 @@ def create_strategy(
     return strategy_service.create_strategy(
         db, _user_id(current_user), req.name, req.description,
         [c.model_dump() for c in req.conditions],
+        strategy_type=req.strategy_type,
     )
 
 

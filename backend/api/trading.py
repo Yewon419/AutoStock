@@ -53,6 +53,11 @@ class BotCreate(BaseModel):
     max_order_amount: float = 1_000_000
     trading_start_time: Optional[str] = "09:00"   # "HH:MM"
     trading_end_time: Optional[str] = "15:20"
+    # 단타 설정
+    bot_type: str = 'swing'                        # swing | scalping
+    candle_interval: int = 5                       # 분봉 단위 (1,3,5,10,15)
+    intraday_close: bool = False                   # 당일 강제 청산 여부
+    intraday_close_time: Optional[str] = "14:50"  # "HH:MM"
 
 
 class BotUpdate(BaseModel):
@@ -69,6 +74,11 @@ class BotUpdate(BaseModel):
     max_order_amount: Optional[float] = None
     trading_start_time: Optional[str] = None
     trading_end_time: Optional[str] = None
+    # 단타 설정
+    bot_type: Optional[str] = None
+    candle_interval: Optional[int] = None
+    intraday_close: Optional[bool] = None
+    intraday_close_time: Optional[str] = None
 
 
 class BotResponse(BaseModel):
@@ -91,6 +101,11 @@ class BotResponse(BaseModel):
     trading_start_time: Optional[time] = None
     trading_end_time: Optional[time] = None
     created_at: Optional[datetime] = None
+    # 단타 설정
+    bot_type: Optional[str] = 'swing'
+    candle_interval: Optional[int] = None
+    intraday_close: Optional[bool] = None
+    intraday_close_time: Optional[time] = None
 
     class Config:
         from_attributes = True
@@ -145,7 +160,7 @@ def create_bot(
 ):
     data = req.model_dump()
     # time 문자열 → time 객체 변환
-    for key in ('trading_start_time', 'trading_end_time'):
+    for key in ('trading_start_time', 'trading_end_time', 'intraday_close_time'):
         val = data.get(key)
         if val and isinstance(val, str):
             try:
@@ -176,7 +191,7 @@ def update_bot(
     current_user: dict = Depends(get_current_user),
 ):
     data = req.model_dump(exclude_none=True)
-    for key in ('trading_start_time', 'trading_end_time'):
+    for key in ('trading_start_time', 'trading_end_time', 'intraday_close_time'):
         val = data.get(key)
         if val and isinstance(val, str):
             try:
@@ -264,6 +279,41 @@ def get_orders(
     ]
 
 
+@router.get("/bots/{bot_id}/executions")
+def get_executions(
+    bot_id: int,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    bot = trading_service.get_bot(db, bot_id, _user_id(current_user))
+    if not bot:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="봇을 찾을 수 없습니다")
+    from models.trading import Execution
+    execs = (
+        db.query(Execution)
+        .filter(Execution.bot_id == bot_id)
+        .order_by(Execution.executed_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            'id': e.id,
+            'ticker': e.ticker,
+            'execution_type': e.execution_type,
+            'quantity': e.quantity,
+            'price': float(e.price),
+            'fee': float(e.fee or 0),
+            'tax': float(e.tax or 0),
+            'profit_loss': float(e.profit_loss) if e.profit_loss is not None else None,
+            'profit_loss_pct': float(e.profit_loss_pct) if e.profit_loss_pct is not None else None,
+            'executed_at': e.executed_at,
+        }
+        for e in execs
+    ]
+
+
 @router.get("/bots/{bot_id}/reports")
 def get_reports(
     bot_id: int,
@@ -286,6 +336,22 @@ def get_reports(
             'total_pnl': float(r.total_pnl or 0),
             'win_rate': float(r.win_rate or 0),
             'total_trades': r.total_trades or 0,
+            'max_drawdown': float(r.max_drawdown or 0),
+            'sharpe_ratio': float(r.sharpe_ratio or 0),
+            'profit_factor': float(r.profit_factor or 0),
         }
         for r in reports
     ]
+
+
+@router.get("/bots/{bot_id}/performance")
+def get_performance(
+    bot_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """봇 종합 성과 통계 (전체 누적 기준)"""
+    bot = trading_service.get_bot(db, bot_id, _user_id(current_user))
+    if not bot:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="봇을 찾을 수 없습니다")
+    return trading_service.get_performance_stats(db, bot)
