@@ -136,56 +136,53 @@ def _build_technical_summary(db) -> str:
 
 def _build_market_context_text(ctx: dict) -> str:
     """수집된 시장 컨텍스트 dict → 프롬프트용 텍스트"""
-    lines = ["=== 시장 현황 ==="]
+    lines = []
 
-    # 국내 지수
-    krx = ctx.get("krx_indices", {})
-    if krx:
-        for name, data in krx.items():
-            sign = "+" if data["change_pct"] >= 0 else ""
-            lines.append(f"{name}: {data['close']:,.0f} ({sign}{data['change_pct']}%)")
+    indices = ctx.get("indices", {})
+    if indices:
+        # 국내 지수
+        domestic = {k: v for k, v in indices.items() if k in ("KOSPI", "KOSDAQ")}
+        if domestic:
+            lines.append("=== 국내 지수 ===")
+            for name, data in domestic.items():
+                sign = "+" if data["change_pct"] >= 0 else ""
+                lines.append(f"{name}: {data['close']:,.2f} ({sign}{data['change_pct']}%)")
 
-    # 글로벌 지수
-    gl = ctx.get("global_indices", {})
-    if gl:
-        lines.append("")
-        lines.append("=== 글로벌 시장 ===")
-        for name, data in gl.items():
-            sign = "+" if data["change_pct"] >= 0 else ""
-            if name == "VIX":
-                lines.append(f"VIX(공포지수): {data['close']} ({sign}{data['change_pct']}%)"
-                             f" — {'공포' if data['close'] > 25 else '탐욕' if data['close'] < 15 else '중립'}")
-            elif name == "USDKRW":
-                lines.append(f"달러/원: {data['close']:,.0f}원 ({sign}{data['change_pct']}%)")
-            else:
-                lines.append(f"{name}: {data['close']:,.0f} ({sign}{data['change_pct']}%)")
+        # 글로벌
+        global_ = {k: v for k, v in indices.items() if k not in ("KOSPI", "KOSDAQ")}
+        if global_:
+            lines.append("")
+            lines.append("=== 글로벌 시장 ===")
+            for name, data in global_.items():
+                sign = "+" if data["change_pct"] >= 0 else ""
+                if name == "VIX":
+                    vix = data["close"]
+                    mood = "극공포" if vix > 30 else "공포" if vix > 20 else "중립" if vix > 15 else "탐욕"
+                    lines.append(f"VIX(공포지수): {vix} ({sign}{data['change_pct']}%) — {mood}")
+                elif name == "USDKRW":
+                    lines.append(f"달러/원: {data['close']:,.0f}원 ({sign}{data['change_pct']}%)")
+                else:
+                    lines.append(f"{name}: {data['close']:,.2f} ({sign}{data['change_pct']}%)")
+
+    # 시장 심리
+    sentiment = ctx.get("sentiment")
+    if sentiment:
+        lines.append(f"\n=== 시장 심리 ===\n{sentiment}")
 
     # 투자자 동향
     inv = ctx.get("investor_trend", {})
     if inv:
-        lines.append("")
-        lines.append("=== 투자자별 순매수(KOSPI, 억원) ===")
+        lines.append("\n=== 투자자별 순매수(KOSPI) ===")
         for key, label in [("foreign", "외국인"), ("institution", "기관"), ("retail", "개인")]:
             if key in inv:
                 val = inv[key] // 100_000_000
                 sign = "+" if val >= 0 else ""
                 lines.append(f"{label}: {sign}{val:,}억원")
 
-    # 섹터 동향
-    sec = ctx.get("sector_trend", {})
-    if sec:
-        lines.append("")
-        lines.append("=== 섹터 동향 ===")
-        if sec.get("top"):
-            lines.append("상승 상위: " + ", ".join(f"{n}({v:+.1f}%)" for n, v in sec["top"]))
-        if sec.get("bottom"):
-            lines.append("하락 상위: " + ", ".join(f"{n}({v:+.1f}%)" for n, v in sec["bottom"]))
-
     # 뉴스
     news = ctx.get("news", [])
     if news:
-        lines.append("")
-        lines.append("=== 주요 뉴스 헤드라인 ===")
+        lines.append("\n=== 주요 뉴스 헤드라인 ===")
         for i, n in enumerate(news[:8], 1):
             lines.append(f"{i}. {n}")
 
@@ -222,13 +219,40 @@ def _call_claude(user_message: str) -> Optional[dict]:
 
 # ── 전략 저장 ────────────────────────────────────────────────────────
 
+# Claude가 간혹 다른 표현을 쓸 때 정규화
+_CONDITION_ALIASES = {
+    "greater_than": "above", "greater than": "above", "over": "above", "exceeds": "above",
+    "less_than": "below", "less than": "below", "under": "below",
+    "cross_above": "golden_cross", "cross_below": "dead_cross",
+}
+
+
+def _normalize_conditions(conditions: list) -> list:
+    normalized = []
+    for c in conditions:
+        cond = c.get("condition", "").lower().strip()
+        cond = _CONDITION_ALIASES.get(cond, cond)
+        ind = c.get("indicator", "").lower().strip()
+        if ind not in AVAILABLE_INDICATORS:
+            logger.warning("[llm_strategy] 알 수 없는 지표 skip: %s", ind)
+            continue
+        if cond not in AVAILABLE_CONDITIONS:
+            logger.warning("[llm_strategy] 알 수 없는 조건 skip: %s", cond)
+            continue
+        normalized.append({
+            "indicator": ind,
+            "condition": cond,
+            "value": c.get("value"),
+            "value2": c.get("value2"),
+        })
+    return normalized
+
+
 def _save_strategy(db, user_id: int, result: dict) -> Strategy:
     """LLM 결과 → Strategy 레코드 생성"""
-    conditions = result.get("conditions", [])
-    # 타입 검증
-    for c in conditions:
-        assert c.get("indicator") in AVAILABLE_INDICATORS, f"알 수 없는 지표: {c.get('indicator')}"
-        assert c.get("condition") in AVAILABLE_CONDITIONS, f"알 수 없는 조건: {c.get('condition')}"
+    conditions = _normalize_conditions(result.get("conditions", []))
+    if not conditions:
+        raise ValueError("유효한 조건이 없습니다")
 
     name = f"[AI] {result.get('strategy_name', '자동생성')} ({date.today()})"
     strategy = Strategy(
