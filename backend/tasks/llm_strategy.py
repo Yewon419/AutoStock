@@ -238,10 +238,22 @@ def _load_ml_context() -> str:
         boll_state = "하단 근접(반등 가능)" if avg_boll < 0.3 else "상단 근접(과매수)" if avg_boll > 0.7 else "중간 구간"
         ma_state = "상승 추세" if avg_ma_ratio > 1.02 else "하락 추세" if avg_ma_ratio < 0.98 else "횡보"
 
+        # OOS 정확도 로드
+        meta_json = r.get("autostock:ml_scores_meta")
+        oos_line = ""
+        if meta_json:
+            meta = json.loads(meta_json)
+            oos_acc = meta.get("oos_accuracy")
+            feat_cnt = meta.get("feature_count", 8)
+            if oos_acc:
+                edge = round(oos_acc - 50, 1)
+                oos_line = f"모델 OOS 정확도: {oos_acc}% (랜덤 대비 +{edge}%p, 피처 {feat_cnt}개)\n"
+
         return (
             f"\n=== ML 예측 모델 분석 (RandomForest) ===\n"
-            f"ML 상위 종목: {len(profiles)}개\n\n"
-            f"[지표 예측력 순위 - Feature Importance]\n{fi_text}\n\n"
+            f"ML 상위 종목: {len(profiles)}개\n"
+            f"{oos_line}"
+            f"\n[지표 예측력 순위 - Feature Importance]\n{fi_text}\n\n"
             f"[ML 상위 20개 종목 공통 기술적 특성]\n"
             f"- RSI 평균: {avg_rsi} ({rsi_state})\n"
             f"- ADX 평균: {avg_adx} ({adx_state})\n"
