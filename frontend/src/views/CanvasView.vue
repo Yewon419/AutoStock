@@ -25,8 +25,13 @@
         </div>
       </div>
       <div class="toolbar-right">
+        <span class="save-status" :class="saveStatus">
+          <span v-if="saveStatus === 'pending'">대기중...</span>
+          <span v-else-if="saveStatus === 'saving'">저장중...</span>
+          <span v-else-if="saveStatus === 'saved'">✓ 저장됨</span>
+        </span>
         <button @click="runAll" class="btn-run-all">▶ 전체 실행</button>
-        <button @click="saveLayout" class="btn-toolbar">💾 저장</button>
+        <button @click="saveLayout(true)" class="btn-toolbar">💾 저장</button>
         <button @click="clearCanvas" class="btn-toolbar btn-danger-soft">🗑 초기화</button>
       </div>
     </div>
@@ -215,7 +220,7 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, nextTick, onMounted, markRaw } from 'vue'
+import { ref, computed, provide, nextTick, onMounted, markRaw, watch } from 'vue'
 import {
   VueFlow, ConnectionMode, useVueFlow,
   Panel,
@@ -590,19 +595,75 @@ function onPaneClick() {
 }
 
 // ── Canvas 조작 ───────────────────────────────────────────────────
-function clearCanvas() {
+async function clearCanvas() {
   if (nodes.value.length && !confirm('캔버스를 초기화하시겠습니까?')) return
   nodes.value = []
   edges.value = []
   selectedNode.value = null
+  await saveLayout(false)
 }
 
-function saveLayout() {
-  localStorage.setItem('autostock-canvas', JSON.stringify({ nodes: nodes.value, edges: edges.value }))
-  alert('저장 완료')
+// ── 저장 상태 표시 ────────────────────────────────────────────────
+const saveStatus = ref('')  // '' | 'saving' | 'saved' | 'error'
+let saveTimer = null
+
+function _localSave(payload) {
+  try {
+    localStorage.setItem('autostock-canvas', JSON.stringify(payload))
+  } catch { /* ignore */ }
 }
 
-function loadLayout() {
+async function _remoteSave(payload) {
+  try {
+    await fetch(`${API}/ai/canvas-state`, {
+      method: 'POST',
+      headers: headers(true),
+      body: JSON.stringify(payload),
+    })
+  } catch { /* ignore — localStorage가 fallback */ }
+}
+
+function _buildPayload() {
+  // 저장 시 실행 결과(result)는 제외 — 재실행 유도 / 용량 절약
+  const cleanNodes = nodes.value.map(n => ({
+    ...n,
+    data: { ...n.data, status: 'idle', result: null, error: null },
+  }))
+  return { nodes: cleanNodes, edges: edges.value }
+}
+
+async function saveLayout(manual = false) {
+  const payload = _buildPayload()
+  _localSave(payload)
+  saveStatus.value = 'saving'
+  await _remoteSave(payload)
+  saveStatus.value = 'saved'
+  if (manual) {
+    setTimeout(() => { saveStatus.value = '' }, 2000)
+  }
+}
+
+function _scheduleAutoSave() {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => saveLayout(false), 1500)
+}
+
+async function loadLayout() {
+  try {
+    // 1순위: 백엔드 Redis
+    const res = await fetch(`${API}/ai/canvas-state`, { headers: headers() })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.nodes?.length) {
+        nodes.value = data.nodes
+        edges.value = data.edges || []
+        nodeCounter = Math.max(0, ...nodes.value.map(n => parseInt(n.id.split('-').pop()) || 0))
+        return
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 2순위: localStorage fallback
   try {
     const saved = localStorage.getItem('autostock-canvas')
     if (!saved) return
@@ -690,6 +751,14 @@ async function scrollChat() {
   await nextTick()
   if (chatEl.value) chatEl.value.scrollTop = chatEl.value.scrollHeight
 }
+
+// ── 자동저장: nodes/edges 변경 감지 ──────────────────────────────
+watch([nodes, edges], () => {
+  if (nodes.value.length > 0 || edges.value.length > 0) {
+    saveStatus.value = 'pending'
+    _scheduleAutoSave()
+  }
+}, { deep: true })
 
 // ── Provide (FlowNode에서 inject) ─────────────────────────────────
 provide('runNode',   runNode)
@@ -782,6 +851,16 @@ onMounted(async () => {
 }
 .btn-toolbar:hover { border-color: #4f9eff; color: #4f9eff; }
 .btn-danger-soft:hover { border-color: #ef4444; color: #ef4444; }
+
+.save-status {
+  font-size: 11px;
+  min-width: 56px;
+  text-align: right;
+  transition: color 0.2s;
+}
+.save-status.pending { color: #6b7280; }
+.save-status.saving  { color: #4f9eff; }
+.save-status.saved   { color: #10b981; }
 
 /* ── 캔버스 ── */
 .flow-canvas { flex: 1; background: #0f1117; }

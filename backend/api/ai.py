@@ -322,6 +322,28 @@ commands가 필요 없으면 []로."""
         return {"reply": f"오류: {str(e)}", "commands": []}
 
 
+@router.get("/canvas-state")
+def get_canvas_state(current_user: dict = Depends(get_current_user)):
+    """사용자별 캔버스 레이아웃 조회"""
+    import json, redis
+    r = redis.from_url(settings.REDIS_URL)
+    key = f"autostock:canvas:{current_user['sub']}"
+    data = r.get(key)
+    if not data:
+        return {"nodes": [], "edges": []}
+    return json.loads(data)
+
+
+@router.post("/canvas-state")
+def save_canvas_state(payload: dict, current_user: dict = Depends(get_current_user)):
+    """사용자별 캔버스 레이아웃 저장 (만료 없음)"""
+    import json, redis
+    r = redis.from_url(settings.REDIS_URL)
+    key = f"autostock:canvas:{current_user['sub']}"
+    r.set(key, json.dumps(payload))
+    return {"status": "ok"}
+
+
 @router.get("/market-context")
 def get_market_context(_: dict = Depends(get_current_user)):
     """현재 시장 컨텍스트 수집 (미리보기용)"""
