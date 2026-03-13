@@ -12,6 +12,12 @@
           </button>
         </div>
         <div class="palette-group">
+          <span class="palette-label">전략</span>
+          <button v-for="t in STRATEGY_TYPES" :key="t" @click="addNode(t)" class="palette-btn cat-strategy">
+            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
+          </button>
+        </div>
+        <div class="palette-group">
           <span class="palette-label">처리</span>
           <button v-for="t in PROCESSING_TYPES" :key="t" @click="addNode(t)" class="palette-btn cat-processing">
             {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
@@ -78,7 +84,7 @@
             <span class="panel-node-icon">{{ selectedNode.data.icon }}</span>
             <span class="panel-node-name">{{ selectedNode.data.label }}</span>
             <span class="panel-cat-badge" :class="`cat-${selectedNode.data.category}`">
-              {{ { source: '소스', processing: '처리', output: '출력' }[selectedNode.data.category] }}
+              {{ { source: '소스', strategy: '전략', processing: '처리', output: '출력' }[selectedNode.data.category] }}
             </span>
           </div>
           <button @click="selectedNode = null" class="close-btn">✕</button>
@@ -94,7 +100,7 @@
             </div>
           </div>
 
-          <!-- 설정 -->
+          <!-- 설정 (일반) -->
           <div class="panel-section" v-if="editableConfig.length">
             <div class="section-label">설정</div>
             <div v-for="field in editableConfig" :key="field.key" class="config-row">
@@ -109,12 +115,86 @@
                 </select>
                 <button class="btn-new-bot" @click="openNewBotModal">+ 새 봇 생성</button>
               </template>
+              <!-- strategy 노드: 전략 선택 -->
+              <template v-else-if="field.key === 'strategy_id'">
+                <select v-model="selectedNode.data.config.strategy_id" class="config-input">
+                  <option :value="null">전략 선택...</option>
+                  <optgroup label="스윙">
+                    <option v-for="s in strategyList.filter(s=>s.strategy_type!=='scalping')" :key="s.id" :value="s.id">
+                      {{ s.name }}
+                    </option>
+                  </optgroup>
+                  <optgroup label="단타">
+                    <option v-for="s in strategyList.filter(s=>s.strategy_type==='scalping')" :key="s.id" :value="s.id">
+                      {{ s.name }}
+                    </option>
+                  </optgroup>
+                </select>
+              </template>
               <!-- tickers_source -->
               <select v-else-if="field.key === 'tickers_source'" v-model="selectedNode.data.config.tickers_source" class="config-input">
                 <option value="ml_top">ML 상위 30개</option>
                 <option value="volume_top">거래량 상위 100개</option>
               </select>
               <input v-else v-model="selectedNode.data.config[field.key]" class="config-input" />
+            </div>
+          </div>
+
+          <!-- 전략 빌더 패널 (strategyBuilder 노드 전용) -->
+          <div v-if="selectedNode?.type === 'strategyBuilder'" class="panel-section">
+            <div class="section-label">전략 빌더</div>
+
+            <!-- 타입 토글 -->
+            <div class="builder-type-row">
+              <button
+                :class="['builder-type-btn', { active: selectedNode.data.config.strategy_type === 'swing' }]"
+                @click="selectedNode.data.config.strategy_type = 'swing'"
+              >📈 스윙</button>
+              <button
+                :class="['builder-type-btn', { active: selectedNode.data.config.strategy_type === 'scalping' }]"
+                @click="selectedNode.data.config.strategy_type = 'scalping'"
+              >⚡ 단타</button>
+            </div>
+
+            <!-- 전략명 -->
+            <input
+              v-model="selectedNode.data.config.name"
+              class="config-input"
+              placeholder="전략명 입력..."
+              style="margin-bottom:8px"
+            />
+
+            <!-- 프리셋 -->
+            <div class="builder-preset-wrap">
+              <span class="config-label">프리셋</span>
+              <div class="builder-presets">
+                <button
+                  v-for="p in builderPresets"
+                  :key="p.name"
+                  class="builder-preset-btn"
+                  :title="p.description"
+                  @click="applyBuilderPreset(p)"
+                >{{ p.name }}</button>
+              </div>
+            </div>
+
+            <!-- 조건 목록 -->
+            <div class="config-label" style="margin-top:8px;margin-bottom:4px">조건 (AND)</div>
+            <div v-for="(cond, idx) in selectedNode.data.config.conditions" :key="idx" class="builder-cond-row">
+              <select v-model="cond.indicator" class="builder-sel-ind">
+                <option v-for="ind in builderIndicators" :key="ind.key" :value="ind.key">{{ ind.label }}</option>
+              </select>
+              <select v-model="cond.condition" class="builder-sel-cond">
+                <option v-for="ct in CANVAS_CONDITIONS" :key="ct.key" :value="ct.key">{{ ct.label }}</option>
+              </select>
+              <input v-model.number="cond.value" class="builder-val" type="number" placeholder="값" />
+              <input v-if="cond.condition === 'between'" v-model.number="cond.value2" class="builder-val" type="number" placeholder="상한" />
+              <button class="builder-rm" @click="selectedNode.data.config.conditions.splice(idx,1)">✕</button>
+            </div>
+            <button class="builder-add-btn" @click="addBuilderCondition">+ 조건 추가</button>
+
+            <div v-if="selectedNode.data.config.saved_id" class="builder-saved-info">
+              저장됨 (ID {{ selectedNode.data.config.saved_id }})
             </div>
           </div>
 
@@ -241,17 +321,20 @@ const API  = 'http://localhost:8001/api/v1'
 
 // ── 노드 타입 등록 ────────────────────────────────────────────────
 const nodeTypes = {
-  marketContext:  markRaw(FlowNode),
-  techIndicators: markRaw(FlowNode),
-  mlScores:       markRaw(FlowNode),
-  mlModel:        markRaw(FlowNode),
-  llmGenerator:   markRaw(FlowNode),
-  backtest:       markRaw(FlowNode),
-  botApply:       markRaw(FlowNode),
+  marketContext:   markRaw(FlowNode),
+  techIndicators:  markRaw(FlowNode),
+  mlScores:        markRaw(FlowNode),
+  strategy:        markRaw(FlowNode),
+  strategyBuilder: markRaw(FlowNode),
+  mlModel:         markRaw(FlowNode),
+  llmGenerator:    markRaw(FlowNode),
+  backtest:        markRaw(FlowNode),
+  botApply:        markRaw(FlowNode),
 }
 
 // ── 노드 정의 ─────────────────────────────────────────────────────
 const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores']
+const STRATEGY_TYPES   = ['strategy', 'strategyBuilder']
 const PROCESSING_TYPES = ['mlModel', 'llmGenerator', 'backtest']
 const OUTPUT_TYPES     = ['botApply']
 
@@ -273,6 +356,23 @@ const NODE_DEFS = {
     description: '저장된 ML 스코어링 결과',
     inputs: [], outputs: [{ id: 'ml_scores', label: 'ML 스코어' }],
     config: {}, apiPath: '/ai/scores', apiMethod: 'GET',
+  },
+  strategy: {
+    label: '기존 전략', icon: '📋', category: 'strategy',
+    description: 'DB에서 전략 선택',
+    inputs: [], outputs: [{ id: 'strategy', label: '전략' }],
+    config: { strategy_id: null }, apiPath: null,
+  },
+  strategyBuilder: {
+    label: '전략 빌더', icon: '🔧', category: 'strategy',
+    description: '조건 직접 설정 후 저장',
+    inputs: [], outputs: [{ id: 'strategy', label: '전략' }],
+    config: {
+      name: '',
+      strategy_type: 'swing',
+      conditions: [{ indicator: 'rsi', condition: 'below', value: 30, value2: null }],
+      saved_id: null,
+    }, apiPath: null,
   },
   mlModel: {
     label: 'ML 모델', icon: '🤖', category: 'processing',
@@ -327,9 +427,82 @@ const edgeDefaults = {
   animated: false,
 }
 
-// ── 선택된 노드 / 봇 목록 ─────────────────────────────────────────
+// ── 전략 관련 상수 ────────────────────────────────────────────────
+const CANVAS_CONDITIONS = [
+  { key: 'above',        label: '초과(>)' },
+  { key: 'below',        label: '미만(<)' },
+  { key: 'between',      label: '사이' },
+  { key: 'golden_cross', label: '골든↑' },
+  { key: 'dead_cross',   label: '데드↓' },
+]
+
+const _SWING_INDICATORS = [
+  { key: 'rsi', label: 'RSI' }, { key: 'macd', label: 'MACD' },
+  { key: 'macd_signal', label: 'MACD Signal' }, { key: 'macd_histogram', label: 'MACD Hist' },
+  { key: 'stoch_k', label: 'Stoch %K' }, { key: 'stoch_d', label: 'Stoch %D' },
+  { key: 'bollinger_upper', label: 'BB 상단' }, { key: 'bollinger_middle', label: 'BB 중단' }, { key: 'bollinger_lower', label: 'BB 하단' },
+  { key: 'ma_20', label: 'MA 20' }, { key: 'ma_50', label: 'MA 50' }, { key: 'ma_200', label: 'MA 200' },
+  { key: 'adx', label: 'ADX' }, { key: 'obv', label: 'OBV' }, { key: 'atr', label: 'ATR' },
+  { key: 'volume_ratio', label: '거래량 비율' }, { key: 'opening_gap', label: '시가 갭(%)' },
+]
+const _SCALPING_INDICATORS = [
+  { key: 'rsi', label: 'RSI' }, { key: 'macd', label: 'MACD' },
+  { key: 'macd_histogram', label: 'MACD Hist' },
+  { key: 'bollinger_upper', label: 'BB 상단' }, { key: 'bollinger_lower', label: 'BB 하단' },
+  { key: 'ma_5', label: 'MA 5' }, { key: 'ma_10', label: 'MA 10' }, { key: 'ma_20', label: 'MA 20' },
+  { key: 'volume_ratio', label: '거래량 비율' }, { key: 'opening_gap', label: '시가 갭(%)' },
+  { key: 'vwap', label: 'VWAP' }, { key: 'price_vs_vwap', label: 'VWAP 대비(%)' },
+  { key: 'atr', label: 'ATR' }, { key: 'ma5_minus_ma10', label: 'MA5-MA10' }, { key: 'ma5_minus_ma20', label: 'MA5-MA20' },
+]
+const _SWING_PRESETS = [
+  { name: 'RSI 과매도', description: 'RSI 30 이하', strategy_type: 'swing',
+    conditions: [{ indicator: 'rsi', condition: 'below', value: 30, value2: null }] },
+  { name: 'MACD 골든크로스', description: 'MACD 0선 돌파', strategy_type: 'swing',
+    conditions: [{ indicator: 'macd', condition: 'golden_cross', value: 0, value2: null }] },
+  { name: '강세장 눌림목', description: 'ADX>25 + RSI 40~60', strategy_type: 'swing',
+    conditions: [{ indicator: 'adx', condition: 'above', value: 25, value2: null }, { indicator: 'rsi', condition: 'between', value: 40, value2: 60 }] },
+  { name: '스토캐스틱 반전', description: 'Stoch K/D 모두 20 이하', strategy_type: 'swing',
+    conditions: [{ indicator: 'stoch_k', condition: 'below', value: 20, value2: null }, { indicator: 'stoch_d', condition: 'below', value: 20, value2: null }] },
+]
+const _SCALPING_PRESETS = [
+  { name: '★ 과매도+거래량', description: 'RSI<35 + 거래량 2배', strategy_type: 'scalping',
+    conditions: [{ indicator: 'rsi', condition: 'below', value: 35, value2: null }, { indicator: 'volume_ratio', condition: 'above', value: 2.0, value2: null }] },
+  { name: 'VWAP 위+거래량', description: '가격>VWAP + 거래량 1.5배', strategy_type: 'scalping',
+    conditions: [{ indicator: 'price_vs_vwap', condition: 'above', value: 0, value2: null }, { indicator: 'volume_ratio', condition: 'above', value: 1.5, value2: null }] },
+  { name: 'MACD Hist 반전', description: 'MACD Hist 골든크로스', strategy_type: 'scalping',
+    conditions: [{ indicator: 'macd_histogram', condition: 'golden_cross', value: 0, value2: null }, { indicator: 'volume_ratio', condition: 'above', value: 1.5, value2: null }] },
+  { name: 'MA5↑MA20+VWAP', description: 'MA크로스 + VWAP 위', strategy_type: 'scalping',
+    conditions: [{ indicator: 'ma5_minus_ma20', condition: 'golden_cross', value: 0, value2: null }, { indicator: 'price_vs_vwap', condition: 'above', value: 0, value2: null }] },
+]
+
+const builderIndicators = computed(() =>
+  selectedNode.value?.data?.config?.strategy_type === 'scalping' ? _SCALPING_INDICATORS : _SWING_INDICATORS
+)
+const builderPresets = computed(() =>
+  selectedNode.value?.data?.config?.strategy_type === 'scalping' ? _SCALPING_PRESETS : _SWING_PRESETS
+)
+
+function applyBuilderPreset(preset) {
+  if (!selectedNode.value) return
+  selectedNode.value.data.config.name = preset.name
+  selectedNode.value.data.config.conditions = preset.conditions.map(c => ({ ...c }))
+}
+function addBuilderCondition() {
+  if (!selectedNode.value) return
+  selectedNode.value.data.config.conditions.push({ indicator: 'rsi', condition: 'below', value: null, value2: null })
+}
+
+// ── 선택된 노드 / 봇 목록 / 전략 목록 ────────────────────────────
 const selectedNode = ref(null)
 const botList = ref([])
+const strategyList = ref([])
+
+async function fetchStrategies() {
+  try {
+    const res = await fetch(`${API}/strategies`, { headers: headers() })
+    strategyList.value = await res.json()
+  } catch { /* ignore */ }
+}
 
 const newBotModal = ref({ open: false, name: '', mode: 'mock', loading: false, error: '' })
 
@@ -371,10 +544,12 @@ async function createAndSelectBot() {
 
 const editableConfig = computed(() => {
   if (!selectedNode.value) return []
+  // strategyBuilder has dedicated panel — no generic config fields
+  if (selectedNode.value.type === 'strategyBuilder') return []
   const cfg = selectedNode.value.data.config || {}
   return Object.keys(cfg).map(k => ({
     key: k,
-    label: { bot_id: '봇 선택', tickers_source: '종목 소스' }[k] || k,
+    label: { bot_id: '봇 선택', tickers_source: '종목 소스', strategy_id: '전략 선택' }[k] || k,
   }))
 })
 
@@ -545,6 +720,52 @@ async function runNode(nodeId) {
       result = await pollTask('/ai/backtest-strategy', res.task_id)
     }
 
+    // ── strategy (기존 전략 선택) ──────────────────────────────────
+    else if (node.type === 'strategy') {
+      const stratId = node.data.config.strategy_id
+      if (!stratId) throw new Error('사이드 패널에서 전략을 선택하세요')
+      const s = await apiGet(`/strategies/${stratId}`)
+      result = {
+        strategy_id: s.id,
+        strategy_name: s.name,
+        strategy_type: s.strategy_type,
+        conditions: s.conditions,
+        confidence: s.ai_confidence,
+      }
+    }
+
+    // ── strategyBuilder (전략 빌더) ────────────────────────────────
+    else if (node.type === 'strategyBuilder') {
+      const cfg = node.data.config
+      if (!cfg.name?.trim()) throw new Error('전략명을 입력하세요')
+      if (!cfg.conditions?.length) throw new Error('조건을 1개 이상 추가하세요')
+      const body = {
+        name: cfg.name.trim(),
+        strategy_type: cfg.strategy_type || 'swing',
+        conditions: cfg.conditions,
+        description: `캔버스 빌더: ${cfg.name}`,
+      }
+      let s
+      if (cfg.saved_id) {
+        // 업데이트
+        const res = await fetch(`${API}/strategies/${cfg.saved_id}`, {
+          method: 'PUT', headers: headers(true), body: JSON.stringify(body),
+        })
+        if (!res.ok) throw new Error(await res.text())
+        s = await res.json()
+      } else {
+        s = await apiPost('/strategies', body)
+        node.data.config.saved_id = s.id
+        await fetchStrategies()
+      }
+      result = {
+        strategy_id: s.id,
+        strategy_name: s.name,
+        strategy_type: s.strategy_type,
+        conditions: s.conditions,
+      }
+    }
+
     // ── botApply ──────────────────────────────────────────────────
     else if (node.type === 'botApply') {
       const strategyResult = getInputResult(nodeId, 'strategy')
@@ -574,9 +795,10 @@ async function runNode(nodeId) {
 }
 
 async function runAll() {
-  // 소스 → 처리 → 출력 순으로 실행
+  // 소스 → 전략 → 처리 → 출력 순으로 실행
   const ordered = [
     ...nodes.value.filter(n => n.data.category === 'source'),
+    ...nodes.value.filter(n => n.data.category === 'strategy'),
     ...nodes.value.filter(n => n.data.category === 'processing'),
     ...nodes.value.filter(n => n.data.category === 'output'),
   ]
@@ -684,7 +906,7 @@ const chatMessages = ref([
 const chatEl = ref(null)
 
 function miniMapColor(node) {
-  return { source: '#0891b2', processing: '#7c3aed', output: '#059669' }[node.data?.category] ?? '#4b5563'
+  return { source: '#0891b2', strategy: '#d97706', processing: '#7c3aed', output: '#059669' }[node.data?.category] ?? '#4b5563'
 }
 
 async function sendChat(msg) {
@@ -773,6 +995,7 @@ onMounted(async () => {
     const res = await fetch(`${API}/bots`, { headers: headers() })
     botList.value = await res.json()
   } catch { /* ignore */ }
+  fetchStrategies()
 })
 </script>
 
@@ -826,6 +1049,7 @@ onMounted(async () => {
   transition: all 0.15s;
 }
 .palette-btn.cat-source     { background: rgba(8,145,178,.12); color: #22d3ee; border-color: rgba(8,145,178,.25); }
+.palette-btn.cat-strategy   { background: rgba(217,119,6,.12); color: #fbbf24; border-color: rgba(217,119,6,.25); }
 .palette-btn.cat-processing { background: rgba(124,58,237,.12); color: #a78bfa; border-color: rgba(124,58,237,.25); }
 .palette-btn.cat-output     { background: rgba(5,150,105,.12); color: #34d399; border-color: rgba(5,150,105,.25); }
 .palette-btn:hover { opacity: 0.8; }
@@ -925,6 +1149,7 @@ onMounted(async () => {
   font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
 }
 .cat-source     { background: rgba(8,145,178,.15); color: #22d3ee; }
+.cat-strategy   { background: rgba(217,119,6,.15); color: #fbbf24; }
 .cat-processing { background: rgba(124,58,237,.15); color: #a78bfa; }
 .cat-output     { background: rgba(5,150,105,.15);  color: #34d399; }
 
@@ -1124,4 +1349,60 @@ onMounted(async () => {
 }
 .nb-btn-ok:hover:not(:disabled) { background: #3b82f6; }
 .nb-btn-ok:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── 전략 빌더 ── */
+.builder-type-row { display: flex; gap: 6px; margin-bottom: 10px; }
+.builder-type-btn {
+  flex: 1; padding: 5px 0;
+  background: #0f1117; border: 1px solid #2a2d3e;
+  border-radius: 6px; color: #6b7280; font-size: 12px; cursor: pointer;
+  transition: all 0.15s;
+}
+.builder-type-btn.active { border-color: #fbbf24; color: #fbbf24; background: rgba(217,119,6,.1); }
+.builder-type-btn:not(.active):hover { border-color: #4b5563; color: #9ca3af; }
+
+.builder-preset-wrap { margin-bottom: 2px; }
+.builder-presets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.builder-preset-btn {
+  padding: 3px 10px;
+  background: rgba(217,119,6,.08); border: 1px solid rgba(217,119,6,.25);
+  border-radius: 20px; color: #fbbf24; font-size: 11px; cursor: pointer;
+  transition: all 0.15s;
+}
+.builder-preset-btn:hover { background: rgba(217,119,6,.18); }
+
+.builder-cond-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+.builder-sel-ind {
+  flex: 2; background: #0f1117; border: 1px solid #2a2d3e; border-radius: 5px;
+  color: #e5e7eb; font-size: 11px; padding: 5px 6px; outline: none;
+}
+.builder-sel-cond {
+  flex: 1.5; background: #0f1117; border: 1px solid #2a2d3e; border-radius: 5px;
+  color: #e5e7eb; font-size: 11px; padding: 5px 4px; outline: none;
+}
+.builder-val {
+  flex: 1; background: #0f1117; border: 1px solid #2a2d3e; border-radius: 5px;
+  color: #e5e7eb; font-size: 11px; padding: 5px 6px; outline: none;
+  min-width: 0;
+}
+.builder-val:focus, .builder-sel-ind:focus, .builder-sel-cond:focus { border-color: #fbbf24; }
+.builder-rm {
+  background: none; border: none; color: #6b7280; font-size: 12px; cursor: pointer;
+  padding: 2px 4px; flex-shrink: 0; transition: color 0.15s;
+}
+.builder-rm:hover { color: #ef4444; }
+
+.builder-add-btn {
+  width: 100%; padding: 5px 0; margin-top: 2px;
+  background: none; border: 1px dashed #2a2d3e;
+  border-radius: 5px; color: #6b7280; font-size: 11px; cursor: pointer;
+  transition: all 0.15s;
+}
+.builder-add-btn:hover { border-color: #fbbf24; color: #fbbf24; }
+
+.builder-saved-info {
+  margin-top: 8px; padding: 4px 8px;
+  background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.2);
+  border-radius: 5px; color: #10b981; font-size: 11px;
+}
 </style>

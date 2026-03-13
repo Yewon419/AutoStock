@@ -270,6 +270,7 @@ def canvas_assistant(
 
 [사용 가능한 노드]
 소스 노드: marketContext(시장 컨텍스트), techIndicators(기술 지표 DB), mlScores(ML 스코어 캐시)
+전략 노드: strategy(기존 전략 선택), strategyBuilder(조건 직접 설정 전략 빌더)
 처리 노드: mlModel(ML 모델 학습), llmGenerator(LLM 전략 생성), backtest(백테스트)
 출력 노드: botApply(봇 적용)
 
@@ -280,12 +281,18 @@ mlScores.ml_scores → llmGenerator.ml_scores
 mlModel.ml_scores → llmGenerator.ml_scores
 llmGenerator.strategy → backtest.strategy
 llmGenerator.strategy → botApply.strategy
+strategy.strategy → backtest.strategy
+strategy.strategy → botApply.strategy
+strategyBuilder.strategy → backtest.strategy
+strategyBuilder.strategy → botApply.strategy
 
 [레이아웃 프리셋]
 풀 파이프라인: marketContext(80,120) techIndicators(80,320) mlModel(340,220) llmGenerator(600,120) backtest(600,340) botApply(860,120)
 빠른 전략: marketContext(80,180) mlScores(80,340) llmGenerator(360,270) botApply(640,270)
 ML만: techIndicators(80,200) mlModel(360,200)
 LLM만: marketContext(80,200) llmGenerator(360,200) botApply(640,200)
+기존전략+백테스트: strategy(80,200) backtest(360,200) botApply(640,200)
+전략빌더+백테스트: strategyBuilder(80,200) backtest(360,200) botApply(640,200)
 
 [응답 형식 — 반드시 JSON만, 다른 텍스트 없이]
 {

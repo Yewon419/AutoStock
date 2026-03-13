@@ -90,8 +90,8 @@ const PREVIEW_MAP = {
   ticker_count: '종목수', latest_date: '기준일', avg_rsi: '평균RSI',
   // mlScores / mlModel
   top_tickers: 'ML상위', train_samples: '학습샘플', positive_rate: '매수율',
-  // llmGenerator
-  strategy_name: '전략명', confidence: '신뢰도', risk_level: '위험',
+  // strategy / strategyBuilder / llmGenerator
+  strategy_name: '전략명', confidence: '신뢰도', risk_level: '위험', strategy_id: '전략ID',
   // backtest
   total_return_pct: '수익률', win_rate: '승률', num_trades: '거래수',
   // botApply
@@ -138,9 +138,10 @@ const previewResult = computed(() => {
 }
 
 /* Category colors */
-.flow-node.cat-source   { border-top: 3px solid #0891b2; }
+.flow-node.cat-source    { border-top: 3px solid #0891b2; }
+.flow-node.cat-strategy  { border-top: 3px solid #d97706; }
 .flow-node.cat-processing { border-top: 3px solid #7c3aed; }
-.flow-node.cat-output   { border-top: 3px solid #059669; }
+.flow-node.cat-output    { border-top: 3px solid #059669; }
 
 /* Running glow */
 .flow-node.st-running { box-shadow: 0 0 12px rgba(79, 158, 255, 0.4); }
