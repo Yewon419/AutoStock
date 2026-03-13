@@ -34,6 +34,8 @@ services:
     container_name: autostock-backend
     env_file:
       - .env
+    environment:
+      WATCHFILES_FORCE_POLLING: "true"
     ports:
       - "8001:8000"
     depends_on:

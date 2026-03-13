@@ -358,6 +358,7 @@
         <div class="panel-header">
           <span class="panel-title">생성된 전략</span>
           <div style="display:flex;align-items:center;gap:10px">
+            <span v-if="llmResult.ml_enhanced" class="ml-badge">🧠 ML 연동</span>
             <span class="confidence-badge" :class="confidenceClass(llmResult.confidence)">
               신뢰도 {{ llmResult.confidence }}%
             </span>
@@ -376,8 +377,43 @@
               <span class="c-val">{{ c.value }}{{ c.value2 != null ? ' ~ ' + c.value2 : '' }}</span>
             </div>
           </div>
+          <!-- 자동 백테스트 결과 -->
+          <div v-if="llmResult.backtest && llmResult.backtest.num_trades > 0" class="backtest-result">
+            <div class="backtest-title">📊 ML 상위 종목 자동 백테스트 (최근 6개월)</div>
+            <div class="backtest-stats">
+              <div class="bt-stat">
+                <span class="bt-label">총수익률</span>
+                <span class="bt-value" :class="llmResult.backtest.total_return_pct >= 0 ? 'pos' : 'neg'">
+                  {{ llmResult.backtest.total_return_pct >= 0 ? '+' : '' }}{{ llmResult.backtest.total_return_pct }}%
+                </span>
+              </div>
+              <div class="bt-stat">
+                <span class="bt-label">승률</span>
+                <span class="bt-value">{{ llmResult.backtest.win_rate }}%</span>
+              </div>
+              <div class="bt-stat">
+                <span class="bt-label">거래수</span>
+                <span class="bt-value">{{ llmResult.backtest.num_trades }}회</span>
+              </div>
+              <div class="bt-stat">
+                <span class="bt-label">샤프</span>
+                <span class="bt-value" :class="llmResult.backtest.sharpe_ratio >= 0 ? 'pos' : 'neg'">
+                  {{ llmResult.backtest.sharpe_ratio }}
+                </span>
+              </div>
+              <div class="bt-stat">
+                <span class="bt-label">테스트 종목</span>
+                <span class="bt-value">{{ llmResult.backtest.tickers_tested }}개</span>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="llmResult.backtest && llmResult.backtest.num_trades === 0" class="backtest-no-trade">
+            ⚠️ 백테스트 거래 없음 — 조건이 너무 엄격하거나 ML 학습이 필요합니다
+          </div>
           <div class="result-actions">
-            <span class="result-hint">전략 탭에서 봇에 적용할 수 있습니다</span>
+            <button class="btn-apply" @click="openApplyModal(llmResult.strategy_id, llmResult.strategy_name)">
+              🤖 봇에 적용
+            </button>
             <button class="btn-secondary" @click="loadGeneratedStrategies">히스토리 새로고침</button>
           </div>
         </div>
@@ -411,6 +447,7 @@
                   {{ s.ai_confidence }}%
                 </span>
                 <span class="history-date">{{ fmtDate(s.created_at) }}</span>
+                <button class="btn-apply-sm" @click.stop="openApplyModal(s.id, s.name)">봇에 적용</button>
                 <span class="expand-icon">{{ expandedId === s.id ? '▲' : '▼' }}</span>
               </div>
             </div>
@@ -441,12 +478,72 @@
     </div>
 
   </div>
+
+  <!-- ── 봇 적용 모달 ── -->
+  <div v-if="applyModal.show" class="modal-overlay" @click.self="closeApplyModal">
+    <div class="apply-modal">
+      <div class="apply-modal-header">
+        <div>
+          <div class="apply-modal-title">봇에 적용</div>
+          <div class="apply-modal-sub">{{ applyModal.strategyName }}</div>
+        </div>
+        <button class="close-btn" @click="closeApplyModal">✕</button>
+      </div>
+
+      <div class="apply-modal-body">
+        <!-- 성공 메시지 -->
+        <div v-if="applySuccess" class="apply-success">
+          ✅ <strong>{{ applySuccess }}</strong>에 전략이 적용되었습니다!
+          <button class="btn-secondary" style="margin-top:12px" @click="closeApplyModal">닫기</button>
+        </div>
+
+        <template v-else>
+          <div class="apply-section-label">적용할 봇 선택</div>
+
+          <div v-if="botListForApply.length === 0" class="apply-empty">
+            생성된 봇이 없습니다.
+          </div>
+
+          <div v-else class="apply-bot-list">
+            <button
+              v-for="bot in botListForApply"
+              :key="bot.id"
+              class="apply-bot-item"
+              :disabled="applyLoading"
+              @click="applyToBot(bot)"
+            >
+              <div class="apply-bot-left">
+                <span class="apply-bot-name">{{ bot.name }}</span>
+                <span class="apply-bot-type" :class="bot.bot_type === 'scalping' ? 'type-scalping' : 'type-swing'">
+                  {{ bot.bot_type === 'scalping' ? '⚡ 단타' : '📈 스윙' }}
+                </span>
+              </div>
+              <div class="apply-bot-right">
+                <span class="apply-bot-status" :class="bot.status === 'RUNNING' ? 'status-running' : 'status-idle'">
+                  {{ bot.status }}
+                </span>
+                <span class="apply-arrow">→</span>
+              </div>
+            </button>
+          </div>
+
+          <div class="apply-divider"></div>
+
+          <button class="btn-new-bot" @click="createNewBotWithStrategy">
+            + 새 봇 생성 (전략 자동 적용)
+          </button>
+        </template>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
+const router = useRouter()
 const auth = useAuthStore()
 const API = 'http://localhost:8001/api/v1'
 
@@ -729,6 +826,49 @@ function confidenceClass(c) {
 function fmtDate(dt) {
   if (!dt) return ''
   return new Date(dt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+// ── 봇 적용 모달 ─────────────────────────────────────────────────
+const applyModal = ref({ show: false, strategyId: null, strategyName: '' })
+const botListForApply = ref([])
+const applyLoading = ref(false)
+const applySuccess = ref(false)
+
+async function openApplyModal(strategyId, strategyName) {
+  applyModal.value = { show: true, strategyId, strategyName }
+  applySuccess.value = false
+  try {
+    const res = await fetch(`${API}/bots`, { headers: headers() })
+    botListForApply.value = await res.json()
+  } catch {
+    botListForApply.value = []
+  }
+}
+
+function closeApplyModal() {
+  applyModal.value = { show: false, strategyId: null, strategyName: '' }
+}
+
+async function applyToBot(bot) {
+  applyLoading.value = true
+  try {
+    const res = await fetch(`${API}/bots/${bot.id}`, {
+      method: 'PUT',
+      headers: { ...headers(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ strategy_id: applyModal.value.strategyId }),
+    })
+    if (res.ok) {
+      applySuccess.value = bot.name
+    } else {
+      alert('적용 실패: 실행 중인 봇은 수정할 수 없습니다')
+    }
+  } finally {
+    applyLoading.value = false
+  }
+}
+
+function createNewBotWithStrategy() {
+  router.push({ path: '/bots', query: { strategy_id: applyModal.value.strategyId } })
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1069,4 +1209,174 @@ onUnmounted(() => {
 .history-date { font-size: 11px; color: #4b5563; }
 .expand-icon { font-size: 10px; color: #4b5563; }
 .history-detail { padding: 0 18px 16px; }
+
+/* ML 연동 배지 */
+.ml-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* 자동 백테스트 결과 */
+.backtest-result {
+  background: rgba(79, 158, 255, 0.05);
+  border: 1px solid rgba(79, 158, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.backtest-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+.backtest-stats {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.bt-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bt-label { font-size: 11px; color: #6b7280; }
+.bt-value { font-size: 15px; font-weight: 700; color: #e5e7eb; }
+.bt-value.pos { color: #ef4444; }
+.bt-value.neg { color: #60a5fa; }
+
+.backtest-no-trade {
+  font-size: 12px;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 16px;
+}
+
+/* 봇에 적용 버튼 */
+.btn-apply {
+  padding: 7px 16px;
+  background: linear-gradient(135deg, #0e7490, #0891b2);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btn-apply:hover { opacity: 0.85; }
+
+.btn-apply-sm {
+  padding: 3px 10px;
+  background: rgba(8, 145, 178, 0.15);
+  border: 1px solid rgba(8, 145, 178, 0.35);
+  border-radius: 5px;
+  color: #22d3ee;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-apply-sm:hover { background: rgba(8, 145, 178, 0.28); }
+
+/* 봇 적용 모달 */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.65);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2000;
+}
+.apply-modal {
+  background: #1a1d27;
+  border: 1px solid #2a2d3e;
+  border-radius: 12px;
+  width: 460px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.apply-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 20px 24px;
+  border-bottom: 1px solid #2a2d3e;
+}
+.apply-modal-title { font-size: 16px; font-weight: 700; color: #e5e7eb; }
+.apply-modal-sub { font-size: 12px; color: #6b7280; margin-top: 3px; max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.close-btn { background: none; border: none; color: #6b7280; font-size: 18px; cursor: pointer; flex-shrink: 0; }
+
+.apply-modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.apply-section-label { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+.apply-empty { font-size: 13px; color: #4b5563; text-align: center; padding: 20px 0; }
+
+.apply-bot-list { display: flex; flex-direction: column; gap: 6px; }
+.apply-bot-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #0f1117;
+  border: 1px solid #2a2d3e;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  width: 100%;
+  text-align: left;
+}
+.apply-bot-item:hover:not(:disabled) { border-color: #22d3ee; background: rgba(8,145,178,.06); }
+.apply-bot-item:disabled { opacity: 0.5; cursor: not-allowed; }
+.apply-bot-left { display: flex; align-items: center; gap: 10px; }
+.apply-bot-name { font-size: 14px; color: #e5e7eb; font-weight: 500; }
+.apply-bot-type { font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 600; }
+.type-scalping { background: rgba(251,191,36,.15); color: #fbbf24; }
+.type-swing { background: rgba(79,158,255,.15); color: #4f9eff; }
+.apply-bot-right { display: flex; align-items: center; gap: 8px; }
+.apply-bot-status { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+.status-running { background: rgba(16,185,129,.2); color: #10b981; }
+.status-idle { background: rgba(107,114,128,.2); color: #9ca3af; }
+.apply-arrow { font-size: 14px; color: #4b5563; }
+
+.apply-divider { border-top: 1px solid #2a2d3e; margin: 4px 0; }
+
+.btn-new-bot {
+  padding: 12px 16px;
+  background: rgba(167,139,250,.1);
+  border: 1px dashed rgba(167,139,250,.4);
+  border-radius: 8px;
+  color: #a78bfa;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+.btn-new-bot:hover { background: rgba(167,139,250,.18); border-color: #a78bfa; }
+
+.apply-success {
+  text-align: center;
+  padding: 24px 0;
+  font-size: 14px;
+  color: #10b981;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
 </style>

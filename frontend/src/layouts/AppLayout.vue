@@ -34,6 +34,10 @@
           <span class="nav-icon">🧠</span>
           <span>AI 분석</span>
         </RouterLink>
+        <RouterLink to="/canvas" class="nav-item nav-canvas" active-class="active">
+          <span class="nav-icon">✦</span>
+          <span>AI 캔버스</span>
+        </RouterLink>
         <RouterLink to="/connection" class="nav-item" active-class="active">
           <span class="nav-icon">🔌</span>
           <span>연결 설정</span>
@@ -41,7 +45,7 @@
       </nav>
 
       <!-- 메인 콘텐츠 -->
-      <main class="content">
+      <main class="content" :class="{ 'content-canvas': isCanvas }">
         <RouterView />
       </main>
     </div>
@@ -49,11 +53,14 @@
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
-const auth = useAuthStore()
+const route  = useRoute()
+const auth   = useAuthStore()
+const isCanvas = computed(() => route.name === 'canvas')
 
 function logout() {
   auth.logout()
@@ -160,9 +167,17 @@ function logout() {
   text-align: center;
 }
 
+.nav-canvas { color: #a78bfa !important; }
+.nav-canvas.active { background: rgba(124,58,237,.15) !important; color: #a78bfa !important; }
+
 .content {
   flex: 1;
   overflow-y: auto;
   padding: 32px;
+}
+
+.content-canvas {
+  padding: 0;
+  overflow: hidden;
 }
 </style>

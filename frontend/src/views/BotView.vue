@@ -235,10 +235,11 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const API = 'http://localhost:8001/api/v1'
 
@@ -396,9 +397,17 @@ function fmtMoney(v) {
   return Number(v).toLocaleString('ko-KR') + '원'
 }
 
-onMounted(() => {
-  fetchBots()
-  fetchStrategies()
+onMounted(async () => {
+  await Promise.all([fetchBots(), fetchStrategies()])
+  // AI 탭에서 전략 적용 후 새 봇 생성으로 진입 시 자동으로 모달 열기
+  const strategyId = route.query.strategy_id
+  if (strategyId) {
+    form.value = defaultForm()
+    form.value.strategy_id = Number(strategyId)
+    tickersInput.value = ''
+    error.value = ''
+    showModal.value = true
+  }
 })
 </script>
 

@@ -196,7 +196,42 @@ def train_and_score():
             "ticker_count": len(top_scores),
         }), ex=86400 * 2)
 
-        logger.info(f"[ai] 완료: {len(top_scores)}개 종목 스코어링")
+        # ── Feature importance 저장 (LLM 연동용) ──────────────────────
+        _FEATURE_NAMES = ['RSI', 'MACD_hist', 'Stoch_K', 'Stoch_D', 'ADX', 'MA20_MA50', 'ATR', 'Boll_pos']
+        fi_sorted = sorted(
+            zip(_FEATURE_NAMES, clf.feature_importances_),
+            key=lambda x: -x[1],
+        )
+        r.set("autostock:ml_feature_importance", json.dumps([
+            {"indicator": name, "importance_pct": round(float(imp) * 100, 1)}
+            for name, imp in fi_sorted
+        ]), ex=86400 * 2)
+
+        # ── 상위 종목 기술적 프로필 저장 (LLM 연동용) ─────────────────
+        profiles = {}
+        for ticker in top_tickers:
+            ind = ind_map.get(ticker, {}).get(latest_date)
+            price = price_map.get(ticker, {}).get(latest_date)
+            if not ind or not price:
+                continue
+            ma20 = _safe_float(ind.ma_20)
+            ma50 = _safe_float(ind.ma_50)
+            boll_u = _safe_float(ind.bollinger_upper)
+            boll_l = _safe_float(ind.bollinger_lower)
+            boll_range = boll_u - boll_l
+            close = float(price)
+            boll_pos = (close - boll_l) / boll_range if boll_range > 0 else 0.5
+            profiles[ticker] = {
+                "score": top_scores[ticker],
+                "rsi": round(_safe_float(ind.rsi), 1),
+                "adx": round(_safe_float(ind.adx), 1),
+                "macd_hist_pos": bool(_safe_float(ind.macd_histogram) > 0),
+                "boll_pos": round(boll_pos, 2),
+                "ma_ratio": round(ma20 / ma50, 3) if ma50 > 0 else 1.0,
+            }
+        r.set("autostock:ml_top_profiles", json.dumps(profiles), ex=86400 * 2)
+
+        logger.info(f"[ai] 완료: {len(top_scores)}개 종목 스코어링, feature importance 저장")
         return {
             "status": "ok",
             "date": str(latest_date),
@@ -334,6 +369,94 @@ def optimize_strategy(
 
     except Exception as e:
         logger.error(f"[ai] optimize_strategy 오류: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="tasks.ai_tasks.backtest_on_ml_top")
+def backtest_on_ml_top(
+    strategy_id: int,
+    tickers_source: str = "ml_top",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    """
+    ML 상위 종목에 대한 전략 백테스트
+    - tickers_source: "ml_top" (ML 상위 50개) | "high_volume" (고거래량 100개)
+    """
+    db = SessionLocal()
+    try:
+        from models.strategy import Strategy
+        from services.backtest_engine import run_backtest
+
+        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if not strategy:
+            return {"status": "error", "message": "전략을 찾을 수 없습니다"}
+
+        today = date.today()
+        if not end_date:
+            end_date = str(today)
+        if not start_date:
+            start_date = str(today - timedelta(days=365))
+
+        # 종목 선택
+        if tickers_source == "ml_top":
+            r = _get_redis()
+            scores_json = r.get(ML_SCORES_KEY)
+            if scores_json:
+                scores = json.loads(scores_json)
+                tickers = list(scores.keys())[:30]
+            else:
+                tickers_source = "high_volume"  # fallback
+
+        if tickers_source != "ml_top" or not tickers:
+            latest_price = (
+                db.query(StockPrice.date)
+                .order_by(StockPrice.date.desc())
+                .first()
+            )
+            if not latest_price:
+                return {"status": "error", "message": "가격 데이터 없음"}
+            top_stocks = (
+                db.query(StockPrice.ticker)
+                .filter(StockPrice.date == latest_price[0])
+                .order_by(StockPrice.volume.desc())
+                .limit(100)
+                .all()
+            )
+            tickers = [t[0] for t in top_stocks]
+
+        if not tickers:
+            return {"status": "error", "message": "종목 없음"}
+
+        logger.info(f"[ai] backtest_on_ml_top: strategy={strategy_id}, tickers={len(tickers)}, source={tickers_source}")
+
+        bt = run_backtest(
+            db=db,
+            conditions=list(strategy.conditions) if strategy.conditions else [],
+            tickers=tickers,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=10_000_000,
+        )
+        s = bt["summary"]
+        return {
+            "status": "ok",
+            "strategy_id": strategy_id,
+            "tickers_source": tickers_source,
+            "tickers_count": len(tickers),
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_return_pct": s.get("total_return_pct", 0),
+            "win_rate": s.get("win_rate", 0),
+            "num_trades": s.get("num_trades", 0),
+            "sharpe_ratio": s.get("sharpe_ratio", 0),
+            "max_drawdown": s.get("max_drawdown_pct", 0),
+        }
+
+    except Exception as e:
+        logger.error(f"[ai] backtest_on_ml_top 오류: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
     finally:
         db.close()

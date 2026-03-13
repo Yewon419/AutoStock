@@ -17,6 +17,10 @@ from core.database import SessionLocal
 from models.strategy import Strategy
 from models.market import TechnicalIndicator, StockPrice
 
+ML_FEATURE_IMPORTANCE_KEY = "autostock:ml_feature_importance"
+ML_TOP_PROFILES_KEY = "autostock:ml_top_profiles"
+ML_SCORES_KEY = "autostock:ml_scores"
+
 logger = logging.getLogger(__name__)
 
 # ── 사용 가능한 지표 목록 (프롬프트용) ───────────────────────────────
@@ -41,16 +45,20 @@ AVAILABLE_INDICATORS = [
 AVAILABLE_CONDITIONS = ["above", "below", "between", "golden_cross", "dead_cross"]
 
 SYSTEM_PROMPT = """당신은 한국 주식시장 전문 퀀트 애널리스트입니다.
-워렌 버핏의 가치투자 철학(안전마진, 경제적 해자, 장기 관점)과
-기술적 분석(모멘텀, 추세, 거래량 확인)을 결합하여 매매 전략을 수립합니다.
+기술적 분석(모멘텀, 추세, 거래량)과 머신러닝 예측 데이터를 결합하여 매매 전략을 수립합니다.
 
-주어진 시장 데이터를 분석하고, 현재 시장 상황에 최적화된 매매 전략 조건을 생성하세요.
+주어진 시장 데이터와 ML 분석 결과를 종합하여 현재 시장에 최적화된 전략 조건을 생성하세요.
+
+ML 예측 모델 데이터가 제공되는 경우 반드시 다음을 반영하세요:
+1. Feature Importance 상위 지표를 조건에 우선 포함 (예측력이 입증된 지표)
+2. ML 상위 종목의 공통 기술적 특성에 부합하는 조건 값 설정
+3. ML이 선호하는 종목 패턴(RSI 수준, ADX, 볼린저 위치 등)을 조건에 녹여내기
 
 반드시 다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {
   "strategy_name": "전략명 (15자 이내)",
   "strategy_type": "swing 또는 scalping",
-  "analysis": "시장 분석 및 전략 선택 근거 (200자 이내)",
+  "analysis": "ML 데이터 반영 근거 및 시장 분석 (200자 이내)",
   "conditions": [
     {"indicator": "지표명", "condition": "조건", "value": 숫자, "value2": null또는숫자}
   ],
@@ -189,6 +197,112 @@ def _build_market_context_text(ctx: dict) -> str:
     return "\n".join(lines)
 
 
+# ── ML 컨텍스트 로더 ─────────────────────────────────────────────────
+
+def _load_ml_context() -> str:
+    """Redis에서 ML feature importance + 상위 종목 프로필을 읽어 LLM 프롬프트용 텍스트 생성"""
+    try:
+        import redis as redis_lib
+        r = redis_lib.from_url(settings.REDIS_URL)
+        fi_json = r.get(ML_FEATURE_IMPORTANCE_KEY)
+        profiles_json = r.get(ML_TOP_PROFILES_KEY)
+
+        if not fi_json or not profiles_json:
+            logger.info("[llm_strategy] ML 데이터 없음 (ML 학습 미실행)")
+            return ""
+
+        fi = json.loads(fi_json)
+        profiles = json.loads(profiles_json)
+        if not fi or not profiles:
+            return ""
+
+        # Feature importance 텍스트 (상위 6개)
+        fi_text = "\n".join(
+            f"  {i+1}. {item['indicator']}: {item['importance_pct']}%"
+            for i, item in enumerate(fi[:6])
+        )
+
+        # 상위 20개 종목 평균 기술적 특성
+        top20 = list(profiles.values())[:20]
+        if not top20:
+            return ""
+
+        avg_rsi = round(sum(p["rsi"] for p in top20) / len(top20), 1)
+        avg_adx = round(sum(p["adx"] for p in top20) / len(top20), 1)
+        avg_boll = round(sum(p["boll_pos"] for p in top20) / len(top20), 2)
+        avg_ma_ratio = round(sum(p["ma_ratio"] for p in top20) / len(top20), 3)
+        macd_pos_pct = round(sum(1 for p in top20 if p["macd_hist_pos"]) / len(top20) * 100)
+
+        rsi_state = "과매도권" if avg_rsi < 35 else "과매수권" if avg_rsi > 65 else "중립"
+        adx_state = "추세장" if avg_adx > 25 else "횡보장"
+        boll_state = "하단 근접(반등 가능)" if avg_boll < 0.3 else "상단 근접(과매수)" if avg_boll > 0.7 else "중간 구간"
+        ma_state = "상승 추세" if avg_ma_ratio > 1.02 else "하락 추세" if avg_ma_ratio < 0.98 else "횡보"
+
+        return (
+            f"\n=== ML 예측 모델 분석 (RandomForest) ===\n"
+            f"ML 상위 종목: {len(profiles)}개\n\n"
+            f"[지표 예측력 순위 - Feature Importance]\n{fi_text}\n\n"
+            f"[ML 상위 20개 종목 공통 기술적 특성]\n"
+            f"- RSI 평균: {avg_rsi} ({rsi_state})\n"
+            f"- ADX 평균: {avg_adx} ({adx_state})\n"
+            f"- 볼린저밴드 위치: {avg_boll} ({boll_state})\n"
+            f"- MA20/MA50 비율: {avg_ma_ratio} ({ma_state})\n"
+            f"- MACD 히스토그램 양수 비율: {macd_pos_pct}%\n\n"
+            f"→ Feature Importance 상위 지표를 조건에 우선 사용하고,\n"
+            f"  상위 종목의 공통 특성(RSI {avg_rsi}, ADX {avg_adx})에 부합하는 조건 값을 설정하세요.\n"
+        )
+    except Exception as e:
+        logger.warning("[llm_strategy] ML 컨텍스트 로드 실패: %s", e)
+        return ""
+
+
+def _auto_backtest(db, conditions: list, strategy_type: str) -> dict:
+    """생성된 전략을 ML 상위 종목으로 자동 백테스트 (swing만)"""
+    if strategy_type == "scalping":
+        return {}  # 분봉 백테스트는 별도 처리 필요
+    try:
+        import redis as redis_lib
+        from services.backtest_engine import run_backtest
+        from datetime import date, timedelta
+
+        r = redis_lib.from_url(settings.REDIS_URL)
+        scores_json = r.get(ML_SCORES_KEY)
+        if not scores_json:
+            return {}
+
+        ml_tickers = list(json.loads(scores_json).keys())[:30]
+        if not ml_tickers:
+            return {}
+
+        start_date = str(date.today() - timedelta(days=180))
+        end_date = str(date.today())
+
+        bt = run_backtest(
+            db=db,
+            conditions=conditions,
+            tickers=ml_tickers,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=10_000_000,
+        )
+        s = bt.get("summary", {})
+        result = {
+            "tickers_tested": len(ml_tickers),
+            "total_return_pct": round(s.get("total_return_pct", 0), 2),
+            "win_rate": round(s.get("win_rate", 0), 1),
+            "num_trades": s.get("num_trades", 0),
+            "sharpe_ratio": round(s.get("sharpe_ratio", 0), 2),
+        }
+        logger.info(
+            "[llm_strategy] 자동 백테스트: 수익률=%.1f%%, 거래수=%d, 승률=%.1f%%",
+            result["total_return_pct"], result["num_trades"], result["win_rate"],
+        )
+        return result
+    except Exception as e:
+        logger.warning("[llm_strategy] 자동 백테스트 실패 (무시): %s", e)
+        return {}
+
+
 # ── Claude API 호출 ──────────────────────────────────────────────────
 
 def _call_claude(user_message: str) -> Optional[dict]:
@@ -292,27 +406,37 @@ def generate_strategy(user_id: int = 1):
         # 2. 기술 지표 요약
         tech_summary = _build_technical_summary(db)
 
-        # 3. 프롬프트 조합
+        # 3. ML 컨텍스트 로드 (feature importance + 상위 종목 프로필)
+        ml_context = _load_ml_context()
+        if ml_context:
+            logger.info("[llm_strategy] ML 컨텍스트 로드 완료")
+        else:
+            logger.info("[llm_strategy] ML 컨텍스트 없음 — 시장 데이터만 사용")
+
+        # 4. 프롬프트 조합
         market_text = _build_market_context_text(ctx)
         indicator_list = "\n".join(f"- {ind}" for ind in AVAILABLE_INDICATORS)
 
         user_message = f"""{market_text}
-
-=== 기술적 지표 요약 ===
+{ml_context}
+=== 기술적 지표 요약 (DB 전체 종목) ===
 {tech_summary}
 
 === 사용 가능한 지표 목록 ===
 {indicator_list}
 
-위 시장 데이터를 분석하여 현재 시장 상황에 최적화된 매매 전략 조건을 생성해주세요."""
+위 시장 데이터와 ML 분석 결과를 종합하여 현재 시장에 최적화된 매매 전략 조건을 생성해주세요."""
 
-        # 4. Claude API 호출
+        # 5. Claude API 호출
         result = _call_claude(user_message)
         logger.info("[llm_strategy] Claude 응답: 전략=%s, 신뢰도=%s",
                     result.get("strategy_name"), result.get("confidence"))
 
-        # 5. 전략 저장
+        # 6. 전략 저장
         strategy = _save_strategy(db, user_id, result)
+
+        # 7. ML 상위 종목으로 자동 백테스트
+        backtest = _auto_backtest(db, strategy.conditions, strategy.strategy_type or "swing")
 
         return {
             "status": "ok",
@@ -323,6 +447,8 @@ def generate_strategy(user_id: int = 1):
             "confidence": result.get("confidence"),
             "risk_level": result.get("risk_level"),
             "trading_day": ctx.get("trading_day"),
+            "ml_enhanced": bool(ml_context),
+            "backtest": backtest,
         }
 
     except Exception as e:

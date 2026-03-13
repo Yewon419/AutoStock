@@ -63,6 +63,11 @@ const router = createRouter({
           name: 'ai',
           component: () => import('@/views/AiView.vue'),
         },
+        {
+          path: 'canvas',
+          name: 'canvas',
+          component: () => import('@/views/CanvasView.vue'),
+        },
       ],
     },
   ],
