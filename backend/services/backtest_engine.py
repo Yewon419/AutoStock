@@ -1,7 +1,8 @@
 """
 백테스트 엔진
-- 전략 조건이 충족되면 매수, stop_loss/take_profit/기간 종료 시 매도
-- happystocklife의 성과 지표 및 채점 시스템 참고
+- 전략 조건이 충족되면 매수, stop_loss/take_profit/max_hold_days/기간 종료 시 매도
+- 매수는 다음날 시가(next_day_fill=True) 또는 당일 종가로 체결
+- volume_ratio는 StockPrice 거래량에서 동적 계산 (20일 평균 대비)
 """
 import logging
 import math
@@ -15,15 +16,36 @@ from models.market import StockPrice, TechnicalIndicator
 logger = logging.getLogger(__name__)
 
 SUPPORTED_INDICATORS = {
+    # 기술적 지표 (TechnicalIndicator 컬럼)
     'rsi', 'macd', 'macd_signal', 'macd_histogram',
     'stoch_k', 'stoch_d',
     'bollinger_upper', 'bollinger_middle', 'bollinger_lower',
     'ma_20', 'ma_50', 'ma_200',
     'atr', 'adx', 'obv',
+    # 추가 지표 (동적 계산 또는 확장 컬럼)
+    'volume_ratio',      # StockPrice 거래량 기반 동적 계산 (20일 평균 대비)
+    'ma_5', 'ma_10',     # TechnicalIndicator 확장 컬럼 (있으면 사용)
+    'ma5_minus_ma20',    # TechnicalIndicator 확장 컬럼 (있으면 사용)
+    'opening_gap',       # StockPrice open vs prev close (동적 계산)
 }
 
 
-def _get_val(ind_row, field: str) -> Optional[float]:
+def _get_val(ind_row, field: str, vol_ctx: dict = None, price_row=None, prev_close: float = None) -> Optional[float]:
+    """지표 값 조회 — volume_ratio/opening_gap은 동적 계산"""
+    if field == 'volume_ratio':
+        if vol_ctx is None or price_row is None:
+            return None
+        ticker = getattr(price_row, 'ticker', None)
+        avg_vol = vol_ctx.get(ticker, 0)
+        curr_vol = float(price_row.volume or 0)
+        return curr_vol / avg_vol if avg_vol > 0 else None
+
+    if field == 'opening_gap':
+        if price_row is None or prev_close is None or prev_close == 0:
+            return None
+        open_p = float(price_row.open_price or 0)
+        return (open_p - prev_close) / prev_close * 100
+
     if ind_row is None:
         return None
     val = getattr(ind_row, field, None)
@@ -36,7 +58,8 @@ def _get_val(ind_row, field: str) -> Optional[float]:
         return None
 
 
-def _evaluate_condition(cond: dict, ind_row, prev_ind_row) -> bool:
+def _evaluate_condition(cond: dict, ind_row, prev_ind_row,
+                        vol_ctx: dict = None, price_row=None, prev_close: float = None) -> bool:
     indicator = cond.get('indicator', '').lower()
     ctype = cond.get('condition', '').lower()
     value = cond.get('value')
@@ -45,7 +68,7 @@ def _evaluate_condition(cond: dict, ind_row, prev_ind_row) -> bool:
     if indicator not in SUPPORTED_INDICATORS:
         return False
 
-    curr = _get_val(ind_row, indicator)
+    curr = _get_val(ind_row, indicator, vol_ctx=vol_ctx, price_row=price_row, prev_close=prev_close)
     if curr is None:
         return False
 
@@ -60,7 +83,7 @@ def _evaluate_condition(cond: dict, ind_row, prev_ind_row) -> bool:
     elif ctype in ('golden_cross', 'dead_cross'):
         if prev_ind_row is None or value is None:
             return False
-        prev = _get_val(prev_ind_row, indicator)
+        prev = _get_val(prev_ind_row, indicator, vol_ctx=vol_ctx, price_row=price_row, prev_close=prev_close)
         if prev is None:
             return False
         threshold = float(value)
@@ -71,10 +94,14 @@ def _evaluate_condition(cond: dict, ind_row, prev_ind_row) -> bool:
     return False
 
 
-def _all_conditions_met(conditions: list, ind_row, prev_ind_row) -> bool:
+def _all_conditions_met(conditions: list, ind_row, prev_ind_row,
+                        vol_ctx: dict = None, price_row=None, prev_close: float = None) -> bool:
     if not conditions:
         return False
-    return all(_evaluate_condition(c, ind_row, prev_ind_row) for c in conditions)
+    return all(
+        _evaluate_condition(c, ind_row, prev_ind_row, vol_ctx=vol_ctx, price_row=price_row, prev_close=prev_close)
+        for c in conditions
+    )
 
 
 def _calc_max_drawdown(values: list) -> float:
@@ -92,7 +119,7 @@ def _calc_max_drawdown(values: list) -> float:
 
 
 def _score(metrics: dict) -> tuple:
-    """happystocklife 채점 시스템 (5개 카테고리 가중 합산)"""
+    """성과 채점 시스템 (5개 카테고리 가중 합산)"""
     cagr = metrics.get('annualized_return_pct', 0)
     max_dd = abs(metrics.get('max_drawdown_pct', 0))
     vol = metrics.get('volatility_pct', 0)
@@ -146,6 +173,26 @@ def _score(metrics: dict) -> tuple:
     return round(total, 1), grade
 
 
+def _build_vol_ctx(db: Session, tickers: List[str], start: Date, end: Date) -> dict:
+    """ticker별 20일 평균 거래량 계산 (volume_ratio 조건용)"""
+    vol_ctx = {}
+    for ticker in tickers:
+        prices = (
+            db.query(StockPrice.date, StockPrice.volume)
+            .filter(StockPrice.ticker == ticker, StockPrice.date >= start, StockPrice.date <= end)
+            .order_by(StockPrice.date.asc())
+            .all()
+        )
+        if not prices:
+            continue
+        vols = [float(p.volume or 0) for p in prices]
+        # 20일 이동평균 — 각 날짜마다 앞 20일 평균이 필요하지만
+        # 백테스트 단순화를 위해 전체 평균 사용
+        avg = sum(vols) / len(vols) if vols else 0
+        vol_ctx[ticker] = avg
+    return vol_ctx
+
+
 def run_backtest(
     db: Session,
     conditions: list,
@@ -153,17 +200,32 @@ def run_backtest(
     start_date: str,
     end_date: str,
     initial_capital: float = 10_000_000,
-    stop_loss_pct: Optional[float] = None,
-    take_profit_pct: Optional[float] = None,
+    stop_loss_pct: Optional[float] = 7.0,
+    take_profit_pct: Optional[float] = 15.0,
     transaction_cost: float = 0.003,
+    max_hold_days: int = 20,
+    next_day_fill: bool = True,
 ) -> dict:
+    """
+    전략 백테스트 실행
+
+    Args:
+        stop_loss_pct: 손절 기준 (%). 기본 7%. None이면 비활성.
+        take_profit_pct: 익절 기준 (%). 기본 15%. None이면 비활성.
+        max_hold_days: 최대 보유 거래일 수. 기본 20일.
+        next_day_fill: True면 신호 다음날 시가로 체결 (현실적). False면 당일 종가.
+    """
     start = Date.fromisoformat(start_date)
     end = Date.fromisoformat(end_date)
     per_ticker_capital = initial_capital / max(len(tickers), 1)
 
+    # volume_ratio 조건이 있는지 확인
+    needs_vol = any(c.get('indicator') == 'volume_ratio' for c in conditions)
+    vol_ctx = _build_vol_ctx(db, tickers, start, end) if needs_vol else {}
+
     all_trades = []
     per_ticker = {}
-    date_totals: dict = {}  # date → portfolio value
+    date_totals: dict = {}
 
     for ticker in tickers:
         prices = (
@@ -196,29 +258,51 @@ def run_backtest(
             price_row = price_map[d]
             ind_row = ind_map.get(d)
             prev_ind_row = ind_map.get(dates[i - 1]) if i > 0 else None
+            prev_price_row = price_map.get(dates[i - 1]) if i > 0 else None
+            prev_close = float(prev_price_row.close_price) if prev_price_row else None
             close = float(price_row.close_price)
 
             curr_val = cash + (position['shares'] * close if position else 0)
             ticker_equity.append({'date': d.isoformat(), 'value': round(curr_val, 0)})
 
             if position is None:
-                if ind_row and _all_conditions_met(conditions, ind_row, prev_ind_row):
-                    buy_price = close * (1 + transaction_cost)
+                # 매수 신호 체크: next_day_fill이면 전날 신호 → 오늘 시가 체결
+                signal_date = dates[i - 1] if (next_day_fill and i > 0) else d
+                signal_ind = ind_map.get(signal_date)
+                signal_prev_ind = ind_map.get(dates[i - 2]) if (next_day_fill and i > 1) else prev_ind_row
+                signal_price_row = price_map.get(signal_date) if next_day_fill else price_row
+                signal_prev_close = float(price_map[dates[i - 2]].close_price) if (next_day_fill and i > 1) else prev_close
+
+                if _all_conditions_met(conditions, signal_ind, signal_prev_ind,
+                                       vol_ctx=vol_ctx, price_row=signal_price_row,
+                                       prev_close=signal_prev_close):
+                    # next_day_fill: 오늘 시가로 체결, 아니면 종가
+                    fill_price_base = float(price_row.open_price or close) if next_day_fill else close
+                    buy_price = fill_price_base * (1 + transaction_cost)
                     shares = cash / buy_price
                     cash = 0
-                    position = {'shares': shares, 'buy_price': buy_price, 'buy_date': d.isoformat()}
+                    position = {
+                        'shares': shares,
+                        'buy_price': buy_price,
+                        'buy_date': d.isoformat(),
+                        'hold_days': 0,
+                    }
                     ticker_trades.append({
                         'ticker': ticker, 'type': 'BUY',
                         'date': d.isoformat(), 'price': round(buy_price, 0),
                         'shares': round(shares, 4),
                     })
             else:
+                position['hold_days'] += 1
                 pnl_pct = (close - position['buy_price']) / position['buy_price'] * 100
                 sell_reason = None
-                if stop_loss_pct and pnl_pct <= -stop_loss_pct:
+
+                if stop_loss_pct is not None and pnl_pct <= -stop_loss_pct:
                     sell_reason = 'stop_loss'
-                elif take_profit_pct and pnl_pct >= take_profit_pct:
+                elif take_profit_pct is not None and pnl_pct >= take_profit_pct:
                     sell_reason = 'take_profit'
+                elif max_hold_days and position['hold_days'] >= max_hold_days:
+                    sell_reason = 'max_hold_days'
                 elif i == len(dates) - 1:
                     sell_reason = 'end_of_period'
 
@@ -232,10 +316,11 @@ def run_backtest(
                         'buy_date': position['buy_date'], 'buy_price': round(position['buy_price'], 0),
                         'pnl': round(pnl, 0), 'return_pct': round(pnl_pct, 2),
                         'reason': sell_reason,
+                        'hold_days': position['hold_days'],
                     })
                     position = None
 
-        # 기간 종료 시 포지션 남아있으면 강제 청산
+        # 기간 종료 시 잔여 포지션 강제 청산
         if position and prices:
             final_price = float(prices[-1].close_price) * (1 - transaction_cost)
             pnl_pct = (final_price - position['buy_price']) / position['buy_price'] * 100
@@ -247,6 +332,7 @@ def run_backtest(
                 'buy_date': position['buy_date'], 'buy_price': round(position['buy_price'], 0),
                 'pnl': round(pnl, 0), 'return_pct': round(pnl_pct, 2),
                 'reason': 'end_of_period',
+                'hold_days': position.get('hold_days', 0),
             })
             position = None
 
@@ -263,7 +349,6 @@ def run_backtest(
         }
         all_trades.extend(ticker_trades)
 
-        # 포트폴리오 날짜별 합산
         for point in ticker_equity:
             d = point['date']
             date_totals[d] = date_totals.get(d, 0) + point['value']

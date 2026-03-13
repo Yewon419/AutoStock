@@ -28,6 +28,7 @@ SEOUL = ZoneInfo('Asia/Seoul')
 COMMISSION = 0.00015  # 매수/매도 0.015%
 TAX = 0.002           # 증권거래세 0.2% (매도 시)
 ALERTS_KEY = "autostock:alerts"
+BOT_LAST_SIGNAL_KEY = "autostock:bot_last_signal:{bot_id}"  # 일봉 봇 중복 신호 방지
 
 _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
@@ -131,6 +132,14 @@ def _run_cycle(db, bot: TradingBot):
             pos_count = db.query(Position).filter(Position.bot_id == bot.id).count()
             if pos_count >= int(bot.max_positions):
                 continue
+
+            # 일봉 봇: 종목당 하루 1회만 매수 신호 처리 (중복 매수 방지)
+            last_signal_key = BOT_LAST_SIGNAL_KEY.format(bot_id=bot.id) + f":{ticker}"
+            last_signal_date = _redis_client.get(last_signal_key)
+            today_str = now_kr.date().isoformat()
+            if last_signal_date == today_str:
+                continue
+
             if _all_conditions_met(strategy.conditions, latest_ind, prev_ind):
                 qty = int(float(bot.cash) * float(bot.position_size_pct) / 100 / curr_price)
                 if qty <= 0:
@@ -149,6 +158,8 @@ def _run_cycle(db, bot: TradingBot):
                     result = broker.place_buy(bot.id, ticker, qty, curr_price)
                     _execute_buy(db, bot, ticker, qty, result.filled_price, fee, result.order_number)
                     today_count += 1
+                    # 오늘 신호 처리 완료 기록 (자정에 만료)
+                    _redis_client.set(last_signal_key, today_str, ex=86400)
                     logger.info(f"[bot_engine] bot_id={bot.id} BUY {ticker} {qty}주 @{result.filled_price:,.0f}")
                 except Exception as e:
                     logger.error(f"[bot_engine] BUY 실패 {ticker}: {e}")

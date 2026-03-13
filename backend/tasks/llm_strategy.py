@@ -362,11 +362,37 @@ def _normalize_conditions(conditions: list) -> list:
     return normalized
 
 
-def _save_strategy(db, user_id: int, result: dict) -> Strategy:
+def _gate_strategy(backtest: dict) -> tuple:
+    """백테스트 결과 기반 전략 품질 게이팅 → (통과 여부, 거부 사유)"""
+    if not backtest:
+        return True, ""  # 백테스트 실패 시 통과 (데이터 부족 상황)
+
+    trades = backtest.get("num_trades", 0)
+    ret = backtest.get("total_return_pct", 0)
+    win_rate = backtest.get("win_rate", 0)
+
+    if trades < 3:
+        return False, f"거래 횟수 부족 ({trades}회) — 신호 조건이 너무 엄격함"
+    if ret < -15:
+        return False, f"수익률 미달 ({ret:.1f}%) — 명백한 손실 전략"
+    if trades >= 3 and win_rate < 25:
+        return False, f"승률 미달 ({win_rate:.1f}%) — 방향성 없음"
+
+    return True, ""
+
+
+def _save_strategy(db, user_id: int, result: dict, backtest: dict = None) -> Strategy:
     """LLM 결과 → Strategy 레코드 생성"""
     conditions = _normalize_conditions(result.get("conditions", []))
     if not conditions:
         raise ValueError("유효한 조건이 없습니다")
+
+    # 샤프비율 기반 신뢰도 (백테스트 있으면 대체, 없으면 Claude 자기평가)
+    if backtest and backtest.get("sharpe_ratio") is not None:
+        sharpe = backtest.get("sharpe_ratio", 0)
+        confidence = min(100, max(0, int(50 + sharpe * 20)))
+    else:
+        confidence = result.get("confidence", 0)
 
     name = f"[AI] {result.get('strategy_name', '자동생성')} ({date.today()})"
     strategy = Strategy(
@@ -377,12 +403,12 @@ def _save_strategy(db, user_id: int, result: dict) -> Strategy:
         strategy_type=result.get("strategy_type", "swing"),
         source="ai_generated",
         ai_analysis=result.get("analysis", ""),
-        ai_confidence=result.get("confidence", 0),
+        ai_confidence=confidence,
     )
     db.add(strategy)
     db.commit()
     db.refresh(strategy)
-    logger.info("[llm_strategy] 전략 저장 완료: id=%d, 조건=%d개", strategy.id, len(conditions))
+    logger.info("[llm_strategy] 전략 저장 완료: id=%d, 조건=%d개, 신뢰도=%d", strategy.id, len(conditions), confidence)
     return strategy
 
 
@@ -432,11 +458,27 @@ def generate_strategy(user_id: int = 1):
         logger.info("[llm_strategy] Claude 응답: 전략=%s, 신뢰도=%s",
                     result.get("strategy_name"), result.get("confidence"))
 
-        # 6. 전략 저장
-        strategy = _save_strategy(db, user_id, result)
+        # 6. 임시 조건 정규화 → 자동 백테스트 (저장 전 품질 검증)
+        from tasks.llm_strategy import _normalize_conditions
+        temp_conditions = _normalize_conditions(result.get("conditions", []))
+        backtest = _auto_backtest(db, temp_conditions, result.get("strategy_type", "swing"))
 
-        # 7. ML 상위 종목으로 자동 백테스트
-        backtest = _auto_backtest(db, strategy.conditions, strategy.strategy_type or "swing")
+        # 7. 게이팅: 백테스트 기준 미달 시 저장 거부
+        passed, gate_reason = _gate_strategy(backtest)
+        if not passed:
+            logger.warning("[llm_strategy] 전략 게이팅 거부: %s", gate_reason)
+            return {
+                "status": "gated",
+                "gate_reason": gate_reason,
+                "analysis": result.get("analysis"),
+                "conditions": temp_conditions,
+                "risk_level": result.get("risk_level"),
+                "ml_enhanced": bool(ml_context),
+                "backtest": backtest,
+            }
+
+        # 8. 전략 저장 (게이팅 통과한 경우만)
+        strategy = _save_strategy(db, user_id, result, backtest=backtest)
 
         return {
             "status": "ok",
@@ -444,7 +486,7 @@ def generate_strategy(user_id: int = 1):
             "strategy_name": strategy.name,
             "conditions": strategy.conditions,
             "analysis": result.get("analysis"),
-            "confidence": result.get("confidence"),
+            "confidence": strategy.ai_confidence,
             "risk_level": result.get("risk_level"),
             "trading_day": ctx.get("trading_day"),
             "ml_enhanced": bool(ml_context),
