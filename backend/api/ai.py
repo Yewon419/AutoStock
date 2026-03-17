@@ -239,6 +239,7 @@ class CanvasState(BaseModel):
 class CanvasAssistantRequest(BaseModel):
     message: str
     canvas: CanvasState = CanvasState()
+    insights: Optional[dict] = None  # GET /ai/canvas-insights 결과
 
 
 @router.post("/canvas-assistant")
@@ -316,22 +317,43 @@ strategyBuilder 노드 추가 시 "name" 필드로 전략명을 지정하세요 
 
 [에러 진단 및 수정]
 노드의 status가 "error"이고 error 필드가 있으면 원인을 분석하고 수정 commands를 반환하세요.
-
 에러별 수정 방법:
 - "전략 노드를 연결한 후 먼저 실행하세요" → 상위 전략/LLM 노드를 run_node로 먼저 실행, 이후 botApply run_node
 - "LLM 전략이 품질 기준 미달" → llmGenerator를 run_node로 재실행 (다른 전략 생성 시도)
-- "봇을 선택하세요" → commands 없이 reply에 "사이드 패널에서 봇을 선택하세요" 안내
-- "로그인이 만료" → commands 없이 reply에 "로그인 페이지에서 다시 로그인해주세요" 안내
-- "조건을 1개 이상 추가하세요" / "전략명을 입력하세요" → commands 없이 reply에 사이드 패널 안내
+- "봇을 선택하세요" / "로그인이 만료" / "전략명 입력" → commands [] + reply에 안내
 - 일반 실행 오류 → 해당 노드 run_node로 재실행
 
-에러가 있는 경우 reply에 반드시 에러 원인 설명과 수행할 조치를 포함하세요.
+[실시간 데이터 기반 자동 최적화]
+사용자 메시지에 [실시간 데이터] 섹션이 포함되어 있으면 반드시 이를 분석하여 전략/파라미터를 최적화하세요.
+
+데이터 해석 가이드:
+- market.regime = "횡보장" (avg_adx < 20): RSI 역투자 전략 권장 → RSI < 30 + volume_ratio > 1.5
+- market.regime = "추세장" (avg_adx >= 25): 추세추종 권장 → MACD 골든크로스 + ADX > 25
+- market.avg_rsi < 35: 시장 전반 과매도 → 매수 기회, RSI 기준 완화 (< 35)
+- market.avg_rsi > 65: 시장 전반 과매수 → 매수 자제, RSI 기준 강화 (< 25)
+- market.rsi_oversold_pct > 20%: 과매도 종목 많음 → 분할매수 좋은 타이밍
+- ml.oos_accuracy > 0.55: ML 신뢰도 높음 → ML 상위 종목 대상 백테스트 권장
+- ml.oos_accuracy < 0.52: ML 신뢰도 낮음 → 거래량 상위(volume_top) 대상으로 변경
+- backtests 승률 < 40%: 전략 조건 강화 필요 → 조건 추가
+- backtests 승률 > 60%: 검증된 전략 → 해당 조건 재사용 권장
+
+update_config 명령으로 기존 노드 설정을 직접 업데이트하세요:
+- strategyBuilder 조건 업데이트: {{"type": "update_config", "node_type": "strategyBuilder", "config": {{"name": "전략명", "strategy_type": "swing", "conditions": [{{"indicator": "rsi", "condition": "below", "value": 30}}]}}}}
+- backtest 종목소스 변경: {{"type": "update_config", "node_type": "backtest", "config": {{"tickers_source": "ml_top"}}}}
+- strategy 선택 변경: {{"type": "update_config", "node_type": "strategy", "config": {{"strategy_id": 5}}}}
+
+자동 최적화 응답 시 반드시: ① 데이터 해석 결과 ② 어떤 전략을 왜 선택했는지 ③ update_config + run_node 명령 순서로 포함하세요.
 
 [응답 형식 — 반드시 JSON만, 다른 텍스트 없이]
-{{"reply": "사용자에게 보여줄 설명", "commands": [{{"type": "clear"}}, {{"type": "add_node", "node_type": "marketContext", "x": 80, "y": 120}}, {{"type": "add_node", "node_type": "strategyBuilder", "x": 80, "y": 200, "name": "RSI 과매도 전략"}}, {{"type": "connect", "source_type": "marketContext", "target_type": "llmGenerator", "source_handle": "market_data", "target_handle": "market_data"}}, {{"type": "run_node", "node_type": "mlModel"}}, {{"type": "remove_node", "node_type": "backtest"}}]}}
+{{"reply": "사용자에게 보여줄 설명", "commands": [{{"type": "clear"}}, {{"type": "add_node", "node_type": "strategyBuilder", "x": 80, "y": 200, "name": "RSI 과매도 전략"}}, {{"type": "update_config", "node_type": "strategyBuilder", "config": {{"conditions": [{{"indicator": "rsi", "condition": "below", "value": 30}}]}}}}, {{"type": "connect", "source_type": "strategyBuilder", "target_type": "backtest", "source_handle": "strategy", "target_handle": "strategy"}}, {{"type": "run_node", "node_type": "strategyBuilder"}}, {{"type": "run_node", "node_type": "backtest"}}]}}
 commands가 필요 없으면 []로."""
 
-    user_msg = f"{canvas_desc}\n\n사용자 요청: {req.message}"
+    # 실시간 데이터 인사이트 메시지 구성
+    insights_desc = ""
+    if req.insights:
+        insights_desc = f"\n\n[실시간 데이터]\n{json.dumps(req.insights, ensure_ascii=False, indent=2)}"
+
+    user_msg = f"{canvas_desc}{insights_desc}\n\n사용자 요청: {req.message}"
 
     try:
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -351,6 +373,122 @@ commands가 필요 없으면 []로."""
         return {"reply": raw, "commands": []}
     except Exception as e:
         return {"reply": f"오류: {str(e)}", "commands": []}
+
+
+@router.get("/canvas-insights")
+def get_canvas_insights(
+    _: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """백테스트·ML·시장지표 실시간 데이터 요약 (AI 자동 최적화용)"""
+    import json, redis, math
+    from models.market import TechnicalIndicator
+    from models.strategy import Strategy
+    from models.trading import BotReport
+
+    r = redis.from_url(settings.REDIS_URL)
+    result = {}
+
+    # ── ML 스코어 ────────────────────────────────────────────────
+    try:
+        from tasks.ai_tasks import ML_SCORES_KEY, ML_SCORES_META_KEY
+        scores_json = r.get(ML_SCORES_KEY)
+        meta_json   = r.get(ML_SCORES_META_KEY)
+        if scores_json:
+            scores = json.loads(scores_json)
+            top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:10]
+            meta = json.loads(meta_json) if meta_json else {}
+            result["ml"] = {
+                "top_tickers": [t for t, _ in top],
+                "top_scores": {t: round(s, 3) for t, s in top},
+                "oos_accuracy": meta.get("oos_accuracy"),
+                "trained_at": meta.get("trained_at"),
+            }
+    except Exception:
+        pass
+
+    # ── 시장 기술 지표 요약 ──────────────────────────────────────
+    try:
+        latest = (
+            db.query(TechnicalIndicator.date)
+            .order_by(TechnicalIndicator.date.desc())
+            .first()
+        )
+        if latest:
+            inds = (
+                db.query(TechnicalIndicator)
+                .filter(TechnicalIndicator.date == latest[0])
+                .limit(500).all()
+            )
+            def _f(v):
+                if v is None: return None
+                try:
+                    f = float(v)
+                    return None if (math.isnan(f) or math.isinf(f)) else f
+                except: return None
+
+            rsi_vals = [_f(i.rsi) for i in inds if _f(i.rsi) is not None]
+            adx_vals = [_f(i.adx) for i in inds if _f(i.adx) is not None]
+            avg_adx  = round(sum(adx_vals) / len(adx_vals), 1) if adx_vals else 0
+            avg_rsi  = round(sum(rsi_vals)  / len(rsi_vals),  1) if rsi_vals else 0
+
+            result["market"] = {
+                "latest_date": str(latest[0]),
+                "ticker_count": len(inds),
+                "avg_rsi": avg_rsi,
+                "avg_adx": avg_adx,
+                "rsi_oversold_count":   len([v for v in rsi_vals if v < 30]),
+                "rsi_overbought_count": len([v for v in rsi_vals if v > 70]),
+                "rsi_oversold_pct": round(len([v for v in rsi_vals if v < 30]) / len(rsi_vals) * 100, 1) if rsi_vals else 0,
+                "regime": "추세장" if avg_adx >= 25 else ("추세형성중" if avg_adx >= 20 else "횡보장"),
+            }
+    except Exception:
+        pass
+
+    # ── 최근 백테스트 성과 (BotReport 기준) ─────────────────────
+    try:
+        reports = (
+            db.query(BotReport)
+            .order_by(BotReport.created_at.desc())
+            .limit(10).all()
+        )
+        if reports:
+            result["backtests"] = [
+                {
+                    "date": str(r_.date),
+                    "total_pnl": float(r_.total_pnl or 0),
+                    "win_rate":  float(r_.win_rate  or 0),
+                    "total_trades": r_.total_trades,
+                    "max_drawdown": float(r_.max_drawdown or 0),
+                    "sharpe_ratio": float(r_.sharpe_ratio or 0),
+                }
+                for r_ in reports
+            ]
+    except Exception:
+        pass
+
+    # ── 최근 AI 생성 전략 ────────────────────────────────────────
+    try:
+        strategies = (
+            db.query(Strategy)
+            .filter(Strategy.source == "ai_generated")
+            .order_by(Strategy.created_at.desc())
+            .limit(5).all()
+        )
+        result["recent_strategies"] = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "strategy_type": s.strategy_type,
+                "confidence": s.ai_confidence,
+                "conditions_count": len(s.conditions) if s.conditions else 0,
+            }
+            for s in strategies
+        ]
+    except Exception:
+        pass
+
+    return result
 
 
 @router.get("/canvas-state")

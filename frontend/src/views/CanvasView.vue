@@ -411,6 +411,7 @@ const NODE_DEFS = {
 const STATUS_LABELS = { idle: '대기', running: '실행 중', success: '완료', error: '오류' }
 
 const CHAT_PRESETS = [
+  { label: '📊 데이터 분석 후 자동 최적화', msg: '지금 시장 데이터랑 백테스트 결과 분석해서 현재 전략 최적화해줘' },
   { label: '풀 파이프라인',  msg: '풀 파이프라인 구성해줘 (ML + LLM + 백테스트)' },
   { label: '빠른 전략',     msg: 'ML 캐시와 LLM으로 빠른 전략 생성 파이프라인 만들어줘' },
   { label: 'ML만',         msg: 'ML 모델 학습 파이프라인만 만들어줘' },
@@ -922,6 +923,17 @@ function miniMapColor(node) {
   return { source: '#0891b2', strategy: '#d97706', processing: '#7c3aed', output: '#059669' }[node.data?.category] ?? '#4b5563'
 }
 
+// 인사이트 데이터가 필요한 키워드
+const INSIGHT_KEYWORDS = ['데이터', '분석', '최적화', '업데이트', '현황', '지금', '현재', '추천', '제안', '어때', '맞아', '봐줘', '확인']
+
+async function fetchInsights() {
+  try {
+    const res = await fetch(`${API}/ai/canvas-insights`, { headers: headers() })
+    if (!res.ok) return null
+    return await res.json()
+  } catch { return null }
+}
+
 async function sendChat(msg) {
   const text = (msg || chatInput.value).trim()
   if (!text) return
@@ -938,10 +950,15 @@ async function sendChat(msg) {
       })),
       edges: edges.value.map(e => ({ source: e.source, target: e.target, source_type: nodes.value.find(n => n.id === e.source)?.type, target_type: nodes.value.find(n => n.id === e.target)?.type })),
     }
+
+    // 데이터 분석/최적화 관련 요청이면 실시간 인사이트 포함
+    const needsInsights = INSIGHT_KEYWORDS.some(k => text.includes(k))
+    const insights = needsInsights ? await fetchInsights() : null
+
     const res = await fetch(`${API}/ai/canvas-assistant`, {
       method: 'POST',
       headers: headers(true),
-      body: JSON.stringify({ message: text, canvas: canvasState }),
+      body: JSON.stringify({ message: text, canvas: canvasState, insights }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
@@ -992,6 +1009,17 @@ async function applyCommands(commands) {
           source: src.id, sourceHandle: cmd.source_handle,
           target: tgt.id, targetHandle: cmd.target_handle,
         })
+      }
+
+    } else if (cmd.type === 'update_config') {
+      // 기존 노드 설정을 AI가 직접 업데이트
+      const node = nodes.value.find(n => n.type === cmd.node_type)
+      if (node && cmd.config) {
+        Object.assign(node.data.config, cmd.config)
+        // selectedNode도 동기화
+        if (selectedNode.value?.id === node.id) {
+          selectedNode.value = nodes.value.find(n => n.id === node.id) || null
+        }
       }
 
     } else if (cmd.type === 'remove_node') {
