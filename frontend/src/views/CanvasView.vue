@@ -949,7 +949,18 @@ async function sendChat(msg) {
     }
     const data = await res.json()
     chatMessages.value.push({ role: 'assistant', content: data.reply || '(응답 없음)' })
-    if (data.commands?.length) applyCommands(data.commands)
+    if (data.commands?.length) {
+      const runCmds = data.commands.filter(c => c.type === 'run_node')
+      if (runCmds.length) {
+        chatMessages.value.push({ role: 'assistant', content: `▶ ${runCmds.map(c => c.node_type).join(' → ')} 순서로 실행합니다...` })
+        await scrollChat()
+      }
+      await applyCommands(data.commands)
+      if (runCmds.length) {
+        chatMessages.value.push({ role: 'assistant', content: '✓ 실행 완료' })
+        await scrollChat()
+      }
+    }
   } catch (err) {
     chatMessages.value.push({ role: 'assistant', content: `오류: ${err.message}` })
   } finally {
@@ -958,7 +969,7 @@ async function sendChat(msg) {
   }
 }
 
-function applyCommands(commands) {
+async function applyCommands(commands) {
   for (const cmd of commands) {
     if (cmd.type === 'clear') {
       nodes.value = []
@@ -989,7 +1000,19 @@ function applyCommands(commands) {
 
     } else if (cmd.type === 'run_node') {
       const node = nodes.value.find(n => n.type === cmd.node_type)
-      if (node) setTimeout(() => runNode(node.id), 800)
+      if (node) {
+        // 이전 run_node 완료 후 순차 실행 (await) — 선행 노드 결과가 다음 노드에 전달되도록
+        await runNode(node.id)
+        const updated = nodes.value.find(n => n.id === node.id)
+        if (updated?.data?.status === 'error') {
+          chatMessages.value.push({
+            role: 'assistant',
+            content: `⚠ ${cmd.node_type} 실행 실패: ${updated.data.error}`,
+          })
+          await scrollChat()
+          break  // 실패하면 이후 명령 중단
+        }
+      }
     }
   }
 }
