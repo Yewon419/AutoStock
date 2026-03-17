@@ -957,6 +957,11 @@ function applyCommands(commands) {
 
     } else if (cmd.type === 'add_node') {
       addNode(cmd.node_type, cmd.x, cmd.y)
+      // strategyBuilder: AI가 내려준 name을 config에 반영
+      if (cmd.node_type === 'strategyBuilder' && cmd.name) {
+        const node = nodes.value[nodes.value.length - 1]
+        if (node) node.data.config.name = cmd.name
+      }
 
     } else if (cmd.type === 'connect') {
       const src = nodes.value.find(n => n.type === cmd.source_type)

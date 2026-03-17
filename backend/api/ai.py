@@ -294,12 +294,17 @@ LLM만: marketContext(80,200) llmGenerator(360,200) botApply(640,200)
 기존전략+백테스트: strategy(80,200) backtest(360,200) botApply(640,200)
 전략빌더+백테스트: strategyBuilder(80,200) backtest(360,200) botApply(640,200)
 
+[add_node 추가 옵션]
+strategyBuilder 노드 추가 시 "name" 필드로 전략명을 지정하세요 (예: "RSI 과매도 전략", "MACD 골든크로스 전략").
+사용자 요청에서 전략 성격을 파악해 적절한 전략명을 자동으로 생성하세요.
+
 [응답 형식 — 반드시 JSON만, 다른 텍스트 없이]
 {
   "reply": "사용자에게 보여줄 설명",
   "commands": [
     {"type": "clear"},
     {"type": "add_node", "node_type": "marketContext", "x": 80, "y": 120},
+    {"type": "add_node", "node_type": "strategyBuilder", "x": 80, "y": 200, "name": "RSI 과매도 전략"},
     {"type": "connect", "source_type": "marketContext", "target_type": "llmGenerator", "source_handle": "market_data", "target_handle": "market_data"},
     {"type": "run_node", "node_type": "mlModel"},
     {"type": "remove_node", "node_type": "backtest"}
