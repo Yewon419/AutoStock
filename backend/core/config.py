@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET_KEY: str = "dev-secret-key"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRATION_HOURS: int = 24
+    JWT_EXPIRATION_HOURS: int = 168  # 7일
 
     # Encryption
     ENCRYPTION_KEY: str = ""

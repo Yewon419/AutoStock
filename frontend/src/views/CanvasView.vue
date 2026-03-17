@@ -618,8 +618,13 @@ function headers(json = false) {
   return h
 }
 
+function _checkAuth(res) {
+  if (res.status === 401) throw new Error('로그인이 만료됐습니다. 다시 로그인해주세요.')
+}
+
 async function apiGet(path) {
   const res = await fetch(`${API}${path}`, { headers: headers() })
+  _checkAuth(res)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
@@ -629,6 +634,7 @@ async function apiPost(path, body) {
     method: 'POST', headers: headers(true),
     body: body ? JSON.stringify(body) : undefined,
   })
+  _checkAuth(res)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
@@ -927,8 +933,12 @@ async function sendChat(msg) {
       headers: headers(true),
       body: JSON.stringify({ message: text, canvas: canvasState }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(res.status === 401 ? '로그인이 만료됐습니다. 다시 로그인해주세요.' : err.detail || `서버 오류 (${res.status})`)
+    }
     const data = await res.json()
-    chatMessages.value.push({ role: 'assistant', content: data.reply || '처리 완료' })
+    chatMessages.value.push({ role: 'assistant', content: data.reply || '(응답 없음)' })
     if (data.commands?.length) applyCommands(data.commands)
   } catch (err) {
     chatMessages.value.push({ role: 'assistant', content: `오류: ${err.message}` })
