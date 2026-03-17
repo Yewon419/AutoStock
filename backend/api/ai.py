@@ -250,7 +250,15 @@ def canvas_assistant(
     if not settings.ANTHROPIC_API_KEY:
         return {"reply": "ANTHROPIC_API_KEY가 설정되지 않았습니다.", "commands": []}
 
-    import anthropic, json
+    import anthropic, json, os
+
+    # 주식 전문 지식 베이스 로드
+    _kb_path = os.path.join(os.path.dirname(__file__), "..", "knowledge", "stock_knowledge.md")
+    try:
+        with open(_kb_path, encoding="utf-8") as f:
+            stock_knowledge = f.read()
+    except Exception:
+        stock_knowledge = ""
 
     nodes = req.canvas.nodes
     edges = req.canvas.edges
@@ -269,8 +277,12 @@ def canvas_assistant(
     else:
         canvas_desc = "\n현재 캔버스: 비어 있음"
 
-    system_prompt = """당신은 AutoStock 자동매매 시스템의 캔버스 AI 어시스턴트입니다.
+    knowledge_section = f"\n\n[주식 전문 지식 베이스]\n{stock_knowledge}\n" if stock_knowledge else ""
+
+    system_prompt = f"""당신은 AutoStock 자동매매 시스템의 캔버스 AI 어시스턴트이자 한국 주식 전문가입니다.
+주식 기술적 분석, 리스크 관리, 시장 국면 판단에 대한 깊은 전문 지식을 갖추고 있으며,
 사용자의 자연어 요청을 분석하여 캔버스 조작 명령을 JSON으로 반환합니다.
+{knowledge_section}
 
 [사용 가능한 노드]
 소스 노드: marketContext(시장 컨텍스트), techIndicators(기술 지표 DB), mlScores(ML 스코어 캐시)
@@ -316,17 +328,7 @@ strategyBuilder 노드 추가 시 "name" 필드로 전략명을 지정하세요 
 에러가 있는 경우 reply에 반드시 에러 원인 설명과 수행할 조치를 포함하세요.
 
 [응답 형식 — 반드시 JSON만, 다른 텍스트 없이]
-{
-  "reply": "사용자에게 보여줄 설명",
-  "commands": [
-    {"type": "clear"},
-    {"type": "add_node", "node_type": "marketContext", "x": 80, "y": 120},
-    {"type": "add_node", "node_type": "strategyBuilder", "x": 80, "y": 200, "name": "RSI 과매도 전략"},
-    {"type": "connect", "source_type": "marketContext", "target_type": "llmGenerator", "source_handle": "market_data", "target_handle": "market_data"},
-    {"type": "run_node", "node_type": "mlModel"},
-    {"type": "remove_node", "node_type": "backtest"}
-  ]
-}
+{{"reply": "사용자에게 보여줄 설명", "commands": [{{"type": "clear"}}, {{"type": "add_node", "node_type": "marketContext", "x": 80, "y": 120}}, {{"type": "add_node", "node_type": "strategyBuilder", "x": 80, "y": 200, "name": "RSI 과매도 전략"}}, {{"type": "connect", "source_type": "marketContext", "target_type": "llmGenerator", "source_handle": "market_data", "target_handle": "market_data"}}, {{"type": "run_node", "node_type": "mlModel"}}, {{"type": "remove_node", "node_type": "backtest"}}]}}
 commands가 필요 없으면 []로."""
 
     user_msg = f"{canvas_desc}\n\n사용자 요청: {req.message}"
