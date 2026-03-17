@@ -775,19 +775,26 @@ async function runNode(nodeId) {
     // ── botApply ──────────────────────────────────────────────────
     else if (node.type === 'botApply') {
       const strategyResult = getInputResult(nodeId, 'strategy')
-      const strategyId = strategyResult?.strategy_id
-      if (!strategyId) throw new Error('전략 노드를 연결하고 실행하세요')
+      if (!strategyResult) throw new Error('전략 노드를 연결한 후 먼저 실행하세요')
+      const strategyId = strategyResult.strategy_id
+      if (!strategyId) throw new Error(
+        strategyResult.status === 'gated'
+          ? `LLM 전략이 품질 기준 미달로 저장되지 않았습니다 (${strategyResult.reason || '기준 미달'})`
+          : '전략 결과에 strategy_id가 없습니다. 전략 노드를 재실행하세요'
+      )
       const botId = node.data.config.bot_id
       if (!botId) throw new Error('사이드 패널에서 봇을 선택하세요')
       const bot = botList.value.find(b => b.id === botId)
+      if (bot?.status === 'RUNNING') throw new Error('실행 중인 봇은 변경할 수 없습니다. 봇을 먼저 정지하세요.')
       const res = await fetch(`${API}/bots/${botId}`, {
         method: 'PUT',
         headers: headers(true),
         body: JSON.stringify({ strategy_id: strategyId }),
       })
+      _checkAuth(res)
       if (!res.ok) {
-        const isRunning = botList.value.find(b => b.id === botId)?.status === 'RUNNING'
-        throw new Error(isRunning ? '실행 중인 봇은 변경할 수 없습니다. 봇을 먼저 정지하세요.' : '봇 적용 실패')
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `봇 적용 실패 (${res.status})`)
       }
       result = { bot_name: bot?.name || botId, strategy_id: strategyId, applied: true }
     }
@@ -925,7 +932,10 @@ async function sendChat(msg) {
 
   try {
     const canvasState = {
-      nodes: nodes.value.map(n => ({ id: n.id, type: n.type, status: n.data?.status })),
+      nodes: nodes.value.map(n => ({
+        id: n.id, type: n.type, status: n.data?.status,
+        ...(n.data?.error ? { error: n.data.error } : {}),
+      })),
       edges: edges.value.map(e => ({ source: e.source, target: e.target, source_type: nodes.value.find(n => n.id === e.source)?.type, target_type: nodes.value.find(n => n.id === e.target)?.type })),
     }
     const res = await fetch(`${API}/ai/canvas-assistant`, {

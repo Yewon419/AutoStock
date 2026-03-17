@@ -221,6 +221,7 @@ class CanvasNode(BaseModel):
     id: str
     type: str
     status: str = "idle"
+    error: Optional[str] = None
 
 
 class CanvasEdge(BaseModel):
@@ -255,9 +256,12 @@ def canvas_assistant(
     edges = req.canvas.edges
 
     if nodes:
-        node_desc = f"노드 {len(nodes)}개: " + ", ".join(
-            f"{n.type}({n.status})" for n in nodes
-        )
+        def _node_str(n):
+            s = f"{n.type}({n.status})"
+            if n.status == "error" and getattr(n, "error", None):
+                s += f"[에러: {n.error}]"
+            return s
+        node_desc = f"노드 {len(nodes)}개: " + ", ".join(_node_str(n) for n in nodes)
         edge_desc = (f" / 연결 {len(edges)}개: " + ", ".join(
             f"{e.source_type}→{e.target_type}" for e in edges[:6]
         )) if edges else ""
@@ -297,6 +301,19 @@ LLM만: marketContext(80,200) llmGenerator(360,200) botApply(640,200)
 [add_node 추가 옵션]
 strategyBuilder 노드 추가 시 "name" 필드로 전략명을 지정하세요 (예: "RSI 과매도 전략", "MACD 골든크로스 전략").
 사용자 요청에서 전략 성격을 파악해 적절한 전략명을 자동으로 생성하세요.
+
+[에러 진단 및 수정]
+노드의 status가 "error"이고 error 필드가 있으면 원인을 분석하고 수정 commands를 반환하세요.
+
+에러별 수정 방법:
+- "전략 노드를 연결한 후 먼저 실행하세요" → 상위 전략/LLM 노드를 run_node로 먼저 실행, 이후 botApply run_node
+- "LLM 전략이 품질 기준 미달" → llmGenerator를 run_node로 재실행 (다른 전략 생성 시도)
+- "봇을 선택하세요" → commands 없이 reply에 "사이드 패널에서 봇을 선택하세요" 안내
+- "로그인이 만료" → commands 없이 reply에 "로그인 페이지에서 다시 로그인해주세요" 안내
+- "조건을 1개 이상 추가하세요" / "전략명을 입력하세요" → commands 없이 reply에 사이드 패널 안내
+- 일반 실행 오류 → 해당 노드 run_node로 재실행
+
+에러가 있는 경우 reply에 반드시 에러 원인 설명과 수행할 조치를 포함하세요.
 
 [응답 형식 — 반드시 JSON만, 다른 텍스트 없이]
 {
