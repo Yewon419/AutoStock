@@ -351,6 +351,7 @@ const nodeTypes = {
   marketContext:   markRaw(FlowNode),
   techIndicators:  markRaw(FlowNode),
   mlScores:        markRaw(FlowNode),
+  accountConfig:   markRaw(FlowNode),
   strategy:        markRaw(FlowNode),
   strategyBuilder: markRaw(FlowNode),
   mlModel:         markRaw(FlowNode),
@@ -360,7 +361,7 @@ const nodeTypes = {
 }
 
 // ── 노드 정의 ─────────────────────────────────────────────────────
-const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores']
+const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores', 'accountConfig']
 const STRATEGY_TYPES   = ['strategy', 'strategyBuilder']
 const PROCESSING_TYPES = ['mlModel', 'llmGenerator', 'backtest']
 const OUTPUT_TYPES     = ['botApply']
