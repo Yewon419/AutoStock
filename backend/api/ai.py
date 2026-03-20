@@ -352,9 +352,13 @@ update_config 명령으로 기존 노드 설정을 직접 업데이트하세요:
   예) 단순 전략 검증인데 marketContext/llmGenerator가 있다 → 제거
 - remove_node: {{"type": "remove_node", "node_type": "mlScores"}}
 - 노드 추가·제거 후 연결(connect)도 함께 구성해 파이프라인이 완결되게 하세요.
-- 단, botApply 노드는 봇이 선택된 상태면 유지하고, 없으면 추가하세요.
+- botApply 노드는 자동 최적화 시 반드시 포함되어야 합니다. 없으면 add_node로 추가하세요.
+- 추가된 모든 노드는 반드시 연결되어야 합니다. 고립된 노드(어떤 엣지에도 연결되지 않은 노드)가 있어서는 안 됩니다.
+  예) techIndicators 추가 → mlModel에 connect / mlModel 추가 → llmGenerator 또는 backtest에 connect
+- 파이프라인의 마지막 전략 노드(backtest 또는 전략 노드)는 반드시 botApply에 connect 하세요.
+- 전체 파이프라인이 소스→전략→처리→botApply로 이어지는 완결된 흐름이어야 합니다.
 
-자동 최적화 응답 시 반드시: ① 데이터 해석 결과 ② 어떤 파이프라인 구성을 왜 선택했는지 (추가·제거 이유 포함) ③ 노드 추가/제거/update_config/run_node 명령 순서로 포함하세요.
+자동 최적화 응답 시 반드시: ① 데이터 해석 결과 ② 어떤 파이프라인 구성을 왜 선택했는지 (추가·제거 이유 포함) ③ 노드 추가/제거/update_config/connect/run_node 명령 순서로 포함하세요.
 
 [응답 형식 — 반드시 JSON만, 다른 텍스트 없이]
 {{"reply": "사용자에게 보여줄 설명", "commands": [{{"type": "clear"}}, {{"type": "add_node", "node_type": "strategyBuilder", "x": 80, "y": 200, "name": "RSI 과매도 전략"}}, {{"type": "update_config", "node_type": "strategyBuilder", "config": {{"conditions": [{{"indicator": "rsi", "condition": "below", "value": 30}}]}}}}, {{"type": "connect", "source_type": "strategyBuilder", "target_type": "backtest", "source_handle": "strategy", "target_handle": "strategy"}}, {{"type": "run_node", "node_type": "strategyBuilder"}}, {{"type": "run_node", "node_type": "backtest"}}]}}
