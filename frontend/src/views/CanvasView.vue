@@ -443,7 +443,7 @@ const NODE_DEFS = {
   botApply: {
     label: '봇 적용', icon: '🎮', category: 'output',
     description: '생성된 전략을 봇에 적용',
-    inputs:  [{ id: 'strategy', label: '전략' }, { id: 'account_config', label: '계좌 설정' }],
+    inputs:  [{ id: 'strategy', label: '전략' }, { id: 'tickers', label: '매매 종목' }, { id: 'account_config', label: '계좌 설정' }],
     outputs: [],
     config: { bot_id: null, auto_start: true }, apiPath: '/bots', apiMethod: 'PUT',
   },
@@ -844,11 +844,15 @@ async function runNode(nodeId) {
       const botMode = accountCfg?.mode || 'mock'
       const botAccountId = accountCfg?.account_id || null
 
+      // tickers 입력 노드에서 매매 종목 가져오기 (ML top_tickers 또는 backtest tickers)
+      const tickersInput = getInputResult(nodeId, 'tickers')
+      const botTickers = tickersInput?.top_tickers || tickersInput?.tickers || []
+
       let botId = node.data.config.bot_id
       if (!botId) {
         // 봇 미지정 시 전략명 기반 봇 자동 생성
         const botName = `${strategyResult.strategy_name || '자동생성'} 봇`
-        const createBody = { name: botName, mode: botMode, tickers: [], initial_cash: 10000000 }
+        const createBody = { name: botName, mode: botMode, tickers: botTickers, initial_cash: 10000000 }
         if (botAccountId) createBody.account_id = botAccountId
         const createRes = await fetch(`${API}/bots`, {
           method: 'POST',
@@ -868,6 +872,7 @@ async function runNode(nodeId) {
       const bot = botList.value.find(b => b.id === botId)
       if (bot?.status === 'RUNNING') throw new Error('실행 중인 봇은 변경할 수 없습니다. 봇을 먼저 정지하세요.')
       const putBody = { strategy_id: strategyId }
+      if (botTickers.length > 0) putBody.tickers = botTickers
       if (accountCfg) {
         putBody.mode = botMode
         if (botAccountId) putBody.account_id = botAccountId

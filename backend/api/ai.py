@@ -305,6 +305,8 @@ strategy(출력 strategy) → botApply(입력 strategy)
 strategyBuilder(출력 strategy) → backtest(입력 strategy)
 strategyBuilder(출력 strategy) → botApply(입력 strategy)
 backtest(출력 strategy) → botApply(입력 strategy)
+mlModel(출력 ml_scores) → botApply(입력 tickers)  # ML 상위 종목을 매매 대상으로
+backtest(출력 backtest_result) → botApply(입력 tickers)  # 백테스트 종목을 매매 대상으로
 accountConfig(출력 account_config) → botApply(입력 account_config)
 
 connect 명령 예시:
@@ -314,11 +316,12 @@ connect 명령 예시:
 
 [레이아웃 프리셋]
 풀 파이프라인: marketContext(80,120) techIndicators(80,320) mlModel(340,220) llmGenerator(600,120) backtest(600,340) botApply(860,120) accountConfig(80,480)
-빠른 전략: marketContext(80,180) mlScores(80,340) llmGenerator(360,270) botApply(640,270)
+(풀 파이프라인 연결: mlModel→botApply(tickers), backtest→botApply(strategy), accountConfig→botApply(account_config))
+빠른 전략: marketContext(80,180) mlScores(80,340) llmGenerator(360,270) botApply(640,270) — 연결: llmGenerator→botApply(strategy), mlScores→botApply(tickers) [mlScores 없으면 llmGenerator→botApply(tickers)]
 ML만: techIndicators(80,200) mlModel(360,200)
-LLM만: marketContext(80,200) llmGenerator(360,200) botApply(640,200)
-기존전략+백테스트: strategy(80,200) backtest(360,200) botApply(640,200)
-전략빌더+백테스트: strategyBuilder(80,200) backtest(360,200) botApply(640,200)
+LLM만: marketContext(80,200) llmGenerator(360,200) botApply(640,200) — 연결: llmGenerator→botApply(strategy,tickers)
+기존전략+백테스트: strategy(80,200) backtest(360,200) botApply(640,200) — 연결: strategy→backtest(strategy), backtest→botApply(strategy), backtest→botApply(tickers)
+전략빌더+백테스트: strategyBuilder(80,200) backtest(360,200) botApply(640,200) — 연결: strategyBuilder→backtest(strategy), backtest→botApply(strategy), backtest→botApply(tickers)
 
 [add_node 추가 옵션]
 strategyBuilder 노드 추가 시 "name" 필드로 전략명을 지정하세요 (예: "RSI 과매도 전략", "MACD 골든크로스 전략").
@@ -362,6 +365,10 @@ update_config 명령으로 기존 노드 설정을 직접 업데이트하세요:
 - remove_node: {{"type": "remove_node", "node_type": "mlScores"}}
 - 노드 추가·제거 후 연결(connect)도 함께 구성해 파이프라인이 완결되게 하세요.
 - botApply 노드는 자동 최적화 시 반드시 포함되어야 합니다. 없으면 add_node로 추가하세요.
+- botApply의 tickers 핸들에는 반드시 mlModel 또는 backtest 노드를 연결해야 합니다. 이 연결이 없으면 봇이 매매할 종목이 없어 거래가 발생하지 않습니다.
+  - mlModel이 파이프라인에 있으면: mlModel(ml_scores) → botApply(tickers)
+  - backtest가 있으면: backtest(backtest_result) → botApply(tickers)
+  - 둘 다 있으면 backtest → botApply(tickers) 우선
 - 추가된 모든 노드는 반드시 연결되어야 합니다. 고립된 노드(어떤 엣지에도 연결되지 않은 노드)가 있어서는 안 됩니다.
   예) techIndicators 추가 → mlModel에 connect / mlModel 추가 → llmGenerator 또는 backtest에 connect
 - 파이프라인의 마지막 전략 노드(backtest 또는 전략 노드)는 반드시 botApply에 connect 하세요.

@@ -86,7 +86,7 @@ function handlePos(idx, total) {
 const PREVIEW_MAP = {
   news_count: '뉴스', kospi: 'KOSPI', vix: 'VIX',
   ticker_count: '종목수', latest_date: '기준일', avg_rsi: '평균RSI',
-  top_tickers: 'ML상위', train_samples: '학습샘플', positive_rate: '매수율',
+  top_tickers: 'ML상위', train_samples: '학습샘플', positive_rate: '매수율', tickers_count: '종목수(백테)',
   strategy_name: '전략명', confidence: '신뢰도', risk_level: '위험', strategy_id: '전략ID',
   total_return_pct: '수익률', win_rate: '승률', num_trades: '거래수',
   bot_name: '봇', account_label: '계좌',

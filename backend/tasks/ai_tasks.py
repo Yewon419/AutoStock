@@ -562,6 +562,7 @@ def backtest_on_ml_top(
             "status": "ok",
             "strategy_id": strategy_id,
             "tickers_source": tickers_source,
+            "tickers": tickers,
             "tickers_count": len(tickers),
             "start_date": start_date,
             "end_date": end_date,
