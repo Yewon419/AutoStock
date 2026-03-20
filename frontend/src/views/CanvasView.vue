@@ -5,6 +5,41 @@
     <div class="toolbar">
       <div class="toolbar-left">
         <span class="toolbar-brand">✦ AI 캔버스</span>
+
+        <!-- 캔버스 선택 -->
+        <div class="canvas-selector" :class="{ open: showCanvasMenu }" @mouseleave="showCanvasMenu = false">
+          <button class="canvas-sel-btn" @mouseenter="showCanvasMenu = true">
+            <span class="canvas-sel-name">{{ currentCanvasName }}</span>
+            <span class="pd-arrow">▾</span>
+          </button>
+          <div class="canvas-menu">
+            <div
+              v-for="c in canvasList" :key="c.id"
+              class="canvas-menu-item" :class="{ active: c.id === currentCanvasId }"
+            >
+              <span
+                v-if="renamingId !== c.id"
+                class="canvas-item-name"
+                @click="switchCanvas(c.id); showCanvasMenu = false"
+              >{{ c.name }}</span>
+              <input
+                v-else
+                class="canvas-rename-input"
+                v-model="renameValue"
+                @keydown.enter="confirmRename"
+                @keydown.esc="renamingId = null"
+                @blur="confirmRename"
+                ref="renameInputEl"
+              />
+              <span class="canvas-item-actions">
+                <button class="canvas-item-btn" @click.stop="startRename(c)" title="이름 변경">✎</button>
+                <button class="canvas-item-btn danger" @click.stop="deleteCanvas(c.id)" title="삭제">✕</button>
+              </span>
+            </div>
+            <button class="canvas-new-btn" @click="createCanvas(); showCanvasMenu = false">+ 새 캔버스</button>
+          </div>
+        </div>
+
         <div
           v-for="grp in PALETTE_GROUPS" :key="grp.cat"
           class="palette-dropdown"
@@ -463,6 +498,18 @@ const CHAT_PRESETS = [
 const nodes = ref([])
 const edges = ref([])
 let nodeCounter = 0
+
+// ── 다중 캔버스 ────────────────────────────────────────────────────
+const canvasList      = ref([])
+const currentCanvasId = ref('default')
+const showCanvasMenu  = ref(false)
+const renamingId      = ref(null)
+const renameValue     = ref('')
+const renameInputEl   = ref(null)
+
+const currentCanvasName = computed(
+  () => canvasList.value.find(c => c.id === currentCanvasId.value)?.name ?? '캔버스'
+)
 
 const edgeDefaults = {
   style: { stroke: '#2a2d3e', strokeWidth: 2 },
@@ -950,24 +997,23 @@ async function clearCanvas() {
 const saveStatus = ref('')  // '' | 'saving' | 'saved' | 'error'
 let saveTimer = null
 
-function _localSave(payload) {
+function _localSave(canvasId, payload) {
   try {
-    localStorage.setItem('autostock-canvas', JSON.stringify(payload))
+    localStorage.setItem(`autostock-canvas:${canvasId}`, JSON.stringify(payload))
   } catch { /* ignore */ }
 }
 
-async function _remoteSave(payload) {
+async function _remoteSave(canvasId, payload) {
   try {
     await fetch(`${API}/ai/canvas-state`, {
       method: 'POST',
       headers: headers(true),
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, canvas_id: canvasId }),
     })
   } catch { /* ignore — localStorage가 fallback */ }
 }
 
 function _buildPayload() {
-  // 저장 시 실행 결과(result)는 제외 — 재실행 유도 / 용량 절약
   const cleanNodes = nodes.value.map(n => ({
     ...n,
     data: { ...n.data, status: 'idle', result: null, error: null },
@@ -977,9 +1023,9 @@ function _buildPayload() {
 
 async function saveLayout(manual = false) {
   const payload = _buildPayload()
-  _localSave(payload)
+  _localSave(currentCanvasId.value, payload)
   saveStatus.value = 'saving'
-  await _remoteSave(payload)
+  await _remoteSave(currentCanvasId.value, payload)
   saveStatus.value = 'saved'
   if (manual) {
     setTimeout(() => { saveStatus.value = '' }, 2000)
@@ -991,10 +1037,11 @@ function _scheduleAutoSave() {
   saveTimer = setTimeout(() => saveLayout(false), 1500)
 }
 
-async function loadLayout() {
+async function loadLayout(canvasId) {
+  const cid = canvasId || currentCanvasId.value
   try {
     // 1순위: 백엔드 Redis
-    const res = await fetch(`${API}/ai/canvas-state`, { headers: headers() })
+    const res = await fetch(`${API}/ai/canvas-state?canvas_id=${cid}`, { headers: headers() })
     if (res.ok) {
       const data = await res.json()
       if (data.nodes?.length) {
@@ -1008,8 +1055,9 @@ async function loadLayout() {
 
   // 2순위: localStorage fallback
   try {
-    const saved = localStorage.getItem('autostock-canvas')
-    if (!saved) return
+    const saved = localStorage.getItem(`autostock-canvas:${cid}`)
+      || (cid === 'default' ? localStorage.getItem('autostock-canvas') : null)
+    if (!saved) { nodes.value = []; edges.value = []; return }
     const { nodes: n, edges: e } = JSON.parse(saved)
     nodes.value = n || []
     edges.value = e || []
@@ -1216,7 +1264,67 @@ async function fetchBotList() {
   } catch { /* ignore */ }
 }
 
+async function fetchCanvasList() {
+  try {
+    const res = await fetch(`${API}/ai/canvases`, { headers: headers() })
+    if (res.ok) canvasList.value = await res.json()
+  } catch { /* ignore */ }
+}
+
+async function switchCanvas(id) {
+  await saveLayout()          // 현재 캔버스 저장
+  currentCanvasId.value = id
+  nodes.value = []
+  edges.value = []
+  selectedNode.value = null
+  await loadLayout(id)
+}
+
+async function createCanvas() {
+  const name = `캔버스 ${canvasList.value.length + 1}`
+  const res = await fetch(`${API}/ai/canvases`, {
+    method: 'POST', headers: headers(true),
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) return
+  const newCanvas = await res.json()
+  canvasList.value.push(newCanvas)
+  await switchCanvas(newCanvas.id)
+}
+
+function startRename(canvas) {
+  renamingId.value = canvas.id
+  renameValue.value = canvas.name
+  nextTick(() => renameInputEl.value?.focus?.())
+}
+
+async function confirmRename() {
+  if (!renamingId.value) return
+  const id = renamingId.value
+  const name = renameValue.value.trim() || '캔버스'
+  renamingId.value = null
+  await fetch(`${API}/ai/canvases/${id}`, {
+    method: 'PATCH', headers: headers(true),
+    body: JSON.stringify({ name }),
+  })
+  const c = canvasList.value.find(c => c.id === id)
+  if (c) c.name = name
+}
+
+async function deleteCanvas(id) {
+  if (canvasList.value.length <= 1) return
+  const res = await fetch(`${API}/ai/canvases/${id}`, { method: 'DELETE', headers: headers(true) })
+  if (!res.ok) return
+  const { canvases } = await res.json()
+  canvasList.value = canvases
+  if (currentCanvasId.value === id) {
+    await switchCanvas(canvases[0].id)
+  }
+}
+
 onMounted(async () => {
+  await fetchCanvasList()
+  if (canvasList.value.length) currentCanvasId.value = canvasList.value[0].id
   loadLayout()
   await fetchBotList()
   fetchStrategies()
@@ -1258,6 +1366,52 @@ onMounted(async () => {
 
 .toolbar-left  { display: flex; align-items: center; gap: 4px; flex: 1; }
 .toolbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* ── 캔버스 선택 ── */
+.canvas-selector { position: relative; }
+.canvas-sel-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.04); color: #e5e7eb;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  max-width: 160px;
+}
+.canvas-sel-btn:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.15); }
+.canvas-sel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
+.canvas-menu {
+  display: none; position: absolute; top: calc(100% + 6px); left: 0;
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 8px;
+  padding: 6px; min-width: 200px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+.canvas-selector.open .canvas-menu { display: flex; flex-direction: column; gap: 2px; }
+.canvas-menu-item {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 8px; border-radius: 5px;
+}
+.canvas-menu-item:hover { background: rgba(255,255,255,.05); }
+.canvas-menu-item.active { background: rgba(79,158,255,.1); }
+.canvas-item-name {
+  flex: 1; font-size: 12px; color: #d1d5db; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.canvas-menu-item.active .canvas-item-name { color: #4f9eff; font-weight: 600; }
+.canvas-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.canvas-item-btn {
+  padding: 2px 5px; border-radius: 3px; border: none;
+  background: transparent; color: #6b7280; font-size: 11px; cursor: pointer;
+}
+.canvas-item-btn:hover { background: rgba(255,255,255,.08); color: #9ca3af; }
+.canvas-item-btn.danger:hover { color: #f87171; }
+.canvas-rename-input {
+  flex: 1; background: #0f1117; border: 1px solid #4f9eff; border-radius: 4px;
+  color: #e5e7eb; font-size: 12px; padding: 2px 6px; outline: none;
+}
+.canvas-new-btn {
+  margin-top: 4px; padding: 6px 8px; border-radius: 5px; border: 1px dashed #2a2d3e;
+  background: transparent; color: #6b7280; font-size: 11px; cursor: pointer; text-align: left;
+}
+.canvas-new-btn:hover { border-color: #4f9eff; color: #4f9eff; background: rgba(79,158,255,.06); }
 
 /* ── 드롭다운 팔레트 ── */
 .palette-dropdown { position: relative; }

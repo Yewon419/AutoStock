@@ -533,13 +533,98 @@ def get_canvas_insights(
     return result
 
 
+def _get_redis():
+    import redis as redis_lib
+    return redis_lib.from_url(settings.REDIS_URL)
+
+
+def _canvas_list_key(user_id: str) -> str:
+    return f"autostock:canvas-list:{user_id}"
+
+
+def _canvas_state_key(user_id: str, canvas_id: str) -> str:
+    return f"autostock:canvas:{user_id}:{canvas_id}"
+
+
+def _load_canvas_list(r, user_id: str) -> list:
+    import json
+    raw = r.get(_canvas_list_key(user_id))
+    if raw:
+        return json.loads(raw)
+    # 마이그레이션: 기존 단일 캔버스가 있으면 'default'로 이전
+    old_key = f"autostock:canvas:{user_id}"
+    old_data = r.get(old_key)
+    default_canvas = {"id": "default", "name": "기본 캔버스", "updated_at": ""}
+    if old_data:
+        r.set(_canvas_state_key(user_id, "default"), old_data)
+    canvases = [default_canvas]
+    r.set(_canvas_list_key(user_id), json.dumps(canvases))
+    return canvases
+
+
+@router.get("/canvases")
+def list_canvases(current_user: dict = Depends(get_current_user)):
+    """사용자 캔버스 목록 조회"""
+    r = _get_redis()
+    return _load_canvas_list(r, current_user["sub"])
+
+
+@router.post("/canvases")
+def create_canvas(payload: dict, current_user: dict = Depends(get_current_user)):
+    """새 캔버스 생성"""
+    import json, uuid
+    from datetime import datetime
+    r = _get_redis()
+    uid = current_user["sub"]
+    canvases = _load_canvas_list(r, uid)
+    new_canvas = {"id": str(uuid.uuid4()), "name": payload.get("name", "새 캔버스"), "updated_at": datetime.utcnow().isoformat()}
+    canvases.append(new_canvas)
+    r.set(_canvas_list_key(uid), json.dumps(canvases))
+    r.set(_canvas_state_key(uid, new_canvas["id"]), json.dumps({"nodes": [], "edges": []}))
+    return new_canvas
+
+
+@router.patch("/canvases/{canvas_id}")
+def rename_canvas(canvas_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
+    """캔버스 이름 변경"""
+    import json
+    from datetime import datetime
+    r = _get_redis()
+    uid = current_user["sub"]
+    canvases = _load_canvas_list(r, uid)
+    for c in canvases:
+        if c["id"] == canvas_id:
+            c["name"] = payload.get("name", c["name"])
+            c["updated_at"] = datetime.utcnow().isoformat()
+            break
+    r.set(_canvas_list_key(uid), json.dumps(canvases))
+    return {"status": "ok"}
+
+
+@router.delete("/canvases/{canvas_id}")
+def delete_canvas(canvas_id: str, current_user: dict = Depends(get_current_user)):
+    """캔버스 삭제 (최소 1개 유지)"""
+    import json
+    r = _get_redis()
+    uid = current_user["sub"]
+    canvases = _load_canvas_list(r, uid)
+    if len(canvases) <= 1:
+        return {"status": "error", "message": "마지막 캔버스는 삭제할 수 없습니다"}
+    canvases = [c for c in canvases if c["id"] != canvas_id]
+    r.set(_canvas_list_key(uid), json.dumps(canvases))
+    r.delete(_canvas_state_key(uid, canvas_id))
+    return {"status": "ok", "canvases": canvases}
+
+
 @router.get("/canvas-state")
-def get_canvas_state(current_user: dict = Depends(get_current_user)):
+def get_canvas_state(canvas_id: str = "default", current_user: dict = Depends(get_current_user)):
     """사용자별 캔버스 레이아웃 조회"""
-    import json, redis
-    r = redis.from_url(settings.REDIS_URL)
-    key = f"autostock:canvas:{current_user['sub']}"
-    data = r.get(key)
+    import json
+    r = _get_redis()
+    uid = current_user["sub"]
+    # 목록 초기화 (마이그레이션 포함)
+    _load_canvas_list(r, uid)
+    data = r.get(_canvas_state_key(uid, canvas_id))
     if not data:
         return {"nodes": [], "edges": []}
     return json.loads(data)
@@ -547,11 +632,20 @@ def get_canvas_state(current_user: dict = Depends(get_current_user)):
 
 @router.post("/canvas-state")
 def save_canvas_state(payload: dict, current_user: dict = Depends(get_current_user)):
-    """사용자별 캔버스 레이아웃 저장 (만료 없음)"""
-    import json, redis
-    r = redis.from_url(settings.REDIS_URL)
-    key = f"autostock:canvas:{current_user['sub']}"
-    r.set(key, json.dumps(payload))
+    """사용자별 캔버스 레이아웃 저장"""
+    import json
+    from datetime import datetime
+    r = _get_redis()
+    uid = current_user["sub"]
+    canvas_id = payload.pop("canvas_id", "default")
+    r.set(_canvas_state_key(uid, canvas_id), json.dumps(payload))
+    # updated_at 갱신
+    canvases = _load_canvas_list(r, uid)
+    for c in canvases:
+        if c["id"] == canvas_id:
+            c["updated_at"] = datetime.utcnow().isoformat()
+            break
+    r.set(_canvas_list_key(uid), json.dumps(canvases))
     return {"status": "ok"}
 
 
