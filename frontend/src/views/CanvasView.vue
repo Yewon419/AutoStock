@@ -136,6 +136,12 @@
                 <option value="ml_top">ML 상위 30개</option>
                 <option value="volume_top">거래량 상위 100개</option>
               </select>
+              <template v-else-if="field.key === 'auto_start'">
+                <label class="config-checkbox">
+                  <input type="checkbox" v-model="selectedNode.data.config.auto_start" />
+                  <span>전략 적용 즉시 봇 시작</span>
+                </label>
+              </template>
               <input v-else v-model="selectedNode.data.config[field.key]" class="config-input" />
             </div>
           </div>
@@ -404,7 +410,7 @@ const NODE_DEFS = {
     description: '생성된 전략을 봇에 적용',
     inputs:  [{ id: 'strategy', label: '전략' }],
     outputs: [],
-    config: { bot_id: null }, apiPath: '/bots', apiMethod: 'PUT',
+    config: { bot_id: null, auto_start: true }, apiPath: '/bots', apiMethod: 'PUT',
   },
 }
 
@@ -550,7 +556,7 @@ const editableConfig = computed(() => {
   const cfg = selectedNode.value.data.config || {}
   return Object.keys(cfg).map(k => ({
     key: k,
-    label: { bot_id: '봇 선택', tickers_source: '종목 소스', strategy_id: '전략 선택' }[k] || k,
+    label: { bot_id: '봇 선택', tickers_source: '종목 소스', strategy_id: '전략 선택', auto_start: '적용 후 자동 시작' }[k] || k,
   }))
 })
 
@@ -797,7 +803,22 @@ async function runNode(nodeId) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.detail || `봇 적용 실패 (${res.status})`)
       }
-      result = { bot_name: bot?.name || botId, strategy_id: strategyId, applied: true }
+
+      // auto_start가 켜져 있으면 봇 시작 (명시적으로 false가 아닌 한 기본 실행)
+      if (node.data.config.auto_start !== false) {
+        const startRes = await fetch(`${API}/bots/${botId}/start`, {
+          method: 'POST',
+          headers: headers(true),
+        })
+        _checkAuth(startRes)
+        if (!startRes.ok) {
+          const body = await startRes.json().catch(() => ({}))
+          throw new Error(body.detail || `봇 시작 실패 (${startRes.status})`)
+        }
+        await fetchBotList()
+      }
+
+      result = { bot_name: bot?.name || botId, strategy_id: strategyId, applied: true, started: !!node.data.config.auto_start }
     }
 
     updateNodeData(nodeId, { status: 'success', result })
@@ -1065,12 +1086,16 @@ provide('selectNode', (id) => {
 })
 
 // ── 초기화 ────────────────────────────────────────────────────────
-onMounted(async () => {
-  loadLayout()
+async function fetchBotList() {
   try {
     const res = await fetch(`${API}/bots`, { headers: headers() })
     botList.value = await res.json()
   } catch { /* ignore */ }
+}
+
+onMounted(async () => {
+  loadLayout()
+  await fetchBotList()
   fetchStrategies()
 })
 </script>
@@ -1253,6 +1278,8 @@ onMounted(async () => {
   transition: border-color 0.15s;
 }
 .config-input:focus { border-color: #4f9eff; }
+.config-checkbox { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: #d1d5db; }
+.config-checkbox input[type="checkbox"] { accent-color: #4f9eff; width: 14px; height: 14px; cursor: pointer; }
 
 .port-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .port-label-head { font-size: 10px; color: #4b5563; width: 24px; flex-shrink: 0; }

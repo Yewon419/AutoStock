@@ -234,7 +234,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -397,6 +397,8 @@ function fmtMoney(v) {
   return Number(v).toLocaleString('ko-KR') + '원'
 }
 
+let pollTimer = null
+
 onMounted(async () => {
   await Promise.all([fetchBots(), fetchStrategies()])
   // AI 탭에서 전략 적용 후 새 봇 생성으로 진입 시 자동으로 모달 열기
@@ -408,6 +410,12 @@ onMounted(async () => {
     error.value = ''
     showModal.value = true
   }
+  // 5초마다 봇 상태 갱신 (다른 탭에서 시작/정지 반영)
+  pollTimer = setInterval(fetchBots, 5000)
+})
+
+onUnmounted(() => {
+  clearInterval(pollTimer)
 })
 </script>
 
