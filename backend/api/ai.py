@@ -609,7 +609,8 @@ def delete_canvas(canvas_id: str, current_user: dict = Depends(get_current_user)
     uid = current_user["sub"]
     canvases = _load_canvas_list(r, uid)
     if len(canvases) <= 1:
-        return {"status": "error", "message": "마지막 캔버스는 삭제할 수 없습니다"}
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="마지막 캔버스는 삭제할 수 없습니다")
     canvases = [c for c in canvases if c["id"] != canvas_id]
     r.set(_canvas_list_key(uid), json.dumps(canvases))
     r.delete(_canvas_state_key(uid, canvas_id))

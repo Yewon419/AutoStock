@@ -1295,7 +1295,10 @@ async function createCanvas() {
 function startRename(canvas) {
   renamingId.value = canvas.id
   renameValue.value = canvas.name
-  nextTick(() => renameInputEl.value?.focus?.())
+  nextTick(() => {
+    const el = Array.isArray(renameInputEl.value) ? renameInputEl.value[0] : renameInputEl.value
+    el?.focus?.()
+  })
 }
 
 async function confirmRename() {
