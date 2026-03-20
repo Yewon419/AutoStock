@@ -5,16 +5,26 @@
     <div class="toolbar">
       <div class="toolbar-left">
         <span class="toolbar-brand">✦ AI 캔버스</span>
-        <template v-for="grp in PALETTE_GROUPS" :key="grp.cat">
-          <span class="palette-divider" />
-          <button
-            v-for="t in grp.types" :key="t"
-            @click="addNode(t)"
-            class="palette-btn" :class="`cat-${grp.cat}`"
-          >
-            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
+        <div
+          v-for="grp in PALETTE_GROUPS" :key="grp.cat"
+          class="palette-dropdown"
+          :class="{ open: openPalette === grp.cat }"
+          @mouseenter="openPalette = grp.cat"
+          @mouseleave="openPalette = null"
+        >
+          <button class="palette-cat-btn" :class="`cat-${grp.cat}`">
+            {{ grp.label }} <span class="pd-arrow">▾</span>
           </button>
-        </template>
+          <div class="palette-menu">
+            <button
+              v-for="t in grp.types" :key="t"
+              @click="addNode(t); openPalette = null"
+              class="palette-menu-item" :class="`cat-${grp.cat}`"
+            >
+              {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
+            </button>
+          </div>
+        </div>
       </div>
       <div class="toolbar-right">
         <span class="save-status" :class="saveStatus">
@@ -361,6 +371,7 @@ const PALETTE_GROUPS = [
   { cat: 'config',     label: '설정', types: CONFIG_TYPES },
 ]
 
+const openPalette = ref(null)
 
 const NODE_DEFS = {
   marketContext: {
@@ -1213,24 +1224,23 @@ onMounted(async () => {
   position: relative;
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
   background: #0f1117;
   overflow: hidden;
 }
 
-/* ── 툴바 — 캔버스 위에 float ── */
+/* ── 툴바 ── */
 .toolbar {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  z-index: 10;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
   justify-content: space-between;
-  padding: 6px 16px;
-  background: rgba(26, 29, 39, 0.92);
-  backdrop-filter: blur(8px);
+  align-items: center;
+  padding: 0 20px;
+  height: 56px;
+  background: #1a1d27;
   border-bottom: 1px solid #2a2d3e;
-  gap: 6px;
+  flex-shrink: 0;
+  gap: 4px;
 }
 
 .toolbar-brand {
@@ -1238,12 +1248,43 @@ onMounted(async () => {
   font-weight: 700;
   color: #a78bfa;
   flex-shrink: 0;
-  margin-right: 4px;
+  margin-right: 12px;
 }
 
-.toolbar-left  { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; }
+.toolbar-left  { display: flex; align-items: center; gap: 4px; flex: 1; }
 .toolbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.palette-divider { width: 1px; height: 16px; background: #2a2d3e; flex-shrink: 0; }
+
+/* ── 드롭다운 팔레트 ── */
+.palette-dropdown { position: relative; }
+.palette-cat-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: 6px; border: 1px solid transparent;
+  font-size: 12px; font-weight: 500; cursor: pointer; background: transparent;
+  transition: all .15s; white-space: nowrap;
+}
+.palette-cat-btn:hover { background: rgba(255,255,255,.05); }
+.palette-dropdown.open .palette-cat-btn { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.05); }
+.pd-arrow { font-size: 9px; opacity: .5; }
+.palette-menu {
+  display: none; position: absolute; top: calc(100% + 6px); left: 0;
+  background: #1a1d2e; border: 1px solid #2a2d3e; border-radius: 8px;
+  padding: 6px; z-index: 200; min-width: 170px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.5);
+}
+.palette-dropdown.open .palette-menu { display: flex; flex-direction: column; gap: 2px; }
+.palette-menu-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: 5px; border: none;
+  font-size: 12px; cursor: pointer; text-align: left; background: transparent;
+  transition: background .1s; white-space: nowrap;
+}
+.palette-menu-item:hover { background: rgba(255,255,255,.07); }
+/* 카테고리별 색상 */
+.palette-cat-btn.cat-source,     .palette-menu-item.cat-source     { color: #22d3ee; }
+.palette-cat-btn.cat-strategy,   .palette-menu-item.cat-strategy   { color: #fbbf24; }
+.palette-cat-btn.cat-processing, .palette-menu-item.cat-processing { color: #a78bfa; }
+.palette-cat-btn.cat-output,     .palette-menu-item.cat-output     { color: #34d399; }
+.palette-cat-btn.cat-config,     .palette-menu-item.cat-config     { color: #f59e0b; }
 
 
 
