@@ -1014,6 +1014,9 @@ async function sendChat(msg) {
 }
 
 async function applyCommands(commands) {
+  // botApply의 기존 bot_id 보존 (AI가 remove 후 re-add 해도 유지)
+  const prevBotId = nodes.value.find(n => n.type === 'botApply')?.data?.config?.bot_id ?? null
+
   for (const cmd of commands) {
     if (cmd.type === 'clear') {
       nodes.value = []
@@ -1022,19 +1025,26 @@ async function applyCommands(commands) {
 
     } else if (cmd.type === 'add_node') {
       addNode(cmd.node_type, cmd.x, cmd.y)
+      const newNode = nodes.value[nodes.value.length - 1]
       // strategyBuilder: AI가 내려준 name을 config에 반영
-      if (cmd.node_type === 'strategyBuilder' && cmd.name) {
-        const node = nodes.value[nodes.value.length - 1]
-        if (node) node.data.config.name = cmd.name
+      if (cmd.node_type === 'strategyBuilder' && cmd.name && newNode) {
+        newNode.data.config.name = cmd.name
+      }
+      // botApply 재추가 시 기존 bot_id 복원
+      if (cmd.node_type === 'botApply' && prevBotId && newNode) {
+        newNode.data.config.bot_id = prevBotId
       }
 
     } else if (cmd.type === 'connect') {
       const src = nodes.value.find(n => n.type === cmd.source_type)
       const tgt = nodes.value.find(n => n.type === cmd.target_type)
       if (src && tgt) {
+        // handle 미지정 시 NODE_DEFS의 첫 번째 output/input handle로 fallback
+        const srcHandle = cmd.source_handle ?? NODE_DEFS[src.type]?.outputs?.[0]?.id
+        const tgtHandle = cmd.target_handle ?? NODE_DEFS[tgt.type]?.inputs?.[0]?.id
         onConnect({
-          source: src.id, sourceHandle: cmd.source_handle,
-          target: tgt.id, targetHandle: cmd.target_handle,
+          source: src.id, sourceHandle: srcHandle,
+          target: tgt.id, targetHandle: tgtHandle,
         })
       }
 
@@ -1069,6 +1079,33 @@ async function applyCommands(commands) {
         }
       }
     }
+  }
+
+  // ── 사후 검증: botApply 보장 ──────────────────────────────────
+  const hasBotApply = nodes.value.some(n => n.type === 'botApply')
+  if (!hasBotApply && nodes.value.length > 0) {
+    addNode('botApply', 860, 200)
+    const botNode = nodes.value[nodes.value.length - 1]
+    if (prevBotId) botNode.data.config.bot_id = prevBotId
+    // 전략 output을 가진 노드와 자동 연결
+    const stratSrc = nodes.value.find(n =>
+      NODE_DEFS[n.type]?.outputs?.some(o => o.id === 'strategy') && n.type !== 'botApply'
+    )
+    if (stratSrc && botNode) {
+      onConnect({ source: stratSrc.id, sourceHandle: 'strategy', target: botNode.id, targetHandle: 'strategy' })
+    }
+    chatMessages.value.push({ role: 'assistant', content: '⚠ botApply 노드가 없어서 자동으로 추가했습니다.' })
+  }
+
+  // ── 사후 검증: 고립 노드 감지 ────────────────────────────────
+  const isolated = nodes.value.filter(n =>
+    !edges.value.some(e => e.source === n.id || e.target === n.id)
+  )
+  if (isolated.length > 0) {
+    chatMessages.value.push({
+      role: 'assistant',
+      content: `⚠ 연결되지 않은 노드: ${isolated.map(n => NODE_DEFS[n.type]?.label || n.type).join(', ')} — 수동으로 연결하거나 다시 최적화를 요청해주세요.`,
+    })
   }
 }
 

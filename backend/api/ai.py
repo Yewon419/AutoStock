@@ -292,16 +292,24 @@ def canvas_assistant(
 출력 노드: botApply(봇 적용)
 
 [연결 규칙]
-marketContext.market_data → llmGenerator.market_data
-techIndicators.indicator_data → mlModel.indicator_data
-mlScores.ml_scores → llmGenerator.ml_scores
-mlModel.ml_scores → llmGenerator.ml_scores
-llmGenerator.strategy → backtest.strategy
-llmGenerator.strategy → botApply.strategy
-strategy.strategy → backtest.strategy
-strategy.strategy → botApply.strategy
-strategyBuilder.strategy → backtest.strategy
-strategyBuilder.strategy → botApply.strategy
+각 연결은 source_handle → target_handle 형식입니다. connect 명령 시 반드시 source_handle, target_handle을 명시하세요.
+
+marketContext(출력 market_data) → llmGenerator(입력 market_data)
+techIndicators(출력 indicator_data) → mlModel(입력 indicator_data)
+mlScores(출력 ml_scores) → llmGenerator(입력 ml_scores)
+mlModel(출력 ml_scores) → llmGenerator(입력 ml_scores)
+llmGenerator(출력 strategy) → backtest(입력 strategy)
+llmGenerator(출력 strategy) → botApply(입력 strategy)
+strategy(출력 strategy) → backtest(입력 strategy)
+strategy(출력 strategy) → botApply(입력 strategy)
+strategyBuilder(출력 strategy) → backtest(입력 strategy)
+strategyBuilder(출력 strategy) → botApply(입력 strategy)
+backtest(출력 strategy) → botApply(입력 strategy)
+
+connect 명령 예시:
+{{"type": "connect", "source_type": "strategyBuilder", "source_handle": "strategy", "target_type": "backtest", "target_handle": "strategy"}}
+{{"type": "connect", "source_type": "backtest", "source_handle": "strategy", "target_type": "botApply", "target_handle": "strategy"}}
+{{"type": "connect", "source_type": "marketContext", "source_handle": "market_data", "target_type": "llmGenerator", "target_handle": "market_data"}}
 
 [레이아웃 프리셋]
 풀 파이프라인: marketContext(80,120) techIndicators(80,320) mlModel(340,220) llmGenerator(600,120) backtest(600,340) botApply(860,120)
