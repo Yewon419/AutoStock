@@ -5,35 +5,26 @@
     <div class="toolbar">
       <div class="toolbar-left">
         <span class="toolbar-brand">✦ AI 캔버스</span>
-        <div class="palette-group">
-          <span class="palette-label">소스</span>
-          <button v-for="t in SOURCE_TYPES" :key="t" @click="addNode(t)" class="palette-btn cat-source">
-            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
+        <div
+          v-for="grp in PALETTE_GROUPS" :key="grp.cat"
+          class="palette-dropdown"
+          :class="{ open: openPalette === grp.cat }"
+          @mouseenter="openPalette = grp.cat"
+          @mouseleave="openPalette = null"
+        >
+          <button class="palette-cat-btn" :class="`cat-${grp.cat}`">
+            {{ grp.label }} <span class="pd-arrow">▾</span>
           </button>
-        </div>
-        <div class="palette-group">
-          <span class="palette-label">전략</span>
-          <button v-for="t in STRATEGY_TYPES" :key="t" @click="addNode(t)" class="palette-btn cat-strategy">
-            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
-          </button>
-        </div>
-        <div class="palette-group">
-          <span class="palette-label">처리</span>
-          <button v-for="t in PROCESSING_TYPES" :key="t" @click="addNode(t)" class="palette-btn cat-processing">
-            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
-          </button>
-        </div>
-        <div class="palette-group">
-          <span class="palette-label">출력</span>
-          <button v-for="t in OUTPUT_TYPES" :key="t" @click="addNode(t)" class="palette-btn cat-output">
-            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
-          </button>
-        </div>
-        <div class="palette-group">
-          <span class="palette-label">설정</span>
-          <button v-for="t in CONFIG_TYPES" :key="t" @click="addNode(t)" class="palette-btn cat-config">
-            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
-          </button>
+          <div class="palette-menu">
+            <button
+              v-for="t in grp.types" :key="t"
+              @click="addNode(t); openPalette = null"
+              class="palette-menu-item"
+              :class="`cat-${grp.cat}`"
+            >
+              {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
+            </button>
+          </div>
         </div>
       </div>
       <div class="toolbar-right">
@@ -372,6 +363,16 @@ const CONFIG_TYPES     = ['accountConfig']
 const STRATEGY_TYPES   = ['strategy', 'strategyBuilder']
 const PROCESSING_TYPES = ['mlModel', 'llmGenerator', 'backtest']
 const OUTPUT_TYPES     = ['botApply']
+
+const PALETTE_GROUPS = [
+  { cat: 'source',     label: '소스', types: SOURCE_TYPES },
+  { cat: 'strategy',   label: '전략', types: STRATEGY_TYPES },
+  { cat: 'processing', label: '처리', types: PROCESSING_TYPES },
+  { cat: 'output',     label: '출력', types: OUTPUT_TYPES },
+  { cat: 'config',     label: '설정', types: CONFIG_TYPES },
+]
+
+const openPalette = ref(null)
 
 const NODE_DEFS = {
   marketContext: {
@@ -1255,8 +1256,26 @@ onMounted(async () => {
 .toolbar-left  { display: flex; align-items: center; gap: 8px; flex: 1; }
 .toolbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
-.palette-group { display: flex; align-items: center; gap: 4px; border-left: 1px solid #2a2d3e; padding-left: 8px; }
-.palette-label { font-size: 10px; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0; }
+.palette-dropdown { position: relative; }
+.palette-cat-btn {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: 5px; border: 1px solid transparent;
+  font-size: 12px; cursor: pointer; background: transparent; transition: all .15s;
+}
+.palette-cat-btn:hover, .palette-dropdown.open .palette-cat-btn { opacity: 1; filter: brightness(1.15); }
+.pd-arrow { font-size: 9px; opacity: .6; }
+.palette-menu {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0;
+  background: #1a1d2e; border: 1px solid #2a2d3e; border-radius: 6px;
+  padding: 4px; z-index: 200; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+.palette-dropdown.open .palette-menu { display: flex; flex-direction: column; gap: 2px; }
+.palette-menu-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 4px; border: none;
+  font-size: 12px; cursor: pointer; text-align: left; background: transparent; transition: background .1s;
+}
+.palette-menu-item:hover { background: rgba(255,255,255,.06); }
 
 .palette-btn {
   padding: 4px 10px;
@@ -1274,6 +1293,17 @@ onMounted(async () => {
 .palette-btn.cat-output     { background: rgba(5,150,105,.12); color: #34d399; border-color: rgba(5,150,105,.25); }
 .palette-btn.cat-config     { background: rgba(180,83,9,.12);  color: #f59e0b; border-color: rgba(180,83,9,.25); }
 .palette-btn:hover { opacity: 0.8; }
+/* 카테고리 드롭다운 버튼 색상 */
+.palette-cat-btn.cat-source,     .palette-menu-item.cat-source     { color: #22d3ee; }
+.palette-cat-btn.cat-strategy,   .palette-menu-item.cat-strategy   { color: #fbbf24; }
+.palette-cat-btn.cat-processing, .palette-menu-item.cat-processing { color: #a78bfa; }
+.palette-cat-btn.cat-output,     .palette-menu-item.cat-output     { color: #34d399; }
+.palette-cat-btn.cat-config,     .palette-menu-item.cat-config     { color: #f59e0b; }
+.palette-dropdown.open .palette-cat-btn.cat-source     { background: rgba(8,145,178,.12); }
+.palette-dropdown.open .palette-cat-btn.cat-strategy   { background: rgba(217,119,6,.12); }
+.palette-dropdown.open .palette-cat-btn.cat-processing { background: rgba(124,58,237,.12); }
+.palette-dropdown.open .palette-cat-btn.cat-output     { background: rgba(5,150,105,.12); }
+.palette-dropdown.open .palette-cat-btn.cat-config     { background: rgba(180,83,9,.12); }
 
 .btn-run-all {
   padding: 6px 14px;
