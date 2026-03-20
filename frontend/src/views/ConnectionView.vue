@@ -157,7 +157,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const API = 'http://localhost:8001/api/v1'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
 
 const brokerStatus = ref({ mode: 'mock', connected: null, kis_account: null, kis_is_paper: null, token_ttl: null })
 const accounts = ref([])

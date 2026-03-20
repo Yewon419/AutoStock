@@ -109,7 +109,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const API = 'http://localhost:8001/api/v1'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
 
 const summary = ref({ bot_count: 0, running: 0, stopped: 0, error: 0, total_assets: 0, total_pnl: 0, daily_pnl: 0, today_trades: 0, alerts: [] })
 const botSnapshots = ref([])

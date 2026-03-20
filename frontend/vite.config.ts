@@ -19,5 +19,6 @@ export default defineConfig({
   },
   server: {
     port: 3001,
+    host: true,   // 0.0.0.0 — 외부(모바일) 접속 허용
   },
 })
