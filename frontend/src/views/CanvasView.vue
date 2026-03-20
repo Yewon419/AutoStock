@@ -795,8 +795,25 @@ async function runNode(nodeId) {
           ? `LLM 전략이 품질 기준 미달로 저장되지 않았습니다 (${strategyResult.reason || '기준 미달'})`
           : '전략 결과에 strategy_id가 없습니다. 전략 노드를 재실행하세요'
       )
-      const botId = node.data.config.bot_id
-      if (!botId) throw new Error('사이드 패널에서 봇을 선택하세요')
+      let botId = node.data.config.bot_id
+      if (!botId) {
+        // 봇 미지정 시 전략명 기반 봇 자동 생성
+        const botName = `${strategyResult.strategy_name || '자동생성'} 봇`
+        const createRes = await fetch(`${API}/bots`, {
+          method: 'POST',
+          headers: headers(true),
+          body: JSON.stringify({ name: botName, mode: 'mock', tickers: [], initial_cash: 10000000 }),
+        })
+        _checkAuth(createRes)
+        if (!createRes.ok) {
+          const body = await createRes.json().catch(() => ({}))
+          throw new Error(body.detail || '봇 자동 생성 실패')
+        }
+        const newBot = await createRes.json()
+        botId = newBot.id
+        node.data.config.bot_id = botId
+        botList.value.push(newBot)
+      }
       const bot = botList.value.find(b => b.id === botId)
       if (bot?.status === 'RUNNING') throw new Error('실행 중인 봇은 변경할 수 없습니다. 봇을 먼저 정지하세요.')
       const res = await fetch(`${API}/bots/${botId}`, {
@@ -824,7 +841,8 @@ async function runNode(nodeId) {
         await fetchBotList()
       }
 
-      result = { bot_name: bot?.name || botId, strategy_id: strategyId, applied: true, started: !!node.data.config.auto_start }
+      const finalBot = botList.value.find(b => b.id === botId)
+      result = { bot_name: finalBot?.name || botId, strategy_id: strategyId, applied: true, started: node.data.config.auto_start !== false, auto_created: !node.data.config.bot_id || node.data.config.bot_id === botId }
     }
 
     updateNodeData(nodeId, { status: 'success', result })
