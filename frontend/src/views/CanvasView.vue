@@ -136,6 +136,21 @@
                 <option value="ml_top">ML 상위 30개</option>
                 <option value="volume_top">거래량 상위 100개</option>
               </select>
+              <template v-else-if="field.key === 'account_id'">
+                <select v-model="selectedNode.data.config.account_id" class="config-input">
+                  <option :value="null">계좌 선택 (선택 안 하면 모의)</option>
+                  <option v-for="a in accountList" :key="a.id" :value="a.id">
+                    {{ a.owner_name }} — {{ a.broker }} ({{ a.account_type === 'real' ? '실계좌' : '모의' }})
+                  </option>
+                </select>
+              </template>
+              <template v-else-if="field.key === 'mode'">
+                <select v-model="selectedNode.data.config.mode" class="config-input">
+                  <option value="mock">Mock (백테스트)</option>
+                  <option value="paper">Paper (모의 실시간)</option>
+                  <option value="real">Real (실거래)</option>
+                </select>
+              </template>
               <template v-else-if="field.key === 'auto_start'">
                 <label class="config-checkbox">
                   <input type="checkbox" v-model="selectedNode.data.config.auto_start" />
@@ -369,6 +384,12 @@ const NODE_DEFS = {
     inputs: [], outputs: [{ id: 'ml_scores', label: 'ML 스코어' }],
     config: {}, apiPath: '/ai/scores', apiMethod: 'GET',
   },
+  accountConfig: {
+    label: '계좌 설정', icon: '🏦', category: 'source',
+    description: '브로커 계좌 및 매매 모드 설정',
+    inputs: [], outputs: [{ id: 'account_config', label: '계좌 설정' }],
+    config: { account_id: null, mode: 'mock' }, apiPath: null,
+  },
   strategy: {
     label: '기존 전략', icon: '📋', category: 'strategy',
     description: 'DB에서 전략 선택',
@@ -414,7 +435,7 @@ const NODE_DEFS = {
   botApply: {
     label: '봇 적용', icon: '🎮', category: 'output',
     description: '생성된 전략을 봇에 적용',
-    inputs:  [{ id: 'strategy', label: '전략' }],
+    inputs:  [{ id: 'strategy', label: '전략' }, { id: 'account_config', label: '계좌 설정' }],
     outputs: [],
     config: { bot_id: null, auto_start: true }, apiPath: '/bots', apiMethod: 'PUT',
   },
@@ -509,11 +530,19 @@ function addBuilderCondition() {
 const selectedNode = ref(null)
 const botList = ref([])
 const strategyList = ref([])
+const accountList = ref([])
 
 async function fetchStrategies() {
   try {
     const res = await fetch(`${API}/strategies`, { headers: headers() })
     strategyList.value = await res.json()
+  } catch { /* ignore */ }
+}
+
+async function fetchAccounts() {
+  try {
+    const res = await fetch(`${API}/accounts`, { headers: headers() })
+    accountList.value = await res.json()
   } catch { /* ignore */ }
 }
 
@@ -562,7 +591,7 @@ const editableConfig = computed(() => {
   const cfg = selectedNode.value.data.config || {}
   return Object.keys(cfg).map(k => ({
     key: k,
-    label: { bot_id: '봇 선택', tickers_source: '종목 소스', strategy_id: '전략 선택', auto_start: '적용 후 자동 시작' }[k] || k,
+    label: { bot_id: '봇 선택', tickers_source: '종목 소스', strategy_id: '전략 선택', auto_start: '적용 후 자동 시작', account_id: '계좌', mode: '매매 모드' }[k] || k,
   }))
 })
 
@@ -687,8 +716,15 @@ async function runNode(nodeId) {
   try {
     let result
 
+    // ── accountConfig ──────────────────────────────────────────────
+    if (node.type === 'accountConfig') {
+      const { account_id, mode } = node.data.config
+      const account = accountList.value.find(a => a.id === account_id)
+      result = { account_id: account_id || null, mode: mode || 'mock', account_label: account ? `${account.owner_name} (${account.broker})` : '모의' }
+    }
+
     // ── marketContext ──────────────────────────────────────────────
-    if (node.type === 'marketContext') {
+    else if (node.type === 'marketContext') {
       const data = await apiGet('/ai/market-context')
       const ctx = data.context || data
       const indices = ctx.indices || {}
@@ -795,14 +831,21 @@ async function runNode(nodeId) {
           ? `LLM 전략이 품질 기준 미달로 저장되지 않았습니다 (${strategyResult.reason || '기준 미달'})`
           : '전략 결과에 strategy_id가 없습니다. 전략 노드를 재실행하세요'
       )
+      // account_config 입력 노드에서 계좌/모드 가져오기
+      const accountCfg = getInputResult(nodeId, 'account_config')
+      const botMode = accountCfg?.mode || 'mock'
+      const botAccountId = accountCfg?.account_id || null
+
       let botId = node.data.config.bot_id
       if (!botId) {
         // 봇 미지정 시 전략명 기반 봇 자동 생성
         const botName = `${strategyResult.strategy_name || '자동생성'} 봇`
+        const createBody = { name: botName, mode: botMode, tickers: [], initial_cash: 10000000 }
+        if (botAccountId) createBody.account_id = botAccountId
         const createRes = await fetch(`${API}/bots`, {
           method: 'POST',
           headers: headers(true),
-          body: JSON.stringify({ name: botName, mode: 'mock', tickers: [], initial_cash: 10000000 }),
+          body: JSON.stringify(createBody),
         })
         _checkAuth(createRes)
         if (!createRes.ok) {
@@ -816,10 +859,15 @@ async function runNode(nodeId) {
       }
       const bot = botList.value.find(b => b.id === botId)
       if (bot?.status === 'RUNNING') throw new Error('실행 중인 봇은 변경할 수 없습니다. 봇을 먼저 정지하세요.')
+      const putBody = { strategy_id: strategyId }
+      if (accountCfg) {
+        putBody.mode = botMode
+        if (botAccountId) putBody.account_id = botAccountId
+      }
       const res = await fetch(`${API}/bots/${botId}`, {
         method: 'PUT',
         headers: headers(true),
-        body: JSON.stringify({ strategy_id: strategyId }),
+        body: JSON.stringify(putBody),
       })
       _checkAuth(res)
       if (!res.ok) {
@@ -1158,6 +1206,7 @@ onMounted(async () => {
   loadLayout()
   await fetchBotList()
   fetchStrategies()
+  fetchAccounts()
 })
 </script>
 

@@ -286,7 +286,7 @@ def canvas_assistant(
 {knowledge_section}
 
 [사용 가능한 노드]
-소스 노드: marketContext(시장 컨텍스트), techIndicators(기술 지표 DB), mlScores(ML 스코어 캐시)
+소스 노드: marketContext(시장 컨텍스트), techIndicators(기술 지표 DB), mlScores(ML 스코어 캐시), accountConfig(계좌 설정)
 전략 노드: strategy(기존 전략 선택), strategyBuilder(조건 직접 설정 전략 빌더)
 처리 노드: mlModel(ML 모델 학습), llmGenerator(LLM 전략 생성), backtest(백테스트)
 출력 노드: botApply(봇 적용)
@@ -305,6 +305,7 @@ strategy(출력 strategy) → botApply(입력 strategy)
 strategyBuilder(출력 strategy) → backtest(입력 strategy)
 strategyBuilder(출력 strategy) → botApply(입력 strategy)
 backtest(출력 strategy) → botApply(입력 strategy)
+accountConfig(출력 account_config) → botApply(입력 account_config)
 
 connect 명령 예시:
 {{"type": "connect", "source_type": "strategyBuilder", "source_handle": "strategy", "target_type": "backtest", "target_handle": "strategy"}}
@@ -312,7 +313,7 @@ connect 명령 예시:
 {{"type": "connect", "source_type": "marketContext", "source_handle": "market_data", "target_type": "llmGenerator", "target_handle": "market_data"}}
 
 [레이아웃 프리셋]
-풀 파이프라인: marketContext(80,120) techIndicators(80,320) mlModel(340,220) llmGenerator(600,120) backtest(600,340) botApply(860,120)
+풀 파이프라인: marketContext(80,120) techIndicators(80,320) mlModel(340,220) llmGenerator(600,120) backtest(600,340) botApply(860,120) accountConfig(80,480)
 빠른 전략: marketContext(80,180) mlScores(80,340) llmGenerator(360,270) botApply(640,270)
 ML만: techIndicators(80,200) mlModel(360,200)
 LLM만: marketContext(80,200) llmGenerator(360,200) botApply(640,200)
