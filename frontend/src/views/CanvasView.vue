@@ -5,27 +5,16 @@
     <div class="toolbar">
       <div class="toolbar-left">
         <span class="toolbar-brand">✦ AI 캔버스</span>
-        <div
-          v-for="grp in PALETTE_GROUPS" :key="grp.cat"
-          class="palette-dropdown"
-          :class="{ open: openPalette === grp.cat }"
-          @mouseenter="openPalette = grp.cat"
-          @mouseleave="openPalette = null"
-        >
-          <button class="palette-cat-btn" :class="`cat-${grp.cat}`">
-            {{ grp.label }} <span class="pd-arrow">▾</span>
+        <template v-for="grp in PALETTE_GROUPS" :key="grp.cat">
+          <span class="palette-divider" />
+          <button
+            v-for="t in grp.types" :key="t"
+            @click="addNode(t)"
+            class="palette-btn" :class="`cat-${grp.cat}`"
+          >
+            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
           </button>
-          <div class="palette-menu">
-            <button
-              v-for="t in grp.types" :key="t"
-              @click="addNode(t); openPalette = null"
-              class="palette-menu-item"
-              :class="`cat-${grp.cat}`"
-            >
-              {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
-            </button>
-          </div>
-        </div>
+        </template>
       </div>
       <div class="toolbar-right">
         <span class="save-status" :class="saveStatus">
@@ -372,7 +361,6 @@ const PALETTE_GROUPS = [
   { cat: 'config',     label: '설정', types: CONFIG_TYPES },
 ]
 
-const openPalette = ref(null)
 
 const NODE_DEFS = {
   marketContext: {
@@ -1225,24 +1213,24 @@ onMounted(async () => {
   position: relative;
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
   background: #0f1117;
   overflow: hidden;
 }
 
-/* ── 툴바 ── */
+/* ── 툴바 — 캔버스 위에 float ── */
 .toolbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  padding: 0 16px;
-  height: 48px;
-  background: #1a1d27;
+  justify-content: space-between;
+  padding: 6px 16px;
+  background: rgba(26, 29, 39, 0.92);
+  backdrop-filter: blur(8px);
   border-bottom: 1px solid #2a2d3e;
-  flex-shrink: 0;
-  gap: 12px;
-  overflow-x: auto;
+  gap: 6px;
 }
 
 .toolbar-brand {
@@ -1250,32 +1238,14 @@ onMounted(async () => {
   font-weight: 700;
   color: #a78bfa;
   flex-shrink: 0;
-  margin-right: 8px;
+  margin-right: 4px;
 }
 
-.toolbar-left  { display: flex; align-items: center; gap: 8px; flex: 1; }
+.toolbar-left  { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; }
 .toolbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.palette-divider { width: 1px; height: 16px; background: #2a2d3e; flex-shrink: 0; }
 
-.palette-dropdown { position: relative; }
-.palette-cat-btn {
-  display: flex; align-items: center; gap: 4px;
-  padding: 4px 10px; border-radius: 5px; border: 1px solid transparent;
-  font-size: 12px; cursor: pointer; background: transparent; transition: all .15s;
-}
-.palette-cat-btn:hover, .palette-dropdown.open .palette-cat-btn { opacity: 1; filter: brightness(1.15); }
-.pd-arrow { font-size: 9px; opacity: .6; }
-.palette-menu {
-  display: none; position: absolute; top: calc(100% + 4px); left: 0;
-  background: #1a1d2e; border: 1px solid #2a2d3e; border-radius: 6px;
-  padding: 4px; z-index: 200; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,.4);
-}
-.palette-dropdown.open .palette-menu { display: flex; flex-direction: column; gap: 2px; }
-.palette-menu-item {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 4px; border: none;
-  font-size: 12px; cursor: pointer; text-align: left; background: transparent; transition: background .1s;
-}
-.palette-menu-item:hover { background: rgba(255,255,255,.06); }
+
 
 .palette-btn {
   padding: 4px 10px;
@@ -1293,17 +1263,6 @@ onMounted(async () => {
 .palette-btn.cat-output     { background: rgba(5,150,105,.12); color: #34d399; border-color: rgba(5,150,105,.25); }
 .palette-btn.cat-config     { background: rgba(180,83,9,.12);  color: #f59e0b; border-color: rgba(180,83,9,.25); }
 .palette-btn:hover { opacity: 0.8; }
-/* 카테고리 드롭다운 버튼 색상 */
-.palette-cat-btn.cat-source,     .palette-menu-item.cat-source     { color: #22d3ee; }
-.palette-cat-btn.cat-strategy,   .palette-menu-item.cat-strategy   { color: #fbbf24; }
-.palette-cat-btn.cat-processing, .palette-menu-item.cat-processing { color: #a78bfa; }
-.palette-cat-btn.cat-output,     .palette-menu-item.cat-output     { color: #34d399; }
-.palette-cat-btn.cat-config,     .palette-menu-item.cat-config     { color: #f59e0b; }
-.palette-dropdown.open .palette-cat-btn.cat-source     { background: rgba(8,145,178,.12); }
-.palette-dropdown.open .palette-cat-btn.cat-strategy   { background: rgba(217,119,6,.12); }
-.palette-dropdown.open .palette-cat-btn.cat-processing { background: rgba(124,58,237,.12); }
-.palette-dropdown.open .palette-cat-btn.cat-output     { background: rgba(5,150,105,.12); }
-.palette-dropdown.open .palette-cat-btn.cat-config     { background: rgba(180,83,9,.12); }
 
 .btn-run-all {
   padding: 6px 14px;
