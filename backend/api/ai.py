@@ -342,7 +342,19 @@ update_config 명령으로 기존 노드 설정을 직접 업데이트하세요:
 - backtest 종목소스 변경: {{"type": "update_config", "node_type": "backtest", "config": {{"tickers_source": "ml_top"}}}}
 - strategy 선택 변경: {{"type": "update_config", "node_type": "strategy", "config": {{"strategy_id": 5}}}}
 
-자동 최적화 응답 시 반드시: ① 데이터 해석 결과 ② 어떤 전략을 왜 선택했는지 ③ update_config + run_node 명령 순서로 포함하세요.
+[자동 최적화 시 노드 추가·제거 규칙]
+최적화는 기존 노드를 수정하는 것에 그치지 않고, 파이프라인 구성 자체를 자유롭게 변경해도 됩니다.
+- 필요한 노드가 없으면 add_node + connect로 추가하세요.
+  예) backtest 노드가 없는데 백테스트 검증이 필요하다 → backtest 노드 추가 후 연결
+  예) ML 신뢰도가 낮은데 mlModel 노드가 없다 → mlModel + techIndicators 추가
+- 현재 파이프라인에 불필요한 노드가 있으면 remove_node로 제거하세요.
+  예) ML 신뢰도가 낮아 mlScores 노드가 무의미하다 → 제거
+  예) 단순 전략 검증인데 marketContext/llmGenerator가 있다 → 제거
+- remove_node: {{"type": "remove_node", "node_type": "mlScores"}}
+- 노드 추가·제거 후 연결(connect)도 함께 구성해 파이프라인이 완결되게 하세요.
+- 단, botApply 노드는 봇이 선택된 상태면 유지하고, 없으면 추가하세요.
+
+자동 최적화 응답 시 반드시: ① 데이터 해석 결과 ② 어떤 파이프라인 구성을 왜 선택했는지 (추가·제거 이유 포함) ③ 노드 추가/제거/update_config/run_node 명령 순서로 포함하세요.
 
 [응답 형식 — 반드시 JSON만, 다른 텍스트 없이]
 {{"reply": "사용자에게 보여줄 설명", "commands": [{{"type": "clear"}}, {{"type": "add_node", "node_type": "strategyBuilder", "x": 80, "y": 200, "name": "RSI 과매도 전략"}}, {{"type": "update_config", "node_type": "strategyBuilder", "config": {{"conditions": [{{"indicator": "rsi", "condition": "below", "value": 30}}]}}}}, {{"type": "connect", "source_type": "strategyBuilder", "target_type": "backtest", "source_handle": "strategy", "target_handle": "strategy"}}, {{"type": "run_node", "node_type": "strategyBuilder"}}, {{"type": "run_node", "node_type": "backtest"}}]}}
@@ -359,15 +371,25 @@ commands가 필요 없으면 []로."""
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         message = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1024,
+            max_tokens=12000,
+            thinking={"type": "enabled", "budget_tokens": 8000},
             system=system_prompt,
             messages=[{"role": "user", "content": user_msg}],
         )
-        raw = message.content[0].text.strip()
+        thinking_text = ""
+        raw = ""
+        for block in message.content:
+            if block.type == "thinking":
+                thinking_text = block.thinking
+            elif block.type == "text":
+                raw = block.text.strip()
+
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"): raw = raw[4:]
         result = json.loads(raw.strip())
+        if thinking_text:
+            result["thinking"] = thinking_text
         return result
     except json.JSONDecodeError:
         return {"reply": raw, "commands": []}

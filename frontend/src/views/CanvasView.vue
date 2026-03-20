@@ -241,7 +241,13 @@
       <div v-if="chatExpanded" class="chat-body">
         <div class="chat-messages" ref="chatEl">
           <div v-for="(msg, i) in chatMessages" :key="i" class="chat-msg" :class="msg.role">
-            <div class="msg-bubble">{{ msg.content }}</div>
+            <div class="msg-bubble">
+              <details v-if="msg.thinking" class="thinking-block">
+                <summary class="thinking-summary">💭 생각 과정 보기</summary>
+                <pre class="thinking-content">{{ msg.thinking }}</pre>
+              </details>
+              {{ msg.content }}
+            </div>
           </div>
           <div v-if="chatLoading" class="chat-msg assistant">
             <div class="msg-bubble typing">
@@ -986,7 +992,7 @@ async function sendChat(msg) {
       throw new Error(res.status === 401 ? '로그인이 만료됐습니다. 다시 로그인해주세요.' : err.detail || `서버 오류 (${res.status})`)
     }
     const data = await res.json()
-    chatMessages.value.push({ role: 'assistant', content: data.reply || '(응답 없음)' })
+    chatMessages.value.push({ role: 'assistant', content: data.reply || '(응답 없음)', thinking: data.thinking || null })
     if (data.commands?.length) {
       const runCmds = data.commands.filter(c => c.type === 'run_node')
       if (runCmds.length) {
@@ -1353,6 +1359,11 @@ onMounted(async () => {
 }
 .user .msg-bubble     { background: rgba(79,158,255,.2); color: #e5e7eb; border-radius: 10px 10px 2px 10px; }
 .assistant .msg-bubble { background: rgba(167,139,250,.12); color: #d1d5db; border-radius: 10px 10px 10px 2px; }
+.thinking-block { margin-bottom: 8px; border: 1px solid rgba(167,139,250,.25); border-radius: 6px; overflow: hidden; }
+.thinking-summary { padding: 5px 8px; font-size: 11px; color: #a78bfa; cursor: pointer; user-select: none; list-style: none; }
+.thinking-summary::-webkit-details-marker { display: none; }
+.thinking-summary:hover { background: rgba(167,139,250,.1); }
+.thinking-content { margin: 0; padding: 8px; font-size: 11px; color: #9ca3af; white-space: pre-wrap; word-break: break-word; line-height: 1.5; max-height: 300px; overflow-y: auto; border-top: 1px solid rgba(167,139,250,.15); }
 
 .typing { display: flex; align-items: center; gap: 4px; padding: 10px 14px; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: #a78bfa; animation: bounce .8s infinite; }
