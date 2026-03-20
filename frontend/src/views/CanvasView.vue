@@ -29,6 +29,12 @@
             {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
           </button>
         </div>
+        <div class="palette-group">
+          <span class="palette-label">설정</span>
+          <button v-for="t in CONFIG_TYPES" :key="t" @click="addNode(t)" class="palette-btn cat-config">
+            {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
+          </button>
+        </div>
       </div>
       <div class="toolbar-right">
         <span class="save-status" :class="saveStatus">
@@ -84,7 +90,7 @@
             <span class="panel-node-icon">{{ selectedNode.data.icon }}</span>
             <span class="panel-node-name">{{ selectedNode.data.label }}</span>
             <span class="panel-cat-badge" :class="`cat-${selectedNode.data.category}`">
-              {{ { source: '소스', strategy: '전략', processing: '처리', output: '출력' }[selectedNode.data.category] }}
+              {{ { source: '소스', strategy: '전략', processing: '처리', output: '출력', config: '설정' }[selectedNode.data.category] }}
             </span>
           </div>
           <button @click="selectedNode = null" class="close-btn">✕</button>
@@ -361,7 +367,8 @@ const nodeTypes = {
 }
 
 // ── 노드 정의 ─────────────────────────────────────────────────────
-const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores', 'accountConfig']
+const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores']
+const CONFIG_TYPES     = ['accountConfig']
 const STRATEGY_TYPES   = ['strategy', 'strategyBuilder']
 const PROCESSING_TYPES = ['mlModel', 'llmGenerator', 'backtest']
 const OUTPUT_TYPES     = ['botApply']
@@ -386,7 +393,7 @@ const NODE_DEFS = {
     config: {}, apiPath: '/ai/scores', apiMethod: 'GET',
   },
   accountConfig: {
-    label: '계좌 설정', icon: '🏦', category: 'source',
+    label: '계좌 설정', icon: '🏦', category: 'config',
     description: '브로커 계좌 및 매매 모드 설정',
     inputs: [], outputs: [{ id: 'account_config', label: '계좌 설정' }],
     config: { account_id: null, mode: 'mock' }, apiPath: null,
@@ -903,8 +910,9 @@ async function runNode(nodeId) {
 }
 
 async function runAll() {
-  // 소스 → 전략 → 처리 → 출력 순으로 실행
+  // 설정·소스 → 전략 → 처리 → 출력 순으로 실행
   const ordered = [
+    ...nodes.value.filter(n => n.data.category === 'config'),
     ...nodes.value.filter(n => n.data.category === 'source'),
     ...nodes.value.filter(n => n.data.category === 'strategy'),
     ...nodes.value.filter(n => n.data.category === 'processing'),
@@ -1014,7 +1022,7 @@ const chatMessages = ref([
 const chatEl = ref(null)
 
 function miniMapColor(node) {
-  return { source: '#0891b2', strategy: '#d97706', processing: '#7c3aed', output: '#059669' }[node.data?.category] ?? '#4b5563'
+  return { source: '#0891b2', strategy: '#d97706', processing: '#7c3aed', output: '#059669', config: '#b45309' }[node.data?.category] ?? '#4b5563'
 }
 
 // 인사이트 데이터가 필요한 키워드
@@ -1264,6 +1272,7 @@ onMounted(async () => {
 .palette-btn.cat-strategy   { background: rgba(217,119,6,.12); color: #fbbf24; border-color: rgba(217,119,6,.25); }
 .palette-btn.cat-processing { background: rgba(124,58,237,.12); color: #a78bfa; border-color: rgba(124,58,237,.25); }
 .palette-btn.cat-output     { background: rgba(5,150,105,.12); color: #34d399; border-color: rgba(5,150,105,.25); }
+.palette-btn.cat-config     { background: rgba(180,83,9,.12);  color: #f59e0b; border-color: rgba(180,83,9,.25); }
 .palette-btn:hover { opacity: 0.8; }
 
 .btn-run-all {
@@ -1364,6 +1373,7 @@ onMounted(async () => {
 .cat-strategy   { background: rgba(217,119,6,.15); color: #fbbf24; }
 .cat-processing { background: rgba(124,58,237,.15); color: #a78bfa; }
 .cat-output     { background: rgba(5,150,105,.15);  color: #34d399; }
+.cat-config     { background: rgba(180,83,9,.15);   color: #f59e0b; }
 
 .close-btn { background: none; border: none; color: #6b7280; font-size: 16px; cursor: pointer; padding: 0; }
 
