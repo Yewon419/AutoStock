@@ -555,6 +555,7 @@ const scoreMeta = ref(null)
 const scoreLoading = ref(false)
 let scoreTaskId = null
 let scorePollTimer = null
+let scoreStartTime = null
 
 function headers() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -575,6 +576,7 @@ async function loadScores() {
 
 async function runScoring() {
   scoreLoading.value = true
+  scoreStartTime = Date.now()
   try {
     const res = await fetch(`${API}/ai/score`, { method: 'POST', headers: headers() })
     const data = await res.json()
@@ -587,6 +589,12 @@ async function runScoring() {
 
 async function pollScore() {
   if (!scoreTaskId) return
+  if (Date.now() - scoreStartTime > 600000) {
+    scoreLoading.value = false
+    scoreTaskId = null
+    alert('ML 학습 타임아웃 (10분 초과)')
+    return
+  }
   try {
     const res = await fetch(`${API}/ai/score/${scoreTaskId}`, { headers: headers() })
     const data = await res.json()

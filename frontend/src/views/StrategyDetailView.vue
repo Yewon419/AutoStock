@@ -262,7 +262,15 @@ async function runBacktest() {
 }
 
 function pollResult(taskId) {
+  if (pollTimer) clearInterval(pollTimer)
+  const deadline = Date.now() + 300000
   pollTimer = setInterval(async () => {
+    if (Date.now() > deadline) {
+      clearInterval(pollTimer)
+      running.value = false
+      btError.value = '백테스트 타임아웃 (5분 초과)'
+      return
+    }
     try {
       const data = await api.get(`/strategies/${strategyId}/backtest/${taskId}`)
       if (data.status === 'completed') {

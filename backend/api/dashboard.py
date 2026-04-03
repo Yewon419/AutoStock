@@ -44,7 +44,7 @@ def get_summary(
         holdings = 0.0
         for pos in positions:
             lp = db.query(StockPrice).filter(StockPrice.ticker == pos.ticker).order_by(StockPrice.date.desc()).first()
-            if lp:
+            if lp and lp.close_price is not None:
                 holdings += float(lp.close_price) * pos.quantity
         total_assets += cash + holdings
         total_pnl += (cash + holdings) - float(bot.initial_cash or 0)
@@ -106,7 +106,7 @@ def get_bot_snapshots(
         holdings = 0.0
         for pos in positions:
             lp = db.query(StockPrice).filter(StockPrice.ticker == pos.ticker).order_by(StockPrice.date.desc()).first()
-            if lp:
+            if lp and lp.close_price is not None:
                 holdings += float(lp.close_price) * pos.quantity
 
         total = cash + holdings

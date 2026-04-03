@@ -51,11 +51,16 @@ class KisBroker(BaseBroker):
             "appkey": self._app_key,
             "appsecret": self._app_secret,
         }
-        resp = requests.post(url, json=payload, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = requests.post(url, json=payload, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as e:
+            raise RuntimeError(f"KIS 토큰 발급 네트워크 오류: {e}") from e
 
-        token = data["access_token"]
+        token = data.get("access_token")
+        if not token:
+            raise RuntimeError(f"KIS 토큰 발급 실패: {data.get('msg1', data)}")
         expires_in = int(data.get("expires_in", 86400))
         # 만료 10분 전에 갱신하도록 TTL 설정
         ttl = max(expires_in - 600, 60)

@@ -374,10 +374,15 @@ const hasRunning = computed(() => bots.value.some(b => b.status === 'RUNNING'))
 
 async function emergencyStop() {
   if (!confirm('모든 RUNNING 봇을 즉시 정지합니까?')) return
-  const res = await fetch(`${API}/broker/emergency-stop`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' } })
-  const data = await res.json()
-  alert(`${data.count}개 봇이 정지되었습니다`)
-  fetchBots()
+  try {
+    const res = await fetch(`${API}/broker/emergency-stop`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' } })
+    if (!res.ok) { alert('비상정지 실패: 서버 오류'); return }
+    const data = await res.json()
+    alert(`${data.count}개 봇이 정지되었습니다`)
+    fetchBots()
+  } catch {
+    alert('비상정지 실패: 네트워크 오류')
+  }
 }
 
 function statusClass(status) {

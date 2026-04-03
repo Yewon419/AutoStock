@@ -736,13 +736,15 @@ async function apiPost(path, body) {
   return res.json()
 }
 
-async function pollTask(basePath, taskId) {
-  while (true) {
+async function pollTask(basePath, taskId, timeoutMs = 300000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 3000))
     const res = await apiGet(`${basePath}/${taskId}`)
     if (res.status === 'completed') return res.result ?? res
     if (res.status === 'failed') throw new Error(res.error || '태스크 실패')
   }
+  throw new Error('태스크 타임아웃 (5분 초과)')
 }
 
 // 연결된 상위 노드 결과 수집
