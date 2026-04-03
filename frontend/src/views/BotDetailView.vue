@@ -218,10 +218,66 @@
 
     <!-- 보고서 탭 -->
     <div v-if="activeTab === 'reports'">
-      <div v-if="reports.length === 0" class="empty-tab">일별 보고서가 없습니다.</div>
+      <div v-if="reports.length === 0 && !reportScore" class="empty-tab">일별 보고서가 없습니다.</div>
       <div v-else>
-        <!-- 차트 영역 (누적손익 라인 + 일일손익 바) -->
-        <div class="charts-row">
+
+        <!-- ① 종합 점수 카드 -->
+        <div v-if="reportScore" class="score-section">
+          <!-- 점수 원형 + 등급 -->
+          <div class="score-main">
+            <div class="score-circle" :class="gradeClass(reportScore.grade)">
+              <div class="score-num">{{ reportScore.total_score }}</div>
+              <div class="score-denom">/ 100</div>
+            </div>
+            <div class="score-grade-badge" :class="gradeClass(reportScore.grade)">{{ reportScore.grade }}</div>
+            <div class="score-summary">{{ reportScore.summary }}</div>
+          </div>
+
+          <!-- 카테고리 바 -->
+          <div class="score-categories">
+            <div
+              v-for="(val, key) in reportScore.categories"
+              :key="key"
+              class="score-cat-row"
+            >
+              <div class="cat-label">{{ key }}</div>
+              <div class="cat-bar-wrap">
+                <div class="cat-bar" :style="{ width: val + '%' }" :class="barColor(val)"></div>
+              </div>
+              <div class="cat-val" :class="barColor(val)">{{ val }}</div>
+            </div>
+          </div>
+
+          <!-- 강점 / 약점 / 권장사항 -->
+          <div class="score-insights">
+            <div class="insight-block insight-strength">
+              <div class="insight-title">💪 강점</div>
+              <ul><li v-for="s in reportScore.strengths" :key="s">{{ s }}</li></ul>
+            </div>
+            <div class="insight-block insight-weakness">
+              <div class="insight-title">⚠️ 약점</div>
+              <ul><li v-for="w in reportScore.weaknesses" :key="w">{{ w }}</li></ul>
+            </div>
+            <div class="insight-block insight-rec">
+              <div class="insight-title">💡 권장사항</div>
+              <ul><li v-for="r in reportScore.recommendations" :key="r">{{ r }}</li></ul>
+            </div>
+          </div>
+
+          <!-- 보조 지표 요약 -->
+          <div class="meta-row">
+            <div class="meta-item"><span class="mi-label">수익률</span><span class="mi-val" :class="reportScore.meta.total_return_pct >= 0 ? 'profit' : 'loss'">{{ reportScore.meta.total_return_pct >= 0 ? '+' : '' }}{{ reportScore.meta.total_return_pct }}%</span></div>
+            <div class="meta-item"><span class="mi-label">샤프비율</span><span class="mi-val">{{ reportScore.meta.sharpe_ratio }}</span></div>
+            <div class="meta-item"><span class="mi-label">최대낙폭</span><span class="mi-val loss">-{{ reportScore.meta.max_drawdown }}%</span></div>
+            <div class="meta-item"><span class="mi-label">승률</span><span class="mi-val">{{ reportScore.meta.win_rate }}%</span></div>
+            <div class="meta-item"><span class="mi-label">손익비</span><span class="mi-val">{{ reportScore.meta.profit_factor }}</span></div>
+            <div class="meta-item"><span class="mi-label">수익일 비율</span><span class="mi-val">{{ reportScore.meta.winning_days_pct }}%</span></div>
+            <div class="meta-item"><span class="mi-label">최대연속손실</span><span class="mi-val" :class="reportScore.meta.max_consecutive_losses > 5 ? 'loss' : ''">{{ reportScore.meta.max_consecutive_losses }}일</span></div>
+          </div>
+        </div>
+
+        <!-- ② 차트 영역 -->
+        <div v-if="reports.length" class="charts-row" style="margin-top: 20px;">
           <div class="chart-container chart-half">
             <div class="chart-title">누적 손익</div>
             <div ref="lineChartEl" style="height: 180px;"></div>
@@ -231,8 +287,9 @@
             <div ref="barChartEl" style="height: 180px;"></div>
           </div>
         </div>
-        <!-- 보고서 테이블 -->
-        <table class="data-table">
+
+        <!-- ③ 보고서 테이블 -->
+        <table v-if="reports.length" class="data-table" style="margin-top: 16px;">
           <thead>
             <tr>
               <th>날짜</th>
@@ -268,6 +325,7 @@
             </tr>
           </tbody>
         </table>
+
       </div>
     </div>
     <!-- 수정 모달 -->
@@ -420,6 +478,7 @@ const positions = ref([])
 const orders = ref([])
 const executions = ref([])
 const reports = ref([])
+const reportScore = ref(null)
 const strategies = ref([])
 const activeTab = ref('positions')
 const lineChartEl = ref(null)
@@ -550,13 +609,17 @@ function tickerName(ticker) {
 }
 
 async function fetchReports() {
-  const res = await fetch(`${API}/bots/${botId}/reports`, { headers: headers() })
-  if (res.ok) {
-    const data = await res.json()
+  const [rRes, sRes] = await Promise.all([
+    fetch(`${API}/bots/${botId}/reports`, { headers: headers() }),
+    fetch(`${API}/bots/${botId}/report-score`, { headers: headers() }),
+  ])
+  if (rRes.ok) {
+    const data = await rRes.json()
     reports.value = data
     await nextTick()
     renderCharts(data.slice().reverse())
   }
+  if (sRes.ok) reportScore.value = await sRes.json()
 }
 
 async function renderCharts(data) {
@@ -665,6 +728,16 @@ function pnlClass(v) {
   if (n > 0) return 'profit'
   if (n < 0) return 'loss'
   return ''
+}
+
+function gradeClass(g) {
+  return { S: 'grade-s', A: 'grade-a', B: 'grade-b', C: 'grade-c', D: 'grade-d', F: 'grade-f' }[g] || ''
+}
+
+function barColor(v) {
+  if (v >= 75) return 'bar-good'
+  if (v >= 50) return 'bar-mid'
+  return 'bar-bad'
 }
 
 onMounted(async () => {
@@ -1024,4 +1097,66 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 .btn-secondary:hover { border-color: #4b5563; color: #e5e7eb; }
 
 .error-msg { color: #ef4444; font-size: 13px; }
+
+/* ── 종합 점수 섹션 ─────────────────────────────────── */
+.score-section {
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 14px;
+  padding: 24px; display: flex; flex-direction: column; gap: 20px;
+}
+
+/* 원형 점수 + 등급 */
+.score-main {
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+}
+.score-circle {
+  width: 88px; height: 88px; border-radius: 50%;
+  border: 4px solid #2a2d3e;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.score-num { font-size: 26px; font-weight: 800; line-height: 1; }
+.score-denom { font-size: 11px; color: #6b7280; }
+.score-grade-badge {
+  width: 44px; height: 44px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 800; flex-shrink: 0;
+}
+.score-summary { flex: 1; font-size: 13px; color: #d1d5db; line-height: 1.6; min-width: 200px; }
+
+.grade-s { border-color: #a78bfa; color: #a78bfa; background: rgba(167,139,250,.12); }
+.grade-a { border-color: #f59e0b; color: #f59e0b; background: rgba(245,158,11,.12); }
+.grade-b { border-color: #4f9eff; color: #4f9eff; background: rgba(79,158,255,.12); }
+.grade-c { border-color: #10b981; color: #10b981; background: rgba(16,185,129,.12); }
+.grade-d { border-color: #9ca3af; color: #9ca3af; background: rgba(156,163,175,.12); }
+.grade-f { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,.12); }
+
+/* 카테고리 바 */
+.score-categories { display: flex; flex-direction: column; gap: 8px; }
+.score-cat-row { display: flex; align-items: center; gap: 10px; }
+.cat-label { width: 72px; font-size: 11px; color: #9ca3af; flex-shrink: 0; text-align: right; }
+.cat-bar-wrap { flex: 1; height: 8px; background: #2a2d3e; border-radius: 4px; overflow: hidden; }
+.cat-bar { height: 100%; border-radius: 4px; transition: width .4s ease; }
+.cat-val { width: 34px; font-size: 12px; font-weight: 600; text-align: right; flex-shrink: 0; }
+.bar-good { background: #10b981; color: #10b981; }
+.bar-mid  { background: #f59e0b; color: #f59e0b; }
+.bar-bad  { background: #ef4444; color: #ef4444; }
+
+/* 인사이트 */
+.score-insights { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.insight-block { background: #111318; border-radius: 10px; padding: 14px; }
+.insight-title { font-size: 12px; font-weight: 600; color: #e5e7eb; margin-bottom: 8px; }
+.insight-block ul { margin: 0; padding-left: 16px; }
+.insight-block li { font-size: 11px; color: #9ca3af; line-height: 1.6; }
+.insight-strength .insight-title { color: #10b981; }
+.insight-weakness .insight-title { color: #f59e0b; }
+.insight-rec .insight-title { color: #4f9eff; }
+
+/* 보조 지표 메타 */
+.meta-row {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  padding: 14px; background: #111318; border-radius: 10px;
+}
+.meta-item { display: flex; flex-direction: column; gap: 3px; min-width: 90px; }
+.mi-label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
+.mi-val { font-size: 13px; font-weight: 600; color: #e5e7eb; }
 </style>
