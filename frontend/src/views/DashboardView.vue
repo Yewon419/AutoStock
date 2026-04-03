@@ -1,10 +1,16 @@
 <template>
   <div class="dashboard">
+
+    <!-- 헤더 -->
     <div class="dash-header">
-      <h1>대시보드</h1>
+      <div class="header-left">
+        <div class="greeting">{{ greeting }}</div>
+        <div class="date-str">{{ dateStr }}</div>
+      </div>
       <div class="header-right">
-        <span class="broker-pill" :class="brokerPillClass()">
-          {{ brokerLabel() }}
+        <span class="broker-pill" :class="brokerPillClass">
+          <span class="pill-dot"></span>
+          {{ brokerLabel }}
         </span>
         <button class="btn-emergency" @click="emergencyStop" :disabled="summary.running === 0">
           ⛔ 비상정지
@@ -12,39 +18,59 @@
       </div>
     </div>
 
-    <!-- 요약 카드 -->
-    <div class="summary-grid">
-      <div class="s-card">
-        <span class="s-label">총 자산</span>
-        <span class="s-value blue">{{ fmtMoney(summary.total_assets) }}</span>
-      </div>
-      <div class="s-card">
-        <span class="s-label">누적 손익</span>
-        <span class="s-value" :class="pnlClass(summary.total_pnl)">{{ fmtPnl(summary.total_pnl) }}</span>
-      </div>
-      <div class="s-card">
-        <span class="s-label">오늘 손익</span>
-        <span class="s-value" :class="pnlClass(summary.daily_pnl)">{{ fmtPnl(summary.daily_pnl) }}</span>
-      </div>
-      <div class="s-card">
-        <span class="s-label">오늘 거래 수</span>
-        <span class="s-value blue">{{ summary.today_trades ?? 0 }}건</span>
-      </div>
-      <div class="s-card status-card">
-        <span class="s-label">봇 상태</span>
-        <div class="status-row">
-          <span class="status-num green">{{ summary.running ?? 0 }} <small>실행</small></span>
-          <span class="status-num gray">{{ summary.stopped ?? 0 }} <small>정지</small></span>
-          <span class="status-num red">{{ summary.error ?? 0 }} <small>오류</small></span>
+    <!-- AI 캔버스 히어로 -->
+    <div class="hero-card" @click="$router.push('/canvas')">
+      <div class="hero-bg"></div>
+      <div class="hero-content">
+        <div class="hero-icon">✦</div>
+        <div class="hero-text">
+          <div class="hero-title">AI 캔버스</div>
+          <div class="hero-desc">전략 설계부터 자동매매 적용까지 — AI와 함께 파이프라인을 구성하세요</div>
         </div>
+        <div class="hero-arrow">→</div>
       </div>
-      <div class="s-card">
-        <span class="s-label">수집 종목</span>
-        <span class="s-value blue">{{ stockCount ?? '-' }}개</span>
+      <div class="canvas-chips" v-if="canvasList.length" @click.stop>
+        <div
+          v-for="c in canvasList.slice(0, 4)"
+          :key="c.id"
+          class="canvas-chip"
+          @click="goCanvas(c.id)"
+        >{{ c.name }}</div>
       </div>
     </div>
 
-    <!-- 봇 목록 + 알림 -->
+    <!-- 요약 카드 -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Mock 자산</div>
+        <div class="stat-value blue">{{ fmtMoney(summary.mock_assets) }}</div>
+        <div class="stat-sub" :class="pnlClass(summary.mock_pnl)">{{ fmtPnl(summary.mock_pnl) }}</div>
+      </div>
+      <div class="stat-card stat-card-real">
+        <div class="stat-label-real">실계좌 자산</div>
+        <div class="stat-value gold">{{ fmtMoney(summary.real_assets) }}</div>
+        <div class="stat-sub" :class="pnlClass(summary.real_pnl)">{{ fmtPnl(summary.real_pnl) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">오늘 손익</div>
+        <div class="stat-value" :class="pnlClass(summary.daily_pnl)">{{ fmtPnl(summary.daily_pnl) }}</div>
+      </div>
+      <div class="stat-card stat-card-clickable" @click="openTodayTrades">
+        <div class="stat-label">오늘 거래</div>
+        <div class="stat-value blue">{{ summary.today_trades ?? 0 }}건</div>
+        <div class="stat-hint">클릭하여 보기</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">실행 중 봇</div>
+        <div class="stat-bots">
+          <span class="bot-num green">{{ summary.running ?? 0 }}<small>실행</small></span>
+          <span class="bot-num gray">{{ summary.stopped ?? 0 }}<small>정지</small></span>
+          <span class="bot-num red" v-if="summary.error">{{ summary.error }}<small>오류</small></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 봇 현황 + 알림 -->
     <div class="bottom-grid">
       <!-- 봇 현황 -->
       <div class="panel">
@@ -52,34 +78,30 @@
           <span>봇 현황</span>
           <RouterLink to="/bots" class="panel-link">전체 보기 →</RouterLink>
         </div>
-        <div v-if="botSnapshots.length === 0" class="empty-panel">봇이 없습니다</div>
-        <table v-else class="mini-table">
-          <thead>
-            <tr>
-              <th>봇명</th>
-              <th>모드</th>
-              <th>상태</th>
-              <th>총 자산</th>
-              <th>손익</th>
-              <th>포지션</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="b in botSnapshots"
-              :key="b.id"
-              class="clickable"
-              @click="$router.push(`/bots/${b.id}`)"
-            >
-              <td class="bot-name-cell">{{ b.name }}</td>
-              <td><span class="mode-badge" :class="modeClass(b.mode)">{{ b.mode }}</span></td>
-              <td><span class="badge" :class="statusClass(b.status)">{{ b.status }}</span></td>
-              <td>{{ fmtMoney(b.total_assets) }}</td>
-              <td :class="pnlClass(b.pnl)">{{ fmtPnl(b.pnl) }}</td>
-              <td>{{ b.position_count }}개</td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-if="botSnapshots.length === 0" class="empty-panel">실행 중인 봇이 없습니다</div>
+        <div v-else class="bot-list">
+          <div
+            v-for="b in botSnapshots"
+            :key="b.id"
+            class="bot-row"
+            @click="$router.push(`/bots/${b.id}`)"
+          >
+            <div class="bot-row-left">
+              <span class="bot-status-dot" :class="b.status.toLowerCase()"></span>
+              <div>
+                <div class="bot-row-name">{{ b.name }}</div>
+                <div class="bot-row-meta">
+                  <span class="mode-tag" :class="modeClass(b.mode)">{{ b.mode }}</span>
+                  <span class="pos-tag">포지션 {{ b.position_count }}개</span>
+                </div>
+              </div>
+            </div>
+            <div class="bot-row-right">
+              <div class="bot-row-assets">{{ fmtMoney(b.total_assets) }}</div>
+              <div class="bot-row-pnl" :class="pnlClass(b.pnl)">{{ fmtPnl(b.pnl) }}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 알림 -->
@@ -92,7 +114,7 @@
         <div v-else class="alert-list">
           <div v-for="(a, i) in alerts" :key="a.timestamp || i" class="alert-item" :class="alertTypeClass(a.type)">
             <div class="alert-top">
-              <span class="alert-type">{{ a.type }}</span>
+              <span class="alert-type-badge">{{ a.type }}</span>
               <span class="alert-time">{{ fmtDatetime(a.timestamp) }}</span>
             </div>
             <div class="alert-bot">{{ a.bot_name }}</div>
@@ -101,21 +123,70 @@
         </div>
       </div>
     </div>
+
   </div>
+
+  <!-- 오늘 거래 모달 -->
+  <Teleport to="body">
+    <div v-if="showTradesModal" class="modal-backdrop" @click.self="showTradesModal = false">
+      <div class="modal">
+        <div class="modal-header">
+          <span>오늘의 거래 내역</span>
+          <button class="modal-close" @click="showTradesModal = false">✕</button>
+        </div>
+        <div v-if="todayTrades.length === 0" class="modal-empty">오늘 체결된 거래가 없습니다</div>
+        <div v-else class="trade-table-wrap">
+          <table class="trade-table">
+            <thead>
+              <tr>
+                <th>시간</th>
+                <th>봇</th>
+                <th>모드</th>
+                <th>종목</th>
+                <th>구분</th>
+                <th>수량</th>
+                <th>단가</th>
+                <th>손익</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="t in todayTrades" :key="t.id">
+                <td class="td-time">{{ fmtTime(t.executed_at) }}</td>
+                <td>{{ t.bot_name }}</td>
+                <td><span class="mode-tag" :class="modeClass(t.bot_mode)">{{ t.bot_mode }}</span></td>
+                <td class="td-ticker">{{ t.ticker }}</td>
+                <td><span class="type-badge" :class="t.execution_type === 'BUY' ? 'type-buy' : 'type-sell'">{{ t.execution_type }}</span></td>
+                <td class="td-num">{{ t.quantity }}주</td>
+                <td class="td-num">{{ Number(t.price).toLocaleString('ko-KR') }}원</td>
+                <td class="td-num" :class="t.profit_loss != null ? pnlClass(t.profit_loss) : ''">
+                  {{ t.profit_loss != null ? fmtPnl(t.profit_loss) : '-' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const router = useRouter()
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
 
-const summary = ref({ bot_count: 0, running: 0, stopped: 0, error: 0, total_assets: 0, total_pnl: 0, daily_pnl: 0, today_trades: 0, alerts: [] })
+const summary = ref({ running: 0, stopped: 0, error: 0, total_assets: 0, total_pnl: 0, mock_assets: 0, mock_pnl: 0, real_assets: 0, real_pnl: 0, daily_pnl: 0, today_trades: 0 })
 const botSnapshots = ref([])
 const alerts = ref([])
-const stockCount = ref(null)
 const brokerStatus = ref({ mode: 'mock', connected: null })
+const canvasList = ref([])
+const showTradesModal = ref(false)
+const todayTrades = ref([])
 
 let refreshTimer = null
 
@@ -123,45 +194,81 @@ function headers() {
   return { Authorization: `Bearer ${auth.token}` }
 }
 
+// 인사말
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  if (h < 6)  return '좋은 새벽입니다'
+  if (h < 12) return '좋은 아침입니다'
+  if (h < 18) return '좋은 오후입니다'
+  return '좋은 저녁입니다'
+})
+
+const dateStr = computed(() => {
+  return new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
+})
+
+const brokerLabel = computed(() => {
+  const { mode, connected, kis_is_paper } = brokerStatus.value
+  if (mode === 'real' || mode === 'paper') {
+    if (connected) return kis_is_paper === false ? 'KIS 실계좌 연결됨' : 'KIS 모의 연결됨'
+    return 'KIS 미연결'
+  }
+  return 'Mock 모드'
+})
+
+const brokerPillClass = computed(() => {
+  const { mode, connected } = brokerStatus.value
+  if (mode === 'real' || mode === 'paper') return connected ? 'pill-green' : 'pill-red'
+  return 'pill-gray'
+})
+
 async function fetchAll() {
   try {
-    const [s, b, br, stocks] = await Promise.all([
-      fetch(`${API}/dashboard/summary`, { headers: headers() }).then(r => r.json()),
-      fetch(`${API}/dashboard/bots`, { headers: headers() }).then(r => r.json()),
-      fetch(`${API}/broker/status`, { headers: headers() }).then(r => r.json()),
-      fetch(`${API}/market/stocks?limit=1`, { headers: headers() }).then(r => r.json()).catch(() => null),
+    const [s, b, br] = await Promise.all([
+      fetch(`${API}/dashboard/summary`, { headers: headers() }).then(r => r.ok ? r.json() : null),
+      fetch(`${API}/dashboard/bots`, { headers: headers() }).then(r => r.ok ? r.json() : []),
+      fetch(`${API}/broker/status`, { headers: headers() }).then(r => r.ok ? r.json() : {}),
     ])
-    summary.value = s
-    alerts.value = s.alerts || []
-    botSnapshots.value = b
-    brokerStatus.value = br
-    if (stocks) stockCount.value = stocks.total
-  } catch (e) {
-    // 무시
-  }
+    if (s) { summary.value = s; alerts.value = s.alerts || [] }
+    if (b) botSnapshots.value = b
+    if (br) brokerStatus.value = br
+  } catch { /* ignore */ }
+}
+
+async function fetchCanvasList() {
+  try {
+    const res = await fetch(`${API}/ai/canvases`, { headers: headers() })
+    if (res.ok) canvasList.value = await res.json()
+  } catch { /* ignore */ }
+}
+
+function goCanvas(canvasId) {
+  localStorage.setItem('autostock-last-canvas', canvasId)
+  router.push('/canvas')
 }
 
 async function emergencyStop() {
   if (!confirm('모든 RUNNING 봇을 즉시 정지하시겠습니까?')) return
-  const res = await fetch(`${API}/broker/emergency-stop`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' } })
-  const data = await res.json()
-  alert(`${data.count}개 봇이 정지되었습니다`)
-  fetchAll()
+  try {
+    const res = await fetch(`${API}/broker/emergency-stop`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' } })
+    if (!res.ok) { alert('비상정지 실패: 서버 오류'); return }
+    const data = await res.json()
+    alert(`${data.count}개 봇이 정지되었습니다`)
+    fetchAll()
+  } catch { alert('비상정지 실패: 네트워크 오류') }
+}
+
+async function openTodayTrades() {
+  showTradesModal.value = true
+  try {
+    const res = await fetch(`${API}/dashboard/today-trades`, { headers: headers() })
+    if (res.ok) todayTrades.value = await res.json()
+  } catch { /* ignore */ }
 }
 
 async function clearAlerts() {
   await fetch(`${API}/broker/alerts`, { method: 'DELETE', headers: headers() })
   alerts.value = []
-}
-
-const brokerLabel = () => {
-  if (brokerStatus.value.mode === 'real') return brokerStatus.value.connected ? '키움 연결됨' : '키움 미연결'
-  return 'Mock 모드'
-}
-
-const brokerPillClass = () => {
-  if (brokerStatus.value.mode === 'real') return brokerStatus.value.connected ? 'pill-green' : 'pill-red'
-  return 'pill-blue'
 }
 
 function statusClass(s) {
@@ -199,15 +306,20 @@ function fmtPnl(v) {
   return (n >= 0 ? '+' : '') + n.toLocaleString('ko-KR') + '원'
 }
 
+function fmtTime(dt) {
+  if (!dt) return ''
+  return new Date(dt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
 function fmtDatetime(dt) {
   if (!dt) return ''
-  const d = new Date(dt)
-  return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return new Date(dt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 onMounted(() => {
   fetchAll()
-  refreshTimer = setInterval(fetchAll, 30000)  // 30초마다 갱신
+  fetchCanvasList()
+  refreshTimer = setInterval(fetchAll, 30000)
 })
 
 onUnmounted(() => {
@@ -216,189 +328,203 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.dashboard { max-width: 1200px; }
+.dashboard { max-width: 1100px; display: flex; flex-direction: column; gap: 20px; }
 
+/* 헤더 */
 .dash-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
+  display: flex; justify-content: space-between; align-items: flex-start;
 }
-
-h1 { margin: 0; font-size: 22px; font-weight: 700; color: #e5e7eb; }
-
-.header-right { display: flex; align-items: center; gap: 12px; }
+.greeting { font-size: 22px; font-weight: 700; color: #e5e7eb; }
+.date-str { font-size: 13px; color: #6b7280; margin-top: 4px; }
+.header-right { display: flex; align-items: center; gap: 10px; }
 
 .broker-pill {
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  border: 1px solid transparent;
 }
-.pill-blue { background: rgba(79,158,255,.15); color: #4f9eff; }
-.pill-green { background: rgba(16,185,129,.15); color: #10b981; }
-.pill-red { background: rgba(239,68,68,.15); color: #ef4444; }
+.pill-dot { width: 6px; height: 6px; border-radius: 50%; }
+.pill-green { background: rgba(16,185,129,.12); color: #10b981; border-color: rgba(16,185,129,.2); }
+.pill-green .pill-dot { background: #10b981; box-shadow: 0 0 6px #10b981; }
+.pill-red { background: rgba(239,68,68,.12); color: #ef4444; border-color: rgba(239,68,68,.2); }
+.pill-red .pill-dot { background: #ef4444; }
+.pill-gray { background: rgba(107,114,128,.12); color: #9ca3af; border-color: rgba(107,114,128,.2); }
+.pill-gray .pill-dot { background: #6b7280; }
 
 .btn-emergency {
-  padding: 7px 16px;
-  background: rgba(239,68,68,.15);
-  border: 1px solid rgba(239,68,68,.3);
-  border-radius: 6px;
-  color: #ef4444;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
+  padding: 6px 14px; background: rgba(239,68,68,.12);
+  border: 1px solid rgba(239,68,68,.25); border-radius: 7px;
+  color: #ef4444; font-size: 12px; font-weight: 600; cursor: pointer;
 }
-.btn-emergency:hover { background: rgba(239,68,68,.25); }
-.btn-emergency:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-emergency:hover { background: rgba(239,68,68,.22); }
+.btn-emergency:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* 히어로 */
+.hero-card {
+  position: relative; border-radius: 14px; overflow: hidden;
+  border: 1px solid rgba(167,139,250,.25);
+  background: linear-gradient(135deg, #1a1d27 0%, #1e1730 100%);
+  cursor: pointer; transition: border-color .2s;
+}
+.hero-card:hover { border-color: rgba(167,139,250,.5); }
+.hero-bg {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at top right, rgba(139,92,246,.12) 0%, transparent 60%);
+  pointer-events: none;
+}
+.hero-content {
+  position: relative; display: flex; align-items: center; gap: 18px;
+  padding: 22px 24px 16px;
+}
+.hero-icon { font-size: 28px; color: #a78bfa; flex-shrink: 0; line-height: 1; }
+.hero-title { font-size: 18px; font-weight: 700; color: #e5e7eb; margin-bottom: 4px; }
+.hero-desc { font-size: 12px; color: #9ca3af; line-height: 1.5; }
+.hero-text { flex: 1; }
+.hero-arrow { font-size: 20px; color: #6b7280; flex-shrink: 0; }
+.hero-card:hover .hero-arrow { color: #a78bfa; }
+
+.canvas-chips {
+  position: relative; display: flex; gap: 8px; padding: 0 24px 18px; flex-wrap: wrap;
+}
+.canvas-chip {
+  padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.2);
+  color: #c4b5fd; cursor: pointer; transition: all .15s;
+}
+.canvas-chip:hover { background: rgba(167,139,250,.2); color: #e9d5ff; }
 
 /* 요약 카드 */
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 14px;
-  margin-bottom: 24px;
+.stats-row {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px;
 }
-
-.s-card {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 10px;
-  padding: 18px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.stat-card {
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px;
+  padding: 18px 16px; display: flex; flex-direction: column; gap: 8px;
 }
-
-.s-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
-.s-value { font-size: 20px; font-weight: 700; }
+.stat-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
+.stat-label-real { font-size: 11px; color: #f59e0b; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.stat-card-real { border-color: rgba(245,158,11,.25); background: linear-gradient(135deg, #1a1d27, #1c1a10); }
+.stat-value { font-size: 20px; font-weight: 700; }
+.stat-sub { font-size: 12px; font-weight: 500; margin-top: 2px; }
 .blue { color: #4f9eff; }
+.gold { color: #f59e0b; }
 .profit { color: #ef4444; }
 .loss { color: #10b981; }
-
-.status-card .status-row { display: flex; gap: 12px; }
-.status-num { font-size: 18px; font-weight: 700; display: flex; align-items: baseline; gap: 3px; }
-.status-num small { font-size: 10px; font-weight: 400; }
-.status-num.green { color: #10b981; }
-.status-num.gray { color: #6b7280; }
-.status-num.red { color: #ef4444; }
+.stat-bots { display: flex; gap: 10px; align-items: baseline; }
+.bot-num { font-size: 18px; font-weight: 700; display: flex; align-items: baseline; gap: 3px; }
+.bot-num small { font-size: 10px; font-weight: 400; }
+.bot-num.green { color: #10b981; }
+.bot-num.gray { color: #6b7280; }
+.bot-num.red { color: #ef4444; }
 
 /* 하단 그리드 */
-.bottom-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 20px;
-}
+.bottom-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 18px; }
 
 .panel {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 10px;
-  overflow: hidden;
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px; overflow: hidden;
 }
-
 .panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 18px;
-  border-bottom: 1px solid #2a2d3e;
-  font-size: 14px;
-  font-weight: 600;
-  color: #e5e7eb;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 18px; border-bottom: 1px solid #2a2d3e;
+  font-size: 13px; font-weight: 600; color: #e5e7eb;
 }
-
 .panel-link {
-  font-size: 12px;
-  color: #4f9eff;
-  text-decoration: none;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
+  font-size: 12px; color: #4f9eff; text-decoration: none;
+  background: none; border: none; cursor: pointer; padding: 0;
 }
 .panel-link:hover { text-decoration: underline; }
+.empty-panel { padding: 40px; text-align: center; color: #4b5563; font-size: 13px; }
 
-.empty-panel {
-  padding: 40px;
-  text-align: center;
-  color: #4b5563;
-  font-size: 13px;
+/* 봇 리스트 */
+.bot-list { display: flex; flex-direction: column; }
+.bot-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 18px; border-bottom: 1px solid #1a1f2e;
+  cursor: pointer; transition: background .12s;
 }
-
-/* 봇 미니 테이블 */
-.mini-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+.bot-row:last-child { border-bottom: none; }
+.bot-row:hover { background: #1f2335; }
+.bot-row-left { display: flex; align-items: center; gap: 10px; }
+.bot-status-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
-
-.mini-table th {
-  padding: 8px 14px;
-  text-align: right;
-  color: #6b7280;
-  font-weight: 500;
-  background: #14172080;
-  border-bottom: 1px solid #2a2d3e;
-}
-.mini-table th:first-child, .mini-table th:nth-child(2), .mini-table th:nth-child(3) { text-align: left; }
-
-.mini-table td {
-  padding: 10px 14px;
-  text-align: right;
-  color: #e5e7eb;
-  border-bottom: 1px solid #1a1f2e;
-}
-.mini-table td:first-child, .mini-table td:nth-child(2), .mini-table td:nth-child(3) { text-align: left; }
-
-.mini-table tbody tr.clickable { cursor: pointer; }
-.mini-table tbody tr.clickable:hover { background: #1f2235; }
-
-.bot-name-cell { font-weight: 500; }
-
-.badge {
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-}
-.badge-green { background: rgba(16,185,129,.2); color: #10b981; }
-.badge-red { background: rgba(239,68,68,.2); color: #ef4444; }
-.badge-gray { background: rgba(107,114,128,.2); color: #9ca3af; }
-
-.mode-badge {
-  padding: 1px 7px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 600;
+.bot-status-dot.running { background: #10b981; box-shadow: 0 0 6px #10b981; }
+.bot-status-dot.stopped { background: #4b5563; }
+.bot-status-dot.error { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+.bot-row-name { font-size: 13px; font-weight: 500; color: #e5e7eb; margin-bottom: 3px; }
+.bot-row-meta { display: flex; align-items: center; gap: 6px; }
+.mode-tag {
+  padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;
 }
 .mode-mock { background: rgba(79,158,255,.15); color: #4f9eff; }
 .mode-paper { background: rgba(245,158,11,.15); color: #f59e0b; }
 .mode-real { background: rgba(239,68,68,.15); color: #ef4444; }
+.pos-tag { font-size: 11px; color: #6b7280; }
+.bot-row-right { text-align: right; }
+.bot-row-assets { font-size: 13px; font-weight: 600; color: #e5e7eb; }
+.bot-row-pnl { font-size: 12px; font-weight: 500; }
+
+/* 클릭 카드 */
+.stat-card-clickable { cursor: pointer; transition: border-color .15s, background .15s; }
+.stat-card-clickable:hover { border-color: #4f9eff; background: #1e2535; }
+.stat-hint { font-size: 10px; color: #4b5563; margin-top: 4px; }
+
+/* 모달 */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: center; z-index: 999;
+}
+.modal {
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 14px;
+  width: 860px; max-width: 95vw; max-height: 80vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 20px; border-bottom: 1px solid #2a2d3e;
+  font-size: 14px; font-weight: 600; color: #e5e7eb;
+}
+.modal-close {
+  background: none; border: none; color: #6b7280;
+  font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+}
+.modal-close:hover { color: #e5e7eb; background: #2a2d3e; }
+.modal-empty { padding: 48px; text-align: center; color: #4b5563; font-size: 13px; }
+.trade-table-wrap { overflow-y: auto; flex: 1; }
+.trade-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.trade-table th {
+  position: sticky; top: 0; background: #1f2335;
+  padding: 10px 14px; text-align: left; color: #6b7280;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  border-bottom: 1px solid #2a2d3e;
+}
+.trade-table td {
+  padding: 10px 14px; border-bottom: 1px solid #1a1f2e; color: #d1d5db;
+}
+.trade-table tr:last-child td { border-bottom: none; }
+.trade-table tr:hover td { background: #1f2335; }
+.td-time { color: #6b7280; white-space: nowrap; }
+.td-ticker { font-weight: 600; color: #e5e7eb; }
+.td-num { text-align: right; font-variant-numeric: tabular-nums; }
+.type-badge {
+  padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700;
+}
+.type-buy { background: rgba(239,68,68,.15); color: #ef4444; }
+.type-sell { background: rgba(16,185,129,.15); color: #10b981; }
 
 /* 알림 */
-.alert-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 400px;
-  overflow-y: auto;
-}
-
+.alert-list { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; }
 .alert-item {
-  padding: 12px 16px;
-  border-bottom: 1px solid #1a1f2e;
+  padding: 11px 16px; border-bottom: 1px solid #1a1f2e;
   border-left: 3px solid #2a2d3e;
 }
+.alert-item:last-child { border-bottom: none; }
 .alert-item.alert-error { border-left-color: #ef4444; }
 .alert-item.alert-warn { border-left-color: #f59e0b; }
-
-.alert-top {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 3px;
-}
-
-.alert-type { font-size: 10px; font-weight: 700; color: #ef4444; text-transform: uppercase; }
+.alert-top { display: flex; justify-content: space-between; margin-bottom: 3px; }
+.alert-type-badge { font-size: 10px; font-weight: 700; color: #ef4444; text-transform: uppercase; }
 .alert-time { font-size: 10px; color: #4b5563; }
 .alert-bot { font-size: 12px; color: #9ca3af; font-weight: 500; margin-bottom: 2px; }
 .alert-msg { font-size: 11px; color: #6b7280; }

@@ -35,9 +35,13 @@ def get_summary(
     stopped = sum(1 for b in bots if b.status == 'STOPPED')
     error = sum(1 for b in bots if b.status == 'ERROR')
 
-    # 전체 총 자산 계산
+    # 전체 총 자산 계산 (mock / real·paper 분리)
     total_assets = 0.0
     total_pnl = 0.0
+    mock_assets = 0.0
+    mock_pnl = 0.0
+    real_assets = 0.0
+    real_pnl = 0.0
     for bot in bots:
         cash = float(bot.cash or 0)
         positions = db.query(Position).filter(Position.bot_id == bot.id).all()
@@ -46,8 +50,17 @@ def get_summary(
             lp = db.query(StockPrice).filter(StockPrice.ticker == pos.ticker).order_by(StockPrice.date.desc()).first()
             if lp and lp.close_price is not None:
                 holdings += float(lp.close_price) * pos.quantity
-        total_assets += cash + holdings
-        total_pnl += (cash + holdings) - float(bot.initial_cash or 0)
+        bot_total = cash + holdings
+        bot_pnl = bot_total - float(bot.initial_cash or 0)
+        total_assets += bot_total
+        total_pnl += bot_pnl
+        mode = getattr(bot, 'mode', 'mock') or 'mock'
+        if mode == 'mock':
+            mock_assets += bot_total
+            mock_pnl += bot_pnl
+        else:
+            real_assets += bot_total
+            real_pnl += bot_pnl
 
     # 오늘 거래 수 및 일일 PnL
     today = date.today()
@@ -84,6 +97,10 @@ def get_summary(
         "error": error,
         "total_assets": round(total_assets, 0),
         "total_pnl": round(total_pnl, 0),
+        "mock_assets": round(mock_assets, 0),
+        "mock_pnl": round(mock_pnl, 0),
+        "real_assets": round(real_assets, 0),
+        "real_pnl": round(real_pnl, 0),
         "daily_pnl": round(daily_pnl, 0),
         "today_trades": today_trades,
         "alerts": alerts,
@@ -124,4 +141,43 @@ def get_bot_snapshots(
             "position_count": len(positions),
         })
 
+    return result
+
+
+@router.get("/today-trades")
+def get_today_trades(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """오늘 체결된 거래 목록 (봇 이름 포함)"""
+    user_id = int(current_user['sub'])
+    today = date.today()
+    today_start = datetime.combine(today, time.min, tzinfo=timezone.utc)
+
+    rows = (
+        db.query(Execution, TradingBot.name.label("bot_name"), TradingBot.mode.label("bot_mode"))
+        .join(TradingBot, Execution.bot_id == TradingBot.id)
+        .filter(
+            TradingBot.user_id == user_id,
+            Execution.executed_at >= today_start,
+        )
+        .order_by(Execution.executed_at.desc())
+        .all()
+    )
+
+    result = []
+    for e, bot_name, bot_mode in rows:
+        result.append({
+            "id": e.id,
+            "bot_id": e.bot_id,
+            "bot_name": bot_name,
+            "bot_mode": bot_mode or "mock",
+            "ticker": e.ticker,
+            "execution_type": e.execution_type,
+            "quantity": e.quantity,
+            "price": float(e.price),
+            "profit_loss": float(e.profit_loss) if e.profit_loss is not None else None,
+            "profit_loss_pct": float(e.profit_loss_pct) if e.profit_loss_pct is not None else None,
+            "executed_at": e.executed_at.isoformat() if e.executed_at else None,
+        })
     return result

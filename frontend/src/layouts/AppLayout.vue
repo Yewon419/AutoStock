@@ -22,21 +22,21 @@
           <span class="nav-icon">📈</span>
           <span>주식 데이터</span>
         </RouterLink>
-        <RouterLink to="/strategies" class="nav-item" active-class="active">
-          <span class="nav-icon">⚡</span>
-          <span>전략 관리</span>
+        <RouterLink to="/canvas" class="nav-item nav-canvas" active-class="active">
+          <span class="nav-icon">✦</span>
+          <span>AI 캔버스</span>
         </RouterLink>
         <RouterLink to="/bots" class="nav-item" active-class="active">
           <span class="nav-icon">🤖</span>
           <span>자동매매</span>
         </RouterLink>
+        <RouterLink to="/strategies" class="nav-item" active-class="active">
+          <span class="nav-icon">⚡</span>
+          <span>전략 관리</span>
+        </RouterLink>
         <RouterLink to="/ai" class="nav-item" active-class="active">
           <span class="nav-icon">🧠</span>
           <span>AI 분석</span>
-        </RouterLink>
-        <RouterLink to="/canvas" class="nav-item nav-canvas" active-class="active">
-          <span class="nav-icon">✦</span>
-          <span>AI 캔버스</span>
         </RouterLink>
         <RouterLink to="/connection" class="nav-item" active-class="active">
           <span class="nav-icon">🔌</span>
