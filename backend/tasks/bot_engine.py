@@ -155,6 +155,19 @@ def _run_cycle(db, bot: TradingBot):
                     continue
                 try:
                     broker = get_broker(getattr(bot, 'mode', 'mock'))
+                    # real/paper 모드: 실제 잔고 확인 후 주문
+                    if getattr(bot, 'mode', 'mock') in ('real', 'paper'):
+                        try:
+                            real_cash = broker.get_available_cash()
+                            if real_cash < cost:
+                                logger.warning(f"[bot_engine] bot_id={bot.id} {ticker} 실잔고 부족 (필요:{cost:,.0f} 실잔고:{real_cash:,.0f})")
+                                continue
+                            # 실잔고와 DB cash 괴리가 크면 DB 동기화
+                            if abs(real_cash - float(bot.cash)) > float(bot.cash) * 0.1:
+                                bot.cash = real_cash
+                        except Exception as e:
+                            logger.warning(f"[bot_engine] 잔고 조회 실패, 주문 건너뜀: {e}")
+                            continue
                     result = broker.place_buy(bot.id, ticker, qty, curr_price)
                     _execute_buy(db, bot, ticker, qty, result.filled_price, fee, result.order_number)
                     today_count += 1

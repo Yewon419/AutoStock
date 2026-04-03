@@ -74,6 +74,23 @@ class KisBroker(BaseBroker):
             "custtype": "P",
         }
 
+    def get_available_cash(self) -> float:
+        """KIS 실계좌 주문가능현금 조회"""
+        tr_id = "VTTC8908R" if self._is_paper else "TTTC8908R"
+        acct_no, acct_prod = self._account_no.split("-")
+        url = f"{self._base_url}/uapi/domestic-stock/v1/trading/inquire-psbl-order"
+        params = {
+            "CANO": acct_no, "ACNT_PRDT_CD": acct_prod,
+            "PDNO": "005930", "ORD_UNPR": "0", "ORD_DVSN": "01",
+            "CMA_EVLU_AMT_ICLD_YN": "N", "OVRS_ICLD_YN": "N",
+        }
+        resp = requests.get(url, headers=self._headers(tr_id), params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("rt_cd") != "0":
+            raise RuntimeError(f"잔고 조회 실패: {data.get('msg1')}")
+        return float(data.get("output", {}).get("ord_psbl_cash", 0))
+
     # ------------------------------------------------------------------
     # Orders
     # ------------------------------------------------------------------

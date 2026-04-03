@@ -7,8 +7,8 @@
         <span class="toolbar-brand">✦ AI 캔버스</span>
 
         <!-- 캔버스 선택 -->
-        <div class="canvas-selector" :class="{ open: showCanvasMenu }" @mouseleave="showCanvasMenu = false">
-          <button class="canvas-sel-btn" @mouseenter="showCanvasMenu = true">
+        <div class="canvas-selector" :class="{ open: showCanvasMenu }" @click.stop>
+          <button class="canvas-sel-btn" @click="showCanvasMenu = !showCanvasMenu">
             <span class="canvas-sel-name">{{ currentCanvasName }}</span>
             <span class="pd-arrow">▾</span>
           </button>
@@ -358,7 +358,7 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, nextTick, onMounted, markRaw, watch } from 'vue'
+import { ref, computed, provide, nextTick, onMounted, onUnmounted, markRaw, watch } from 'vue'
 import {
   VueFlow, ConnectionMode, useVueFlow,
   Panel,
@@ -878,8 +878,19 @@ async function runNode(nodeId) {
 
     // ── botApply ──────────────────────────────────────────────────
     else if (node.type === 'botApply') {
-      const strategyResult = getInputResult(nodeId, 'strategy')
-      if (!strategyResult) throw new Error('전략 노드를 연결한 후 먼저 실행하세요')
+      let strategyResult = getInputResult(nodeId, 'strategy')
+
+      // strategy 노드가 미실행 상태면 config에서 직접 읽어 처리
+      if (!strategyResult) {
+        const stratEdge = edges.value.find(e => e.target === nodeId && e.targetHandle === 'strategy')
+        const srcNode = stratEdge ? nodes.value.find(n => n.id === stratEdge.source) : null
+        if (srcNode?.type === 'strategy' && srcNode.data?.config?.strategy_id) {
+          const s = await apiGet(`/strategies/${srcNode.data.config.strategy_id}`)
+          strategyResult = { strategy_id: s.id, strategy_name: s.name, strategy_type: s.strategy_type, conditions: s.conditions }
+        }
+      }
+
+      if (!strategyResult) throw new Error('전략 노드를 연결한 후 실행하세요 (strategy 노드 선택 후 ▶ 실행)')
       const strategyId = strategyResult.strategy_id
       if (!strategyId) throw new Error(
         strategyResult.status === 'gated'
@@ -1003,6 +1014,23 @@ function _localSave(canvasId, payload) {
   } catch { /* ignore */ }
 }
 
+const INITIAL_CHAT = [{ role: 'assistant', content: '안녕하세요! 저는 AutoStock 캔버스 AI 어시스턴트입니다. 아래 프리셋을 눌러 파이프라인을 자동 구성하거나, 자유롭게 요청해보세요.' }]
+
+function _saveChatMessages(canvasId) {
+  try {
+    localStorage.setItem(`autostock-chat:${canvasId}`, JSON.stringify(chatMessages.value))
+  } catch { /* ignore */ }
+}
+
+function _loadChatMessages(canvasId) {
+  try {
+    const saved = localStorage.getItem(`autostock-chat:${canvasId}`)
+    chatMessages.value = saved ? JSON.parse(saved) : [...INITIAL_CHAT]
+  } catch {
+    chatMessages.value = [...INITIAL_CHAT]
+  }
+}
+
 async function _remoteSave(canvasId, payload) {
   try {
     await fetch(`${API}/ai/canvas-state`, {
@@ -1069,9 +1097,7 @@ async function loadLayout(canvasId) {
 const chatExpanded = ref(true)
 const chatInput    = ref('')
 const chatLoading  = ref(false)
-const chatMessages = ref([
-  { role: 'assistant', content: '안녕하세요! 저는 AutoStock 캔버스 AI 어시스턴트입니다. 아래 프리셋을 눌러 파이프라인을 자동 구성하거나, 자유롭게 요청해보세요.' },
-])
+const chatMessages = ref([...INITIAL_CHAT])
 const chatEl = ref(null)
 
 function miniMapColor(node) {
@@ -1272,11 +1298,14 @@ async function fetchCanvasList() {
 }
 
 async function switchCanvas(id) {
-  await saveLayout()          // 현재 캔버스 저장
+  _saveChatMessages(currentCanvasId.value)  // 현재 채팅 저장
+  await saveLayout()                         // 현재 캔버스 저장
   currentCanvasId.value = id
+  localStorage.setItem('autostock-last-canvas', id)
   nodes.value = []
   edges.value = []
   selectedNode.value = null
+  _loadChatMessages(id)
   await loadLayout(id)
 }
 
@@ -1325,13 +1354,25 @@ async function deleteCanvas(id) {
   }
 }
 
+watch(chatMessages, () => _saveChatMessages(currentCanvasId.value), { deep: true })
+
+function onClickOutside() { showCanvasMenu.value = false }
+
 onMounted(async () => {
+  document.addEventListener('click', onClickOutside)
   await fetchCanvasList()
-  if (canvasList.value.length) currentCanvasId.value = canvasList.value[0].id
+  const lastId = localStorage.getItem('autostock-last-canvas')
+  const validId = canvasList.value.find(c => c.id === lastId)?.id
+  currentCanvasId.value = validId || (canvasList.value[0]?.id ?? 'default')
+  _loadChatMessages(currentCanvasId.value)
   loadLayout()
   await fetchBotList()
   fetchStrategies()
   fetchAccounts()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onClickOutside)
 })
 </script>
 
