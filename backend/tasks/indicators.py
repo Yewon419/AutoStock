@@ -18,12 +18,14 @@ INDICATOR_COLS = [
 
 
 def _safe(val):
-    """pandas NaN → None 변환"""
+    """pandas NaN/inf → None 변환 (DB DECIMAL 오버플로우 방지)"""
     if val is None:
         return None
     try:
         f = float(val)
-        return None if f != f else f  # NaN 체크
+        if f != f or f == float('inf') or f == float('-inf'):
+            return None
+        return f
     except (TypeError, ValueError):
         return None
 
