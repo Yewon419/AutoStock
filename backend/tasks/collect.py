@@ -28,16 +28,22 @@ def _upsert_stock(db, ticker: str, name: str, market: str):
 
 
 def _get_recent_trading_date():
-    """데이터가 있는 가장 최근 거래일 반환 (최대 10일 전까지 탐색)"""
+    """데이터가 있는 가장 최근 거래일 반환.
+    get_market_ticker_list 대신 삼성전자 OHLCV로 감지 (KRX API 호환성 문제 우회).
+    """
     from pykrx import stock as krx
-    for delta in range(0, 10):
-        d = (date.today() - timedelta(days=delta)).strftime("%Y%m%d")
-        try:
-            tickers = krx.get_market_ticker_list(d, market="KOSPI")
-            if tickers:
-                return d
-        except Exception:
-            continue
+    end = date.today()
+    start = end - timedelta(days=14)
+    try:
+        df = krx.get_market_ohlcv_by_date(
+            start.strftime("%Y%m%d"),
+            end.strftime("%Y%m%d"),
+            "005930",
+        )
+        if df is not None and not df.empty:
+            return df.index[-1].strftime("%Y%m%d")
+    except Exception as e:
+        logger.warning(f"[_get_recent_trading_date] 삼성전자 OHLCV 조회 실패: {e}")
     return None
 
 
@@ -75,8 +81,6 @@ def collect_all_stocks(self):
     평일 16:30에 celery-beat가 자동 실행.
     """
     try:
-        from pykrx import stock as krx
-
         trading_date = _get_recent_trading_date()
         if not trading_date:
             logger.error("[collect_all_stocks] 최근 거래일 데이터를 찾을 수 없습니다")
@@ -85,18 +89,9 @@ def collect_all_stocks(self):
 
         db = SessionLocal()
         try:
-            # KOSPI + KOSDAQ 종목 목록 수집
-            all_tickers = []
-            for market in ["KOSPI", "KOSDAQ"]:
-                tickers = krx.get_market_ticker_list(trading_date, market=market)
-                for ticker in tickers:
-                    name = krx.get_market_ticker_name(ticker)
-                    _upsert_stock(db, ticker, name, market)
-                    all_tickers.append(ticker)
-                logger.info(f"  {market}: {len(tickers)}개 종목")
-
-            db.commit()
-            logger.info(f"[collect_all_stocks] 종목 저장 완료: 총 {len(all_tickers)}개")
+            # get_market_ticker_list KRX API 호환성 문제로 DB 기존 종목 사용
+            all_tickers = [s.ticker for s in db.query(Stock).filter(Stock.is_active == True).all()]
+            logger.info(f"[collect_all_stocks] DB 종목 사용: {len(all_tickers)}개 (trading_date={trading_date})")
         finally:
             db.close()
 

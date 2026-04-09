@@ -12,6 +12,7 @@ from datetime import datetime, date, time, timezone
 from zoneinfo import ZoneInfo
 
 import redis
+from sqlalchemy import func
 
 from tasks.celery_app import celery_app
 from core.config import settings
@@ -31,6 +32,52 @@ ALERTS_KEY = "autostock:alerts"
 BOT_LAST_SIGNAL_KEY = "autostock:bot_last_signal:{bot_id}"  # 일봉 봇 중복 신호 방지
 
 _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+# ── 공통 유틸 ──────────────────────────────────────────────────────────
+
+def _calc_mdd(assets: list, initial: float) -> float:
+    """최대 낙폭(%) 계산"""
+    peak = initial
+    max_dd = 0.0
+    for a in assets:
+        if a > peak:
+            peak = a
+        dd = (peak - a) / peak * 100 if peak > 0 else 0
+        if dd > max_dd:
+            max_dd = dd
+    return max_dd
+
+
+def _calc_sharpe(daily_returns: list) -> float:
+    """샤프 비율 계산 (연환산, clamp -999~999)"""
+    if len(daily_returns) < 2:
+        return 0.0
+    mean_r = sum(daily_returns) / len(daily_returns)
+    variance = sum((x - mean_r) ** 2 for x in daily_returns) / len(daily_returns)
+    std_r = math.sqrt(variance)
+    if std_r == 0:
+        return 0.0
+    return max(-999.0, min(999.0, mean_r / std_r * math.sqrt(252)))
+
+
+def _latest_prices_map(db, tickers: list) -> dict:
+    """종목 리스트의 최신 종가를 {ticker: StockPrice} dict로 반환 (2쿼리)"""
+    if not tickers:
+        return {}
+    latest_date = (
+        db.query(func.max(StockPrice.date))
+        .filter(StockPrice.ticker.in_(tickers))
+        .scalar()
+    )
+    if not latest_date:
+        return {}
+    return {
+        sp.ticker: sp
+        for sp in db.query(StockPrice)
+        .filter(StockPrice.ticker.in_(tickers), StockPrice.date == latest_date)
+        .all()
+    }
 
 
 @celery_app.task(name="tasks.bot_engine.run_all_bots")
@@ -89,48 +136,72 @@ def _run_cycle(db, bot: TradingBot):
         Order.created_at >= today_start,
     ).count()
 
-    for ticker in tickers:
-        latest_price = (
-            db.query(StockPrice)
-            .filter(StockPrice.ticker == ticker)
-            .order_by(StockPrice.date.desc())
-            .first()
+    # ── 루프 전 일괄 로드 (N+1 → 4쿼리) ──────────────────────────────
+    price_map = _latest_prices_map(db, tickers)
+
+    latest_ind_date = (
+        db.query(func.max(TechnicalIndicator.date))
+        .filter(TechnicalIndicator.ticker.in_(tickers))
+        .scalar()
+    )
+    ind_map = {}
+    prev_ind_map = {}
+    if latest_ind_date:
+        ind_map = {
+            i.ticker: i
+            for i in db.query(TechnicalIndicator)
+            .filter(TechnicalIndicator.ticker.in_(tickers), TechnicalIndicator.date == latest_ind_date)
+            .all()
+        }
+        prev_ind_date = (
+            db.query(func.max(TechnicalIndicator.date))
+            .filter(TechnicalIndicator.ticker.in_(tickers), TechnicalIndicator.date < latest_ind_date)
+            .scalar()
         )
+        if prev_ind_date:
+            prev_ind_map = {
+                i.ticker: i
+                for i in db.query(TechnicalIndicator)
+                .filter(TechnicalIndicator.ticker.in_(tickers), TechnicalIndicator.date == prev_ind_date)
+                .all()
+            }
+
+    position_map = {
+        p.ticker: p
+        for p in db.query(Position).filter(Position.bot_id == bot.id).all()
+    }
+
+    # 총 포트폴리오 가치 기준 종목당 배분 예산 계산
+    # (보유 포지션 가치 포함 → 매수할수록 예산이 줄어드는 문제 해소)
+    holdings_value = sum(
+        (float(price_map[p.ticker].close_price) if p.ticker in price_map else float(p.avg_price))
+        * p.quantity
+        for p in position_map.values()
+    )
+    total_portfolio = float(bot.cash) + holdings_value
+    per_pos_budget = total_portfolio * float(bot.position_size_pct) / 100
+
+    max_daily = int(bot.max_daily_trades)
+    max_pos = int(bot.max_positions)
+
+    for ticker in tickers:
+        latest_price = price_map.get(ticker)
         if not latest_price:
             continue
 
-        latest_ind = (
-            db.query(TechnicalIndicator)
-            .filter(TechnicalIndicator.ticker == ticker)
-            .order_by(TechnicalIndicator.date.desc())
-            .first()
-        )
-        prev_ind = None
-        if latest_ind:
-            prev_ind = (
-                db.query(TechnicalIndicator)
-                .filter(
-                    TechnicalIndicator.ticker == ticker,
-                    TechnicalIndicator.date < latest_ind.date,
-                )
-                .order_by(TechnicalIndicator.date.desc())
-                .first()
-            )
-
-        position = db.query(Position).filter(
-            Position.bot_id == bot.id,
-            Position.ticker == ticker,
-        ).first()
+        latest_ind = ind_map.get(ticker)
+        prev_ind = prev_ind_map.get(ticker)
+        position = position_map.get(ticker)
 
         rt = _redis_client.get(f"rt:price:{ticker}")
         curr_price = float(rt) if rt else float(latest_price.close_price)
 
         if position is None:
             # 매수 신호 체크
-            if today_count >= int(bot.max_daily_trades):
+            if today_count >= max_daily:
                 continue
-            pos_count = db.query(Position).filter(Position.bot_id == bot.id).count()
-            if pos_count >= int(bot.max_positions):
+            pos_count = len(position_map)
+            if pos_count >= max_pos:
                 continue
 
             # 일봉 봇: 종목당 하루 1회만 매수 신호 처리 (중복 매수 방지)
@@ -141,17 +212,18 @@ def _run_cycle(db, bot: TradingBot):
                 continue
 
             if _all_conditions_met(strategy.conditions, latest_ind, prev_ind):
-                qty = int(float(bot.cash) * float(bot.position_size_pct) / 100 / curr_price)
+                # 총 포트폴리오 기준 종목당 예산으로 수량 결정
+                qty = int(per_pos_budget / curr_price)
                 if qty <= 0:
                     continue
                 fee = round(curr_price * qty * COMMISSION, 2)
                 cost = curr_price * qty + fee
                 if cost > float(bot.cash):
                     continue
-                # 단일 주문 최대 금액 체크 (real/paper 모드 안전장치)
+                # 단일 주문 최대 금액 안전장치 (설정값과 per_pos_budget 중 작은 값)
                 max_amt = float(bot.max_order_amount or 0)
-                if max_amt > 0 and cost > max_amt:
-                    logger.warning(f"[bot_engine] bot_id={bot.id} {ticker} 주문 금액 초과 ({cost:,.0f} > {max_amt:,.0f})")
+                if max_amt > 0 and cost > min(max_amt, per_pos_budget * 1.1):
+                    logger.warning(f"[bot_engine] bot_id={bot.id} {ticker} 주문 금액 초과 ({cost:,.0f} > budget:{per_pos_budget:,.0f})")
                     continue
                 try:
                     broker = get_broker(getattr(bot, 'mode', 'mock'))
@@ -162,9 +234,7 @@ def _run_cycle(db, bot: TradingBot):
                             if real_cash < cost:
                                 logger.warning(f"[bot_engine] bot_id={bot.id} {ticker} 실잔고 부족 (필요:{cost:,.0f} 실잔고:{real_cash:,.0f})")
                                 continue
-                            # 실잔고와 DB cash 괴리가 크면 DB 동기화
-                            if abs(real_cash - float(bot.cash)) > float(bot.cash) * 0.1:
-                                bot.cash = real_cash
+                            bot.cash = real_cash
                         except Exception as e:
                             logger.warning(f"[bot_engine] 잔고 조회 실패, 주문 건너뜀: {e}")
                             continue
@@ -257,11 +327,12 @@ def _exceeds_max_drawdown(db, bot) -> bool:
         return False
     cash = float(bot.cash or 0)
     positions = db.query(Position).filter(Position.bot_id == bot.id).all()
-    holdings = 0.0
-    for pos in positions:
-        lp = db.query(StockPrice).filter(StockPrice.ticker == pos.ticker).order_by(StockPrice.date.desc()).first()
-        if lp:
-            holdings += float(lp.close_price) * pos.quantity
+    if positions:
+        price_map = _latest_prices_map(db, [p.ticker for p in positions])
+        holdings = sum(float(price_map[p.ticker].close_price) * p.quantity
+                       for p in positions if p.ticker in price_map)
+    else:
+        holdings = 0.0
     total = cash + holdings
     drawdown = (initial - total) / initial * 100
     return drawdown >= float(bot.max_drawdown_pct)
@@ -285,11 +356,12 @@ def generate_daily_reports():
 
             cash = float(bot.cash or 0)
             positions = db.query(Position).filter(Position.bot_id == bot.id).all()
-            holdings = 0.0
-            for pos in positions:
-                lp = db.query(StockPrice).filter(StockPrice.ticker == pos.ticker).order_by(StockPrice.date.desc()).first()
-                if lp:
-                    holdings += float(lp.close_price) * pos.quantity
+            if positions:
+                price_map = _latest_prices_map(db, [p.ticker for p in positions])
+                holdings = sum(float(price_map[p.ticker].close_price) * p.quantity
+                               for p in positions if p.ticker in price_map)
+            else:
+                holdings = 0.0
 
             total = cash + holdings
             total_pnl = total - float(bot.initial_cash or 0)
@@ -304,22 +376,14 @@ def generate_daily_reports():
             wins = sum(1 for e in today_sells if float(e.profit_loss or 0) > 0)
             win_rate = wins / len(today_sells) * 100 if today_sells else 0
 
-            # MDD: 전체 보고서 이력 기반 (초기 자금 대비 최고점→최저점)
+            # MDD / 샤프: 누적 보고서 이력 기반
+            initial = float(bot.initial_cash or 1)
             all_reports = db.query(BotReport).filter(
                 BotReport.bot_id == bot.id
             ).order_by(BotReport.date).all()
             assets_series = [float(r.total_assets or 0) for r in all_reports] + [total]
-            initial = float(bot.initial_cash or 1)
-            peak = initial
-            max_dd = 0.0
-            for a in assets_series:
-                if a > peak:
-                    peak = a
-                dd = (peak - a) / peak * 100 if peak > 0 else 0
-                if dd > max_dd:
-                    max_dd = dd
+            max_dd = _calc_mdd(assets_series, initial)
 
-            # 샤프 비율: 일별 수익률 평균/표준편차 × √252
             daily_returns = []
             prev_a = initial
             for r in all_reports:
@@ -327,13 +391,7 @@ def generate_daily_reports():
                 if prev_a > 0:
                     daily_returns.append((ta - prev_a) / prev_a * 100)
                 prev_a = ta
-            if len(daily_returns) >= 2:
-                mean_r = sum(daily_returns) / len(daily_returns)
-                variance = sum((x - mean_r) ** 2 for x in daily_returns) / len(daily_returns)
-                std_r = math.sqrt(variance)
-                sharpe = round(mean_r / std_r * math.sqrt(252), 4) if std_r > 0 else 0.0
-            else:
-                sharpe = 0.0
+            sharpe = _calc_sharpe(daily_returns)
 
             # 손익비: 누적 전체 매도 체결 기준
             all_sells = db.query(Execution).filter(
@@ -346,18 +404,24 @@ def generate_daily_reports():
                 round(total_gain, 4) if total_gain > 0 else 0.0
             )
 
-            db.add(BotReport(
-                bot_id=bot.id, date=today,
-                total_assets=round(total, 2), cash=round(cash, 2),
-                holdings_value=round(holdings, 2),
-                daily_pnl=round(daily_pnl, 2), total_pnl=round(total_pnl, 2),
-                win_rate=round(win_rate, 2), total_trades=len(today_sells),
-                max_drawdown=round(max_dd, 4),
-                sharpe_ratio=sharpe,
-                profit_factor=profit_factor,
-            ))
+            safe_sharpe = max(-999.0, min(999.0, sharpe))
+            safe_pf = max(0.0, min(999.0, profit_factor))
+            try:
+                db.add(BotReport(
+                    bot_id=bot.id, date=today,
+                    total_assets=round(total, 2), cash=round(cash, 2),
+                    holdings_value=round(holdings, 2),
+                    daily_pnl=round(daily_pnl, 2), total_pnl=round(total_pnl, 2),
+                    win_rate=round(win_rate, 2), total_trades=len(today_sells),
+                    max_drawdown=round(max_dd, 4),
+                    sharpe_ratio=round(safe_sharpe, 4),
+                    profit_factor=round(safe_pf, 4),
+                ))
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error(f"[bot_engine] bot_id={bot.id} 보고서 저장 실패: {e}")
 
-        db.commit()
         logger.info(f"[bot_engine] 일별 보고서 생성: {len(bots)}개 봇")
     finally:
         db.close()
