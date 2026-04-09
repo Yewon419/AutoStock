@@ -352,6 +352,7 @@ def train_and_score():
             "date": str(latest_date),
             "train_samples": len(train_X),
             "top_tickers": len(top_scores),
+            "tickers": top_tickers,
             "oos_accuracy": oos_accuracy,
             "feature_count": len(_FEATURE_NAMES),
         }

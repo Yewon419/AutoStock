@@ -803,8 +803,8 @@ async function runNode(nodeId) {
     else if (node.type === 'mlScores') {
       const data = await apiGet('/ai/scores')
       const scores = data.scores || {}
-      const top = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, 5)
-      result = { top_tickers: top.length, top5: top.map(([t]) => t), meta: data.meta, raw: scores }
+      const allSorted = Object.keys(scores).sort((a, b) => (scores[b] || 0) - (scores[a] || 0))
+      result = { top_tickers: allSorted.length, top5: allSorted.slice(0, 5), tickers: allSorted, meta: data.meta, raw: scores }
     }
 
     // ── mlModel ───────────────────────────────────────────────────
@@ -904,9 +904,21 @@ async function runNode(nodeId) {
       const botMode = accountCfg?.mode || 'mock'
       const botAccountId = accountCfg?.account_id || null
 
-      // tickers 입력 노드에서 매매 종목 가져오기 (ML top_tickers 또는 backtest tickers)
+      // tickers 입력 노드에서 매매 종목 가져오기
       const tickersInput = getInputResult(nodeId, 'tickers')
-      const botTickers = tickersInput?.top_tickers || tickersInput?.tickers || []
+      let botTickers = []
+      if (tickersInput) {
+        if (Array.isArray(tickersInput.tickers)) {
+          // mlScores, mlModel, backtest 모두 tickers 배열 반환
+          botTickers = tickersInput.tickers
+        } else if (tickersInput.raw && typeof tickersInput.raw === 'object') {
+          // fallback: mlScores raw { TICKER: score } 형태
+          botTickers = Object.keys(tickersInput.raw).sort((a, b) => (tickersInput.raw[b] || 0) - (tickersInput.raw[a] || 0))
+        }
+      }
+      if (botTickers.length === 0) {
+        throw new Error('매매 종목이 비어있습니다. mlScores, mlModel, 또는 backtest 노드를 [매매 종목] 핸들에 연결하고 먼저 실행하세요.')
+      }
 
       let botId = node.data.config.bot_id
       if (!botId) {

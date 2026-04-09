@@ -12,6 +12,7 @@ async function request(method, path, body = null) {
   })
 
   if (!res.ok) {
+    if (res.status === 401) throw new Error('UNAUTHORIZED')
     const err = await res.json().catch(() => ({ detail: '오류가 발생했습니다' }))
     throw new Error(err.detail || '오류가 발생했습니다')
   }

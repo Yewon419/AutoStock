@@ -183,37 +183,60 @@
     <!-- 체결 내역 탭 (매도 손익 중심) -->
     <div v-if="activeTab === 'executions'">
       <div v-if="executions.length === 0" class="empty-tab">체결 내역이 없습니다.</div>
-      <table v-else class="data-table">
-        <thead>
-          <tr>
-            <th>체결 시각</th>
-            <th>종목</th>
-            <th>구분</th>
-            <th>수량</th>
-            <th>체결가</th>
-            <th>손익</th>
-            <th>수익률</th>
-            <th>수수료+세금</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="e in executions" :key="e.id"
-            :class="e.profit_loss != null && e.profit_loss > 0 ? 'exec-profit' : e.profit_loss != null && e.profit_loss < 0 ? 'exec-loss' : ''">
-            <td class="time-cell">{{ fmtDatetime(e.executed_at) }}</td>
-            <td class="ticker-cell">{{ tickerName(e.ticker) }}</td>
-            <td :class="e.execution_type === 'BUY' ? 'buy-cell' : 'sell-cell'">{{ e.execution_type }}</td>
-            <td>{{ e.quantity.toLocaleString() }}</td>
-            <td>{{ fmtPrice(e.price) }}</td>
-            <td :class="pnlClass(e.profit_loss)">
-              {{ e.profit_loss != null ? fmtPnl(e.profit_loss) : '-' }}
-            </td>
-            <td :class="pnlClass(e.profit_loss_pct)">
-              {{ e.profit_loss_pct != null ? (e.profit_loss_pct >= 0 ? '+' : '') + e.profit_loss_pct.toFixed(2) + '%' : '-' }}
-            </td>
-            <td class="fee-cell">{{ fmtPrice((e.fee || 0) + (e.tax || 0)) }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <template v-else>
+        <!-- 주가 차트 + 체결 포인트 -->
+        <div class="chart-container" style="margin-bottom: 16px;">
+          <div class="chart-title-row">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="chart-title">주가 & 체결 포인트</span>
+              <select v-if="execTickers.length > 1" v-model="selectedExecTicker"
+                @change="onExecTickerChange" class="ticker-select">
+                <option v-for="t in execTickers" :key="t" :value="t">{{ tickerName(t) }}</option>
+              </select>
+              <span v-else class="chart-ticker-label">{{ tickerName(selectedExecTicker) }}</span>
+            </div>
+            <div class="exec-chart-legend">
+              <span class="legend-item"><span class="legend-dot" style="background:#60a5fa;"></span>매수</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#ef4444;"></span>매도(수익)</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#10b981;"></span>매도(손실)</span>
+            </div>
+          </div>
+          <div v-if="execChartLoading" class="chart-loading">차트 불러오는 중...</div>
+          <div ref="execChartEl" style="height: 260px;"></div>
+        </div>
+        <!-- 체결 내역 테이블 -->
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>체결 시각</th>
+              <th>종목</th>
+              <th>구분</th>
+              <th>수량</th>
+              <th>체결가</th>
+              <th>손익</th>
+              <th>수익률</th>
+              <th>수수료+세금</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="e in executions" :key="e.id"
+              :class="e.profit_loss != null && e.profit_loss > 0 ? 'exec-profit' : e.profit_loss != null && e.profit_loss < 0 ? 'exec-loss' : ''">
+              <td class="time-cell">{{ fmtDatetime(e.executed_at) }}</td>
+              <td class="ticker-cell">{{ tickerName(e.ticker) }}</td>
+              <td :class="e.execution_type === 'BUY' ? 'buy-cell' : 'sell-cell'">{{ e.execution_type }}</td>
+              <td>{{ e.quantity.toLocaleString() }}</td>
+              <td>{{ fmtPrice(e.price) }}</td>
+              <td :class="pnlClass(e.profit_loss)">
+                {{ e.profit_loss != null ? fmtPnl(e.profit_loss) : '-' }}
+              </td>
+              <td :class="pnlClass(e.profit_loss_pct)">
+                {{ e.profit_loss_pct != null ? (e.profit_loss_pct >= 0 ? '+' : '') + e.profit_loss_pct.toFixed(2) + '%' : '-' }}
+              </td>
+              <td class="fee-cell">{{ fmtPrice((e.fee || 0) + (e.tax || 0)) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
     </div>
 
     <!-- 보고서 탭 -->
@@ -485,6 +508,11 @@ const lineChartEl = ref(null)
 const barChartEl = ref(null)
 let lineChart = null
 let barChart = null
+const execChartEl = ref(null)
+let execChart = null
+const execTickers = ref([])
+const selectedExecTicker = ref('')
+const execChartLoading = ref(false)
 const stockNames = ref({})
 
 // 수정 모달
@@ -591,7 +619,11 @@ async function fetchOrders() {
 
 async function fetchExecutions() {
   const res = await fetch(`${API}/bots/${botId}/executions`, { headers: headers() })
-  if (res.ok) executions.value = await res.json()
+  if (res.ok) {
+    executions.value = await res.json()
+    await nextTick()
+    renderExecChart(executions.value)
+  }
 }
 
 async function fetchStockNames() {
@@ -660,6 +692,117 @@ async function renderCharts(data) {
     })))
     barChart.timeScale().fitContent()
   }
+}
+
+async function renderExecChart(data) {
+  if (!data.length) return
+  // 종목 목록 추출
+  const tickers = [...new Set(data.map(e => e.ticker))]
+  execTickers.value = tickers
+  if (!selectedExecTicker.value || !tickers.includes(selectedExecTicker.value)) {
+    selectedExecTicker.value = tickers[0]
+  }
+  await nextTick()
+  await renderExecChartForTicker(data, selectedExecTicker.value)
+}
+
+async function onExecTickerChange() {
+  await renderExecChartForTicker(executions.value, selectedExecTicker.value)
+}
+
+async function renderExecChartForTicker(data, ticker) {
+  if (!execChartEl.value) return
+  const { createChart } = await import('lightweight-charts')
+
+  if (execChart) { execChart.remove(); execChart = null }
+
+  const tickerExecs = data.filter(e => e.ticker === ticker)
+  if (!tickerExecs.length) return
+
+  // 날짜 범위 계산
+  const dates = tickerExecs.map(e => e.executed_at.slice(0, 10)).sort()
+  const startDate = dates[0]
+  const endDate = dates[dates.length - 1]
+
+  // 주가 데이터 조회
+  execChartLoading.value = true
+  let priceData = []
+  try {
+    const res = await fetch(
+      `${API}/market/stocks/${ticker}/prices?start_date=${startDate}&end_date=${endDate}`,
+      { headers: headers() }
+    )
+    if (res.ok) priceData = await res.json()
+  } finally {
+    execChartLoading.value = false
+  }
+
+  execChart = createChart(execChartEl.value, {
+    layout: { background: { color: '#1a1d27' }, textColor: '#9ca3af' },
+    grid: { vertLines: { color: '#2a2d3e' }, horzLines: { color: '#2a2d3e' } },
+    rightPriceScale: { borderColor: '#2a2d3e' },
+    timeScale: { borderColor: '#2a2d3e', timeVisible: false },
+    crosshair: { mode: 1 },
+    height: 260,
+  })
+
+  // 마커 생성 (날짜 기준, 중복은 첫 번째만 text 표시)
+  const sorted = [...tickerExecs].sort((a, b) => new Date(a.executed_at) - new Date(b.executed_at))
+  const markers = sorted.map(e => {
+    const isBuy = e.execution_type === 'BUY'
+    const isProfit = e.profit_loss != null && e.profit_loss >= 0
+    const pctText = e.profit_loss_pct != null
+      ? (e.profit_loss_pct >= 0 ? '+' : '') + e.profit_loss_pct.toFixed(1) + '%'
+      : ''
+    return {
+      time: e.executed_at.slice(0, 10),
+      position: isBuy ? 'belowBar' : 'aboveBar',
+      color: isBuy ? '#60a5fa' : (isProfit ? '#ef4444' : '#10b981'),
+      shape: isBuy ? 'arrowUp' : 'arrowDown',
+      text: isBuy ? '매수' : `매도 ${pctText}`,
+      size: 1,
+    }
+  })
+
+  if (priceData.length) {
+    // 캔들스틱 차트
+    const cs = execChart.addCandlestickSeries({
+      upColor: '#ef4444',
+      downColor: '#10b981',
+      borderUpColor: '#ef4444',
+      borderDownColor: '#10b981',
+      wickUpColor: '#ef4444',
+      wickDownColor: '#10b981',
+    })
+    cs.setData(priceData.map(p => ({
+      time: String(p.date),
+      open: p.open_price ?? p.close_price,
+      high: p.high_price ?? p.close_price,
+      low: p.low_price ?? p.close_price,
+      close: p.close_price,
+    })))
+    execChart.createSeriesMarkers(cs, markers)
+  } else {
+    // 가격 데이터 없음 — 체결가 기준 라인 차트 대체
+    const lineData = sorted.map(e => ({
+      time: e.executed_at.slice(0, 10),
+      value: e.price,
+    }))
+    // 날짜 중복 제거 (같은 날 여러 체결 시 마지막 값)
+    const dedupedLine = Object.values(
+      Object.fromEntries(lineData.map(d => [d.time, d]))
+    ).sort((a, b) => a.time.localeCompare(b.time))
+
+    const ls = execChart.addLineSeries({
+      color: '#4f9eff',
+      lineWidth: 2,
+      priceFormat: { type: 'price', precision: 0, minMove: 1 },
+    })
+    ls.setData(dedupedLine)
+    execChart.createSeriesMarkers(ls, markers)
+  }
+
+  execChart.timeScale().fitContent()
 }
 
 async function switchTab(tab) {
@@ -920,6 +1063,56 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
   font-size: 12px;
   color: #6b7280;
   margin-bottom: 10px;
+}
+
+.chart-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.exec-chart-legend {
+  display: flex;
+  gap: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.ticker-select {
+  background: #0f1117;
+  border: 1px solid #2a2d3e;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 12px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.chart-ticker-label {
+  font-size: 12px;
+  color: #e5e7eb;
+  font-weight: 600;
+}
+
+.chart-loading {
+  text-align: center;
+  color: #6b7280;
+  font-size: 12px;
+  padding: 8px 0;
 }
 
 /* 테이블 */

@@ -121,15 +121,28 @@ def stop_bot(db: Session, bot_id: int, user_id: int):
 
 def get_positions(db: Session, bot_id: int):
     from models.market import StockPrice
+    from sqlalchemy import func
     positions = db.query(Position).filter(Position.bot_id == bot_id).all()
+    if not positions:
+        return []
+    tickers = [p.ticker for p in positions]
+    # 최신 날짜 1회 조회 후 해당 날짜 가격 일괄 로드 (N+1 → 2쿼리)
+    latest_date = (
+        db.query(func.max(StockPrice.date))
+        .filter(StockPrice.ticker.in_(tickers))
+        .scalar()
+    )
+    price_map = {}
+    if latest_date:
+        price_map = {
+            sp.ticker: sp
+            for sp in db.query(StockPrice)
+            .filter(StockPrice.ticker.in_(tickers), StockPrice.date == latest_date)
+            .all()
+        }
     result = []
     for pos in positions:
-        latest = (
-            db.query(StockPrice)
-            .filter(StockPrice.ticker == pos.ticker)
-            .order_by(StockPrice.date.desc())
-            .first()
-        )
+        latest = price_map.get(pos.ticker)
         current_price = float(latest.close_price) if latest else float(pos.avg_price)
         avg = float(pos.avg_price)
         unrealized_pnl = (current_price - avg) * pos.quantity
@@ -199,19 +212,12 @@ def get_performance_stats(db: Session, bot: TradingBot) -> dict:
         round(total_gain, 4) if total_gain > 0 else 0.0
     )
 
-    # MDD: 보고서 이력 기반
+    # MDD / 샤프: 보고서 이력 기반
+    from tasks.bot_engine import _calc_mdd, _calc_sharpe
     reports = db.query(BotReport).filter(BotReport.bot_id == bot.id).order_by(BotReport.date).all()
-    peak = initial
-    max_dd = 0.0
-    for r in reports:
-        a = float(r.total_assets or 0)
-        if a > peak:
-            peak = a
-        dd = (peak - a) / peak * 100 if peak > 0 else 0
-        if dd > max_dd:
-            max_dd = dd
+    assets = [float(r.total_assets or 0) for r in reports]
+    max_dd = _calc_mdd(assets, initial)
 
-    # 샤프 비율
     daily_returns = []
     prev_a = initial
     for r in reports:
@@ -219,13 +225,7 @@ def get_performance_stats(db: Session, bot: TradingBot) -> dict:
         if prev_a > 0:
             daily_returns.append((ta - prev_a) / prev_a * 100)
         prev_a = ta
-    if len(daily_returns) >= 2:
-        mean_r = sum(daily_returns) / len(daily_returns)
-        variance = sum((x - mean_r) ** 2 for x in daily_returns) / len(daily_returns)
-        std_r = math.sqrt(variance)
-        sharpe = round(mean_r / std_r * math.sqrt(252), 4) if std_r > 0 else 0.0
-    else:
-        sharpe = 0.0
+    sharpe = _calc_sharpe(daily_returns)
 
     return {
         'total_pnl': round(total_pnl, 2),
