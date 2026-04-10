@@ -184,6 +184,21 @@ def _run_cycle(db, bot: TradingBot):
     max_daily = int(bot.max_daily_trades)
     max_pos = int(bot.max_positions)
 
+    # 브로커 초기화 및 잔고 사이클 시작 전 1회 검증
+    # real/paper: 실패 시 stale 잔고로 주문하는 것을 막기 위해 사이클 전체 skip
+    bot_mode = getattr(bot, 'mode', 'mock')
+    broker = get_broker(bot_mode)
+    if bot_mode in ('real', 'paper'):
+        try:
+            verified_cash = broker.get_available_cash()
+            bot.cash = verified_cash
+        except Exception as e:
+            logger.error(
+                f"[bot_engine] bot_id={bot.id} 잔고 조회 실패 — 사이클 전체 skip "
+                f"(mode={bot_mode}, error={e!r})"
+            )
+            return
+
     for ticker in tickers:
         latest_price = price_map.get(ticker)
         if not latest_price:
@@ -226,18 +241,6 @@ def _run_cycle(db, bot: TradingBot):
                     logger.warning(f"[bot_engine] bot_id={bot.id} {ticker} 주문 금액 초과 ({cost:,.0f} > budget:{per_pos_budget:,.0f})")
                     continue
                 try:
-                    broker = get_broker(getattr(bot, 'mode', 'mock'))
-                    # real/paper 모드: 실제 잔고 확인 후 주문
-                    if getattr(bot, 'mode', 'mock') in ('real', 'paper'):
-                        try:
-                            real_cash = broker.get_available_cash()
-                            if real_cash < cost:
-                                logger.warning(f"[bot_engine] bot_id={bot.id} {ticker} 실잔고 부족 (필요:{cost:,.0f} 실잔고:{real_cash:,.0f})")
-                                continue
-                            bot.cash = real_cash
-                        except Exception as e:
-                            logger.warning(f"[bot_engine] 잔고 조회 실패, 주문 건너뜀: {e}")
-                            continue
                     result = broker.place_buy(bot.id, ticker, qty, curr_price)
                     _execute_buy(db, bot, ticker, qty, result.filled_price, fee, result.order_number)
                     today_count += 1
@@ -252,7 +255,6 @@ def _run_cycle(db, bot: TradingBot):
             pnl_pct = (curr_price - avg) / avg * 100
             if pnl_pct <= -float(bot.stop_loss_pct) or pnl_pct >= float(bot.take_profit_pct):
                 try:
-                    broker = get_broker(getattr(bot, 'mode', 'mock'))
                     result = broker.place_sell(bot.id, ticker, position.quantity, curr_price)
                     _execute_sell(db, bot, position, result.filled_price, result.order_number)
                     today_count += 1
