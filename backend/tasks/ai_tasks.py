@@ -524,7 +524,7 @@ def backtest_on_ml_top(
             scores_json = r.get(ML_SCORES_KEY)
             if scores_json:
                 scores = json.loads(scores_json)
-                tickers = list(scores.keys())[:30]
+                tickers = list(scores.keys())[:50]
             else:
                 tickers_source = "high_volume"  # fallback
 
@@ -589,7 +589,7 @@ def _resolve_tickers(db, tickers_source: str) -> list[str]:
     if tickers_source == "ml_top":
         scores_json = r.get(ML_SCORES_KEY)
         if scores_json:
-            return list(json.loads(scores_json).keys())[:30]
+            return list(json.loads(scores_json).keys())[:50]
 
     # fallback: 거래량 상위 100개
     latest_price = (

@@ -301,7 +301,7 @@ def _auto_backtest(db, conditions: list, strategy_type: str) -> dict:
         if not scores_json:
             return {}
 
-        ml_tickers = list(json.loads(scores_json).keys())[:30]
+        ml_tickers = list(json.loads(scores_json).keys())[:50]
         if not ml_tickers:
             return {}
 
