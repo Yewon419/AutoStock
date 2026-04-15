@@ -20,7 +20,7 @@ from models.market import TechnicalIndicator, StockPrice
 ML_FEATURE_IMPORTANCE_KEY = "autostock:ml_feature_importance"
 ML_TOP_PROFILES_KEY = "autostock:ml_top_profiles"
 ML_SCORES_KEY = "autostock:ml_scores"
-ML_TOP_N = 50  # ML 모델이 Redis에 저장하는 상위 종목 수
+ML_TOP_N = 100  # ML 모델이 Redis에 저장하는 상위 종목 수
 
 
 logger = logging.getLogger(__name__)

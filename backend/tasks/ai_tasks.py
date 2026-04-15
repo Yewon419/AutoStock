@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 ML_SCORES_KEY = "autostock:ml_scores"
 ML_SCORES_META_KEY = "autostock:ml_scores_meta"
-ML_TOP_N = 50  # ML 모델이 Redis에 저장하는 상위 종목 수
+ML_TOP_N = 100  # ML 모델이 Redis에 저장하는 상위 종목 수
 
 
 
@@ -294,7 +294,7 @@ def train_and_score():
             for ticker, proba in zip(predict_tickers, probas)
         }
 
-        # 상위 50개 (점수 내림차순, 동점 시 거래량)
+        # 상위 ML_TOP_N개 (점수 내림차순, 동점 시 거래량)
         top_tickers = sorted(
             scores.keys(),
             key=lambda t: (scores[t], vol_map.get(t, 0)),
@@ -503,7 +503,7 @@ def backtest_on_ml_top(
 ):
     """
     ML 상위 종목에 대한 전략 백테스트
-    - tickers_source: "ml_top" (ML 상위 50개) | "high_volume" (고거래량 100개)
+    - tickers_source: "ml_top" (ML 상위 ML_TOP_N개) | "high_volume" (고거래량 100개)
     """
     db = SessionLocal()
     try:
