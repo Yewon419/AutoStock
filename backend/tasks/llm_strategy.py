@@ -20,6 +20,8 @@ from models.market import TechnicalIndicator, StockPrice
 ML_FEATURE_IMPORTANCE_KEY = "autostock:ml_feature_importance"
 ML_TOP_PROFILES_KEY = "autostock:ml_top_profiles"
 ML_SCORES_KEY = "autostock:ml_scores"
+ML_TOP_N = 50  # ML 모델이 Redis에 저장하는 상위 종목 수
+
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +303,7 @@ def _auto_backtest(db, conditions: list, strategy_type: str) -> dict:
         if not scores_json:
             return {}
 
-        ml_tickers = list(json.loads(scores_json).keys())[:50]
+        ml_tickers = list(json.loads(scores_json).keys())[:ML_TOP_N]
         if not ml_tickers:
             return {}
 

@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 ML_SCORES_KEY = "autostock:ml_scores"
 ML_SCORES_META_KEY = "autostock:ml_scores_meta"
+ML_TOP_N = 50  # ML 모델이 Redis에 저장하는 상위 종목 수
+
 
 
 def _get_redis():
@@ -297,7 +299,7 @@ def train_and_score():
             scores.keys(),
             key=lambda t: (scores[t], vol_map.get(t, 0)),
             reverse=True,
-        )[:50]
+        )[:ML_TOP_N]
         top_scores = {t: scores[t] for t in top_tickers}
 
         r = _get_redis()
@@ -524,7 +526,7 @@ def backtest_on_ml_top(
             scores_json = r.get(ML_SCORES_KEY)
             if scores_json:
                 scores = json.loads(scores_json)
-                tickers = list(scores.keys())[:50]
+                tickers = list(scores.keys())[:ML_TOP_N]
             else:
                 tickers_source = "high_volume"  # fallback
 
@@ -589,7 +591,7 @@ def _resolve_tickers(db, tickers_source: str) -> list[str]:
     if tickers_source == "ml_top":
         scores_json = r.get(ML_SCORES_KEY)
         if scores_json:
-            return list(json.loads(scores_json).keys())[:50]
+            return list(json.loads(scores_json).keys())[:ML_TOP_N]
 
     # fallback: 거래량 상위 100개
     latest_price = (
