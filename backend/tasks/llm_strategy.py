@@ -222,21 +222,36 @@ def _load_ml_context() -> str:
             for i, item in enumerate(fi[:6])
         )
 
-        # 상위 20개 종목 평균 기술적 특성
+        # 상위 20개 종목 지표 분포 계산
         top20 = list(profiles.values())[:20]
         if not top20:
             return ""
 
-        avg_rsi = round(sum(p["rsi"] for p in top20) / len(top20), 1)
-        avg_adx = round(sum(p["adx"] for p in top20) / len(top20), 1)
-        avg_boll = round(sum(p["boll_pos"] for p in top20) / len(top20), 2)
+        def _pct(vals: list, p: int) -> float:
+            if not vals:
+                return 0.0
+            s = sorted(vals)
+            idx = max(0, min(len(s) - 1, int(len(s) * p / 100)))
+            return round(s[idx], 1)
+
+        rsi_vals_ml  = [p["rsi"] for p in top20]
+        adx_vals_ml  = [p["adx"] for p in top20]
+        boll_vals_ml = [p["boll_pos"] for p in top20]
+
+        avg_rsi    = round(sum(rsi_vals_ml) / len(rsi_vals_ml), 1)
+        avg_adx    = round(sum(adx_vals_ml) / len(adx_vals_ml), 1)
+        avg_boll   = round(sum(boll_vals_ml) / len(boll_vals_ml), 2)
         avg_ma_ratio = round(sum(p["ma_ratio"] for p in top20) / len(top20), 3)
         macd_pos_pct = round(sum(1 for p in top20 if p["macd_hist_pos"]) / len(top20) * 100)
 
         rsi_state = "과매도권" if avg_rsi < 35 else "과매수권" if avg_rsi > 65 else "중립"
         adx_state = "추세장" if avg_adx > 25 else "횡보장"
-        boll_state = "하단 근접(반등 가능)" if avg_boll < 0.3 else "상단 근접(과매수)" if avg_boll > 0.7 else "중간 구간"
-        ma_state = "상승 추세" if avg_ma_ratio > 1.02 else "하락 추세" if avg_ma_ratio < 0.98 else "횡보"
+        ma_state  = "상승 추세" if avg_ma_ratio > 1.02 else "하락 추세" if avg_ma_ratio < 0.98 else "횡보"
+
+        # 분포 범위: P25~P75가 전략 조건 범위의 기준
+        rsi_p25, rsi_p75   = _pct(rsi_vals_ml, 25), _pct(rsi_vals_ml, 75)
+        adx_p25, adx_p75   = _pct(adx_vals_ml, 25), _pct(adx_vals_ml, 75)
+        rsi_min, rsi_max   = _pct(rsi_vals_ml, 0),  _pct(rsi_vals_ml, 100)
 
         # OOS 정확도 로드
         meta_json = r.get("autostock:ml_scores_meta")
@@ -254,14 +269,18 @@ def _load_ml_context() -> str:
             f"ML 상위 종목: {len(profiles)}개\n"
             f"{oos_line}"
             f"\n[지표 예측력 순위 - Feature Importance]\n{fi_text}\n\n"
-            f"[ML 상위 20개 종목 공통 기술적 특성]\n"
-            f"- RSI 평균: {avg_rsi} ({rsi_state})\n"
-            f"- ADX 평균: {avg_adx} ({adx_state})\n"
-            f"- 볼린저밴드 위치: {avg_boll} ({boll_state})\n"
+            f"[ML 상위 20개 종목 지표 분포]\n"
+            f"- RSI: 평균 {avg_rsi} ({rsi_state}) / 범위 {rsi_min}~{rsi_max} / 중간 50% 구간 {rsi_p25}~{rsi_p75}\n"
+            f"- ADX: 평균 {avg_adx} ({adx_state}) / 중간 50% 구간 {adx_p25}~{adx_p75}\n"
+            f"- 볼린저밴드 위치(0=하단,1=상단): 평균 {avg_boll}\n"
             f"- MA20/MA50 비율: {avg_ma_ratio} ({ma_state})\n"
             f"- MACD 히스토그램 양수 비율: {macd_pos_pct}%\n\n"
-            f"→ Feature Importance 상위 지표를 조건에 우선 사용하고,\n"
-            f"  상위 종목의 공통 특성(RSI {avg_rsi}, ADX {avg_adx})에 부합하는 조건 값을 설정하세요.\n"
+            f"[전략 조건 설정 규칙 — 반드시 준수]\n"
+            f"⚠ 조건 범위는 ML 상위 종목의 최소 30%(약 6개 이상)가 만족해야 합니다.\n"
+            f"⚠ 너무 좁은 범위(예: RSI {rsi_p75}~{rsi_p75+5:.0f})는 신호가 거의 없어 실전 거래가 불가합니다.\n"
+            f"→ RSI 조건을 사용한다면: P25({rsi_p25})~P75({rsi_p75}) 범위를 기준으로 여유있게 설정하세요.\n"
+            f"→ ADX 조건은 above {adx_p25} 형태(하위 25% 제외)가 적절합니다.\n"
+            f"→ Feature Importance 상위 지표를 우선 사용하되, 조건은 2~3개를 넘지 마세요.\n"
         )
     except Exception as e:
         logger.warning("[llm_strategy] ML 컨텍스트 로드 실패: %s", e)
@@ -300,10 +319,13 @@ def _auto_backtest(db, conditions: list, strategy_type: str) -> dict:
         s = bt.get("summary", {})
         result = {
             "tickers_tested": len(ml_tickers),
+            "tickers": ml_tickers,
             "total_return_pct": round(s.get("total_return_pct", 0), 2),
             "win_rate": round(s.get("win_rate", 0), 1),
             "num_trades": s.get("num_trades", 0),
             "sharpe_ratio": round(s.get("sharpe_ratio", 0), 2),
+            "avg_daily_signals": s.get("avg_daily_signals", 0),
+            "signal_ticker_pct": s.get("signal_ticker_pct", 0),
         }
         logger.info(
             "[llm_strategy] 자동 백테스트: 수익률=%.1f%%, 거래수=%d, 승률=%.1f%%",
@@ -382,6 +404,8 @@ def _gate_strategy(backtest: dict) -> tuple:
     trades = backtest.get("num_trades", 0)
     ret = backtest.get("total_return_pct", 0)
     win_rate = backtest.get("win_rate", 0)
+    avg_daily = backtest.get("avg_daily_signals", None)
+    signal_ticker_pct = backtest.get("signal_ticker_pct", None)
 
     if trades < 3:
         return False, f"거래 횟수 부족 ({trades}회) — 신호 조건이 너무 엄격함"
@@ -389,6 +413,12 @@ def _gate_strategy(backtest: dict) -> tuple:
         return False, f"수익률 미달 ({ret:.1f}%) — 명백한 손실 전략"
     if trades >= 3 and win_rate < 25:
         return False, f"승률 미달 ({win_rate:.1f}%) — 방향성 없음"
+    # 신호 빈도 게이팅: 3일에 1번 미만이면 실전에서 거의 거래 없음
+    if avg_daily is not None and avg_daily < 0.3:
+        return False, f"신호 빈도 부족 (일평균 {avg_daily:.2f}회) — 조건이 너무 좁아 실전 거래가 거의 발생하지 않음"
+    # 신호 발생 종목 비율: 전체 종목의 20% 미만이면 편향 심함
+    if signal_ticker_pct is not None and signal_ticker_pct < 20:
+        return False, f"신호 종목 편중 ({signal_ticker_pct:.0f}%) — 소수 종목에만 신호 발생, 분산 부족"
 
     return True, ""
 
@@ -497,6 +527,7 @@ def generate_strategy(user_id: int = 1):
             "strategy_id": strategy.id,
             "strategy_name": strategy.name,
             "conditions": strategy.conditions,
+            "tickers": backtest.get("tickers", []),
             "analysis": result.get("analysis"),
             "confidence": strategy.ai_confidence,
             "risk_level": result.get("risk_level"),

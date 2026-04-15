@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import os
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends
@@ -196,6 +199,34 @@ class BacktestStrategyRequest(BaseModel):
     end_date: Optional[str] = None
 
 
+class OptimizeAndUpdateRequest(BaseModel):
+    strategy_id: int
+    tickers_source: str = "ml_top"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+@router.post("/optimize-and-update")
+def trigger_optimize_and_update(
+    req: OptimizeAndUpdateRequest,
+    _: dict = Depends(get_current_user),
+):
+    """전략 파라미터 Grid Search 최적화 + DB 업데이트 (캔버스 strategyOptimize 노드용)"""
+    from tasks.ai_tasks import optimize_and_update_strategy
+    task = optimize_and_update_strategy.delay(
+        strategy_id=req.strategy_id,
+        tickers_source=req.tickers_source,
+        start_date=req.start_date,
+        end_date=req.end_date,
+    )
+    return {"task_id": str(task.id), "status": "queued"}
+
+
+@router.get("/optimize-and-update/{task_id}")
+def get_optimize_and_update_result(task_id: str, _: dict = Depends(get_current_user)):
+    return _task_status(task_id)
+
+
 @router.post("/backtest-strategy")
 def trigger_backtest_strategy(
     req: BacktestStrategyRequest,
@@ -242,6 +273,24 @@ class CanvasAssistantRequest(BaseModel):
     insights: Optional[dict] = None  # GET /ai/canvas-insights 결과
 
 
+_KNOWLEDGE_DIR = os.path.join(os.path.dirname(__file__), "..", "knowledge")
+
+_STOCK_KEYWORDS: frozenset[str] = frozenset({
+    'rsi', 'macd', '볼린저', 'adx', 'atr', '손절', '익절', '과매도', '과매수',
+    '모멘텀', '팩터', 'pbr', 'per', '공매도', '수급', '외인', '기관',
+    '서킷', '사이드카', 'kospi', 'kosdaq', '이동평균', 'obv', 'vwap',
+    '샤프', '낙폭', 'mdd', '승률', '볼밴', '스토캐스틱', '피보나치',
+})
+
+
+def _load_knowledge(filename: str) -> str:
+    try:
+        with open(os.path.join(_KNOWLEDGE_DIR, filename), encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
 @router.post("/canvas-assistant")
 def canvas_assistant(
     req: CanvasAssistantRequest,
@@ -251,15 +300,12 @@ def canvas_assistant(
     if not settings.ANTHROPIC_API_KEY:
         return {"reply": "ANTHROPIC_API_KEY가 설정되지 않았습니다.", "commands": []}
 
-    import anthropic, json, os
+    import anthropic, json
 
-    # 주식 전문 지식 베이스 로드
-    _kb_path = os.path.join(os.path.dirname(__file__), "..", "knowledge", "stock_knowledge.md")
-    try:
-        with open(_kb_path, encoding="utf-8") as f:
-            stock_knowledge = f.read()
-    except Exception:
-        stock_knowledge = ""
+    canvas_rules = _load_knowledge("canvas_rules.md")
+    msg_lower = req.message.lower()
+    load_stock = any(kw in msg_lower for kw in _STOCK_KEYWORDS)
+    stock_knowledge = _load_knowledge("stock_knowledge.md") if load_stock else ""
 
     nodes = req.canvas.nodes
     edges = req.canvas.edges
@@ -278,17 +324,14 @@ def canvas_assistant(
     else:
         canvas_desc = "\n현재 캔버스: 비어 있음"
 
-    knowledge_section = f"\n\n[주식 전문 지식 베이스]\n{stock_knowledge}\n" if stock_knowledge else ""
-
-    system_prompt = f"""당신은 AutoStock 자동매매 시스템의 캔버스 AI 어시스턴트이자 한국 주식 전문가입니다.
+    system_prompt = """당신은 AutoStock 자동매매 시스템의 캔버스 AI 어시스턴트이자 한국 주식 전문가입니다.
 주식 기술적 분석, 리스크 관리, 시장 국면 판단에 대한 깊은 전문 지식을 갖추고 있으며,
 사용자의 자연어 요청을 분석하여 캔버스 조작 명령을 JSON으로 반환합니다.
-{knowledge_section}
 
 [사용 가능한 노드]
 소스 노드: marketContext(시장 컨텍스트), techIndicators(기술 지표 DB), mlScores(ML 스코어 캐시), accountConfig(계좌 설정)
 전략 노드: strategy(기존 전략 선택), strategyBuilder(조건 직접 설정 전략 빌더)
-처리 노드: mlModel(ML 모델 학습), llmGenerator(LLM 전략 생성), backtest(백테스트)
+처리 노드: mlModel(ML 모델 학습), llmGenerator(LLM 전략 생성), backtest(백테스트), strategyOptimize(전략 최적화 — Grid Search로 파라미터 최적화 후 DB 업데이트)
 출력 노드: botApply(봇 적용)
 
 [연결 규칙]
@@ -299,14 +342,20 @@ techIndicators(출력 indicator_data) → mlModel(입력 indicator_data)
 mlScores(출력 ml_scores) → llmGenerator(입력 ml_scores)
 mlModel(출력 ml_scores) → llmGenerator(입력 ml_scores)
 llmGenerator(출력 strategy) → backtest(입력 strategy)
+llmGenerator(출력 strategy) → strategyOptimize(입력 strategy)
 llmGenerator(출력 strategy) → botApply(입력 strategy)
+llmGenerator(출력 strategy) → botApply(입력 tickers)
 strategy(출력 strategy) → backtest(입력 strategy)
+strategy(출력 strategy) → strategyOptimize(입력 strategy)
 strategy(출력 strategy) → botApply(입력 strategy)
 strategyBuilder(출력 strategy) → backtest(입력 strategy)
+strategyBuilder(출력 strategy) → strategyOptimize(입력 strategy)
 strategyBuilder(출력 strategy) → botApply(입력 strategy)
-backtest(출력 strategy) → botApply(입력 strategy)
-mlModel(출력 ml_scores) → botApply(입력 tickers)  # ML 상위 종목을 매매 대상으로
-backtest(출력 backtest_result) → botApply(입력 tickers)  # 백테스트 종목을 매매 대상으로
+backtest(출력 backtest_result) → strategyOptimize(입력 backtest_result)
+backtest(출력 backtest_result) → botApply(입력 tickers)
+strategyOptimize(출력 strategy) → botApply(입력 strategy)
+strategyOptimize(출력 strategy) → botApply(입력 tickers)
+mlModel(출력 ml_scores) → botApply(입력 tickers)
 accountConfig(출력 account_config) → botApply(입력 account_config)
 
 connect 명령 예시:
@@ -315,13 +364,13 @@ connect 명령 예시:
 {{"type": "connect", "source_type": "marketContext", "source_handle": "market_data", "target_type": "llmGenerator", "target_handle": "market_data"}}
 
 [레이아웃 프리셋]
-풀 파이프라인: marketContext(80,120) techIndicators(80,320) mlModel(340,220) llmGenerator(600,120) backtest(600,340) botApply(860,120) accountConfig(80,480)
-(풀 파이프라인 연결: mlModel→botApply(tickers), backtest→botApply(strategy), accountConfig→botApply(account_config))
-빠른 전략: marketContext(80,180) mlScores(80,340) llmGenerator(360,270) botApply(640,270) — 연결: llmGenerator→botApply(strategy), mlScores→botApply(tickers) [mlScores 없으면 llmGenerator→botApply(tickers)]
+풀 파이프라인: marketContext(80,120) techIndicators(80,320) mlModel(340,220) llmGenerator(600,120) strategyOptimize(600,340) botApply(860,220) accountConfig(80,480)
+(풀 파이프라인 연결: techIndicators→mlModel(indicator_data), mlModel→llmGenerator(ml_scores), marketContext→llmGenerator(market_data), llmGenerator→strategyOptimize(strategy), strategyOptimize→botApply(strategy), strategyOptimize→botApply(tickers), accountConfig→botApply(account_config))
+빠른 전략: marketContext(80,180) mlScores(80,340) llmGenerator(360,270) botApply(640,270) — 연결: llmGenerator→botApply(strategy), mlScores→botApply(tickers)
 ML만: techIndicators(80,200) mlModel(360,200)
 LLM만: marketContext(80,200) llmGenerator(360,200) botApply(640,200) — 연결: llmGenerator→botApply(strategy,tickers)
-기존전략+백테스트: strategy(80,200) backtest(360,200) botApply(640,200) — 연결: strategy→backtest(strategy), backtest→botApply(strategy), backtest→botApply(tickers)
-전략빌더+백테스트: strategyBuilder(80,200) backtest(360,200) botApply(640,200) — 연결: strategyBuilder→backtest(strategy), backtest→botApply(strategy), backtest→botApply(tickers)
+백테스트+최적화: strategyBuilder(80,200) backtest(340,200) strategyOptimize(600,200) botApply(860,200) — 연결: strategyBuilder→backtest(strategy), backtest→strategyOptimize(backtest_result), strategyBuilder→strategyOptimize(strategy), strategyOptimize→botApply(strategy), strategyOptimize→botApply(tickers)
+기존전략+백테스트: strategy(80,200) backtest(360,200) botApply(640,200) — 연결: strategy→backtest(strategy), backtest→botApply(tickers)
 
 [add_node 추가 옵션]
 strategyBuilder 노드 추가 시 "name" 필드로 전략명을 지정하세요 (예: "RSI 과매도 전략", "MACD 골든크로스 전략").
@@ -380,6 +429,18 @@ update_config 명령으로 기존 노드 설정을 직접 업데이트하세요:
 {{"reply": "사용자에게 보여줄 설명", "commands": [{{"type": "clear"}}, {{"type": "add_node", "node_type": "strategyBuilder", "x": 80, "y": 200, "name": "RSI 과매도 전략"}}, {{"type": "update_config", "node_type": "strategyBuilder", "config": {{"conditions": [{{"indicator": "rsi", "condition": "below", "value": 30}}]}}}}, {{"type": "connect", "source_type": "strategyBuilder", "target_type": "backtest", "source_handle": "strategy", "target_handle": "strategy"}}, {{"type": "run_node", "node_type": "strategyBuilder"}}, {{"type": "run_node", "node_type": "backtest"}}]}}
 commands가 필요 없으면 []로."""
 
+    # 시스템 블록 구성 (prompt caching)
+    system_blocks: list[dict] = [
+        {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": f"[캔버스 노드 규칙]\n{canvas_rules}", "cache_control": {"type": "ephemeral"}},
+    ]
+    if stock_knowledge:
+        system_blocks.append({
+            "type": "text",
+            "text": f"[주식 전문 지식 베이스]\n{stock_knowledge}",
+            "cache_control": {"type": "ephemeral"},
+        })
+
     # 실시간 데이터 인사이트 메시지 구성
     insights_desc = ""
     if req.insights:
@@ -393,7 +454,7 @@ commands가 필요 없으면 []로."""
             model="claude-sonnet-4-6",
             max_tokens=12000,
             thinking={"type": "enabled", "budget_tokens": 8000},
-            system=system_prompt,
+            system=system_blocks,
             messages=[{"role": "user", "content": user_msg}],
         )
         thinking_text = ""

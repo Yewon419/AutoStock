@@ -579,3 +579,187 @@ def backtest_on_ml_top(
         return {"status": "error", "message": str(e)}
     finally:
         db.close()
+
+
+# ── 최적화 공통 헬퍼 ──────────────────────────────────────────────────
+
+def _resolve_tickers(db, tickers_source: str) -> list[str]:
+    """tickers_source 문자열 → 티커 목록 반환 (ml_top or high_volume fallback)"""
+    r = _get_redis()
+    if tickers_source == "ml_top":
+        scores_json = r.get(ML_SCORES_KEY)
+        if scores_json:
+            return list(json.loads(scores_json).keys())[:30]
+
+    # fallback: 거래량 상위 100개
+    latest_price = (
+        db.query(StockPrice.date)
+        .order_by(StockPrice.date.desc())
+        .first()
+    )
+    if not latest_price:
+        return []
+    rows = (
+        db.query(StockPrice.ticker)
+        .filter(StockPrice.date == latest_price[0])
+        .order_by(StockPrice.volume.desc())
+        .limit(100)
+        .all()
+    )
+    return [t[0] for t in rows]
+
+
+def _auto_range(value: float, n_steps: int = 11) -> list[float]:
+    """현재값 ±30% 범위의 n_steps개 후보값 생성"""
+    lo = value * 0.70
+    hi = value * 1.30
+    step = (hi - lo) / max(n_steps - 1, 1)
+    return [round(lo + i * step, 2) for i in range(n_steps)]
+
+
+@celery_app.task(name="tasks.ai_tasks.optimize_and_update_strategy", bind=True, max_retries=0)
+def optimize_and_update_strategy(
+    self,
+    strategy_id: int,
+    tickers_source: str = "ml_top",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> dict:
+    """
+    전략 파라미터 자동 최적화 + DB 업데이트
+    1. 각 조건의 value를 ±30% 범위로 Grid Search (11단계)
+    2. 샤프비율이 가장 높은 value로 Strategy.conditions 업데이트
+    3. 최적화 전/후 백테스트 비교 반환
+    """
+    db = SessionLocal()
+    try:
+        from services.backtest_engine import run_backtest
+        from models.strategy import Strategy
+
+        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if not strategy:
+            return {"status": "error", "message": f"전략 {strategy_id}를 찾을 수 없습니다"}
+
+        today = date.today()
+        if not end_date:
+            end_date = str(today)
+        if not start_date:
+            start_date = str(today - timedelta(days=365))
+
+        tickers = _resolve_tickers(db, tickers_source)
+        if not tickers:
+            return {"status": "error", "message": "종목 없음 — ML 모델을 먼저 실행하거나 tickers_source를 변경하세요"}
+
+        original_conditions: list[dict] = [dict(c) for c in (strategy.conditions or [])]
+        if not original_conditions:
+            return {"status": "error", "message": "전략 조건이 없습니다"}
+
+        logger.info(
+            "[ai] optimize_and_update: strategy=%d, tickers=%d, conditions=%d, period=%s~%s",
+            strategy_id, len(tickers), len(original_conditions), start_date, end_date,
+        )
+
+        # ── 베이스라인 백테스트 ────────────────────────────────────────
+        baseline_bt = run_backtest(
+            db=db, conditions=original_conditions, tickers=tickers,
+            start_date=start_date, end_date=end_date, initial_capital=10_000_000,
+        )
+        baseline = baseline_bt["summary"]
+        baseline_sharpe = float(baseline.get("sharpe_ratio", 0))
+
+        # ── 조건별 Grid Search ────────────────────────────────────────
+        optimized_conditions: list[dict] = [dict(c) for c in original_conditions]
+        improvements: list[dict] = []
+
+        for i, cond in enumerate(original_conditions):
+            ctype = cond.get("condition", "")
+            original_value = cond.get("value")
+
+            # golden_cross / dead_cross 는 value=0 고정 — 최적화 불필요
+            if ctype in ("golden_cross", "dead_cross") or original_value is None:
+                improvements.append({
+                    "indicator": cond.get("indicator"),
+                    "condition": ctype,
+                    "original": original_value,
+                    "optimized": original_value,
+                    "improved": False,
+                    "skipped": True,
+                })
+                continue
+
+            candidates = _auto_range(float(original_value))
+            best_value: float = float(original_value)
+            best_sharpe: float = baseline_sharpe
+
+            for candidate in candidates:
+                test_conditions = [dict(c) for c in original_conditions]
+                test_conditions[i] = {**dict(cond), "value": candidate}
+                try:
+                    bt = run_backtest(
+                        db=db, conditions=test_conditions, tickers=tickers,
+                        start_date=start_date, end_date=end_date, initial_capital=10_000_000,
+                    )
+                    s = bt["summary"]
+                    # 최소 거래 3회 이상이어야 샤프 의미 있음
+                    if s.get("num_trades", 0) >= 3 and float(s.get("sharpe_ratio", 0)) > best_sharpe:
+                        best_sharpe = float(s["sharpe_ratio"])
+                        best_value = candidate
+                except Exception as e:
+                    logger.debug("[ai] optimize candidate=%.2f 건너뜀: %s", candidate, e)
+                    continue
+
+            optimized_conditions[i] = {**dict(cond), "value": best_value}
+            improvements.append({
+                "indicator": cond.get("indicator"),
+                "condition": ctype,
+                "original": original_value,
+                "optimized": best_value,
+                "improved": best_value != float(original_value),
+                "skipped": False,
+            })
+
+        # ── DB 업데이트 ───────────────────────────────────────────────
+        strategy.conditions = optimized_conditions
+        db.commit()
+        db.refresh(strategy)
+
+        # ── 최종 백테스트 (최적화 후) ─────────────────────────────────
+        final_bt = run_backtest(
+            db=db, conditions=optimized_conditions, tickers=tickers,
+            start_date=start_date, end_date=end_date, initial_capital=10_000_000,
+        )
+        final = final_bt["summary"]
+
+        logger.info(
+            "[ai] optimize_and_update 완료: strategy=%d, sharpe %.2f→%.2f, return %.1f%%→%.1f%%",
+            strategy_id,
+            baseline_sharpe, float(final.get("sharpe_ratio", 0)),
+            float(baseline.get("total_return_pct", 0)), float(final.get("total_return_pct", 0)),
+        )
+
+        return {
+            "status": "ok",
+            "strategy_id": strategy_id,
+            "strategy_name": strategy.name,
+            "conditions": optimized_conditions,
+            "tickers": tickers,
+            "improvements": improvements,
+            "before": {
+                "sharpe_ratio": baseline["sharpe_ratio"],
+                "total_return_pct": baseline["total_return_pct"],
+                "win_rate": baseline["win_rate"],
+                "num_trades": baseline["num_trades"],
+            },
+            "after": {
+                "sharpe_ratio": final["sharpe_ratio"],
+                "total_return_pct": final["total_return_pct"],
+                "win_rate": final["win_rate"],
+                "num_trades": final["num_trades"],
+            },
+        }
+
+    except Exception as e:
+        logger.error("[ai] optimize_and_update_strategy 오류: %s", e, exc_info=True)
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()

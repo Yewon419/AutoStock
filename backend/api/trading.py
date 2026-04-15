@@ -95,6 +95,8 @@ class BotResponse(BaseModel):
     tickers: Optional[list] = []
     initial_cash: Optional[float] = None
     cash: Optional[float] = None
+    total_assets: Optional[float] = None
+    holdings_value: Optional[float] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     max_drawdown_pct: Optional[float] = None
@@ -155,7 +157,8 @@ def list_bots(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    return trading_service.get_bots(db, _user_id(current_user))
+    bots = trading_service.get_bots(db, _user_id(current_user))
+    return [trading_service.enrich_bot_assets(db, b) for b in bots]
 
 
 @router.post("/bots", response_model=BotResponse, status_code=201)
@@ -541,17 +544,35 @@ def _score_bot(perf: dict, reports: list) -> dict:
     }
 
 
+_MIN_TRADES_FOR_SCORE = 5
+_MIN_REPORTS_FOR_SCORE = 3
+
 @router.get("/bots/{bot_id}/report-score")
 def get_report_score(
     bot_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """봇 성과를 100점 만점으로 평가 (5개 카테고리)"""
+    """봇 성과를 100점 만점으로 평가 (5개 카테고리) — 데이터 부족 시 insufficient 반환"""
     bot = trading_service.get_bot(db, bot_id, _user_id(current_user))
     if not bot:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="봇을 찾을 수 없습니다")
     perf = trading_service.get_performance_stats(db, bot)
     reports_raw = trading_service.get_reports(db, bot_id, limit=90)
+
+    total_trades = perf.get('total_trades', 0)
+    num_reports = len(reports_raw)
+
+    if total_trades < _MIN_TRADES_FOR_SCORE:
+        return {
+            "insufficient": True,
+            "reason": f"체결 거래 {total_trades}건 — 평가에 최소 {_MIN_TRADES_FOR_SCORE}건 필요합니다",
+        }
+    if num_reports < _MIN_REPORTS_FOR_SCORE:
+        return {
+            "insufficient": True,
+            "reason": f"일별 보고서 {num_reports}일치 — 평가에 최소 {_MIN_REPORTS_FOR_SCORE}일 필요합니다",
+        }
+
     reports = [{'daily_pnl': float(r.daily_pnl or 0)} for r in reports_raw]
     return _score_bot(perf, reports)

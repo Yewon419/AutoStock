@@ -40,6 +40,30 @@ def get_bots(db: Session, user_id: int):
     return db.query(TradingBot).filter(TradingBot.user_id == user_id).order_by(TradingBot.created_at.desc()).all()
 
 
+def enrich_bot_assets(db: Session, bot: TradingBot) -> dict:
+    """봇 ORM 객체 + 포지션 평가금액(total_assets, holdings_value) 계산 후 dict 반환"""
+    import redis as _redis
+    from core.config import settings
+
+    cash = float(bot.cash or 0)
+    positions = db.query(Position).filter(Position.bot_id == bot.id).all()
+
+    holdings_value = 0.0
+    if positions:
+        r = _redis.from_url(settings.REDIS_URL)
+        for p in positions:
+            price_raw = r.get(f'rt:price:{p.ticker}')
+            price = float(price_raw) if price_raw else float(p.avg_price or 0)
+            holdings_value += price * p.quantity
+
+    total_assets = cash + holdings_value
+
+    d = {c.key: getattr(bot, c.key) for c in bot.__table__.columns}
+    d['total_assets'] = round(total_assets, 2)
+    d['holdings_value'] = round(holdings_value, 2)
+    return d
+
+
 def get_bot(db: Session, bot_id: int, user_id: int):
     return db.query(TradingBot).filter(TradingBot.id == bot_id, TradingBot.user_id == user_id).first()
 

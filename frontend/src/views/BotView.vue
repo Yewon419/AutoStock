@@ -36,8 +36,20 @@
             <span class="stat-value">{{ fmtMoney(bot.initial_cash) }}</span>
           </div>
           <div class="stat">
-            <span class="stat-label">현재 캐시</span>
+            <span class="stat-label">총자산</span>
+            <span class="stat-value" :class="totalAssetsPnl(bot) >= 0 ? 'text-green' : 'text-red'">
+              {{ fmtMoney(bot.total_assets ?? bot.cash) }}
+            </span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">예수금</span>
             <span class="stat-value">{{ fmtMoney(bot.cash) }}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">수익률</span>
+            <span class="stat-value" :class="totalAssetsPnl(bot) >= 0 ? 'text-green' : 'text-red'">
+              {{ totalAssetsPnl(bot) >= 0 ? '+' : '' }}{{ totalAssetsPnl(bot).toFixed(2) }}%
+            </span>
           </div>
           <div class="stat">
             <span class="stat-label">종목 수</span>
@@ -400,6 +412,13 @@ function modeClass(mode) {
 function fmtMoney(v) {
   if (!v) return '0원'
   return Number(v).toLocaleString('ko-KR') + '원'
+}
+
+function totalAssetsPnl(bot) {
+  const initial = bot.initial_cash || 0
+  const total = bot.total_assets ?? bot.cash ?? 0
+  if (!initial) return 0
+  return ((total / initial) - 1) * 100
 }
 
 let pollTimer = null
@@ -815,4 +834,6 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .btn-secondary:hover { border-color: #4b5563; color: #e5e7eb; }
+.text-green { color: #22c55e; }
+.text-red { color: #ef4444; }
 </style>

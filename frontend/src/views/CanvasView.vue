@@ -44,8 +44,7 @@
           v-for="grp in PALETTE_GROUPS" :key="grp.cat"
           class="palette-dropdown"
           :class="{ open: openPalette === grp.cat }"
-          @mouseenter="openPalette = grp.cat"
-          @mouseleave="openPalette = null"
+          @click.stop="openPalette = openPalette === grp.cat ? null : grp.cat"
         >
           <button class="palette-cat-btn" :class="`cat-${grp.cat}`">
             {{ grp.label }} <span class="pd-arrow">▾</span>
@@ -72,6 +71,13 @@
         <button @click="clearCanvas" class="btn-toolbar btn-danger-soft">🗑 초기화</button>
       </div>
     </div>
+
+    <!-- ── 연결 오류 토스트 ── -->
+    <Transition name="fade">
+      <div v-if="connectionError" class="conn-error-toast">
+        ⛔ {{ connectionError }}
+      </div>
+    </Transition>
 
     <!-- ── VueFlow 캔버스 ── -->
     <VueFlow
@@ -379,23 +385,24 @@ const API  = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
 
 // ── 노드 타입 등록 ────────────────────────────────────────────────
 const nodeTypes = {
-  marketContext:   markRaw(FlowNode),
-  techIndicators:  markRaw(FlowNode),
-  mlScores:        markRaw(FlowNode),
-  accountConfig:   markRaw(FlowNode),
-  strategy:        markRaw(FlowNode),
-  strategyBuilder: markRaw(FlowNode),
-  mlModel:         markRaw(FlowNode),
-  llmGenerator:    markRaw(FlowNode),
-  backtest:        markRaw(FlowNode),
-  botApply:        markRaw(FlowNode),
+  marketContext:    markRaw(FlowNode),
+  techIndicators:   markRaw(FlowNode),
+  mlScores:         markRaw(FlowNode),
+  accountConfig:    markRaw(FlowNode),
+  strategy:         markRaw(FlowNode),
+  strategyBuilder:  markRaw(FlowNode),
+  mlModel:          markRaw(FlowNode),
+  llmGenerator:     markRaw(FlowNode),
+  backtest:         markRaw(FlowNode),
+  strategyOptimize: markRaw(FlowNode),
+  botApply:         markRaw(FlowNode),
 }
 
 // ── 노드 정의 ─────────────────────────────────────────────────────
 const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores']
 const CONFIG_TYPES     = ['accountConfig']
 const STRATEGY_TYPES   = ['strategy', 'strategyBuilder']
-const PROCESSING_TYPES = ['mlModel', 'llmGenerator', 'backtest']
+const PROCESSING_TYPES = ['mlModel', 'llmGenerator', 'backtest', 'strategyOptimize']
 const OUTPUT_TYPES     = ['botApply']
 
 const PALETTE_GROUPS = [
@@ -475,6 +482,17 @@ const NODE_DEFS = {
     config: { tickers_source: 'ml_top' },
     apiPath: '/ai/backtest-strategy', apiMethod: 'POST', async: true,
   },
+  strategyOptimize: {
+    label: '전략 최적화', icon: '⚡', category: 'processing',
+    description: 'Grid Search로 파라미터 최적화 → DB 업데이트',
+    inputs:  [
+      { id: 'strategy',         label: '전략' },
+      { id: 'backtest_result',  label: '백테스트 결과 (선택)' },
+    ],
+    outputs: [{ id: 'strategy', label: '최적화 전략' }],
+    config: { tickers_source: 'ml_top' },
+    apiPath: '/ai/optimize-and-update', apiMethod: 'POST', async: true,
+  },
   botApply: {
     label: '봇 적용', icon: '🎮', category: 'output',
     description: '생성된 전략을 봇에 적용',
@@ -488,10 +506,11 @@ const STATUS_LABELS = { idle: '대기', running: '실행 중', success: '완료'
 
 const CHAT_PRESETS = [
   { label: '📊 데이터 분석 후 자동 최적화', msg: '지금 시장 데이터랑 백테스트 결과 분석해서 현재 전략 최적화해줘' },
-  { label: '풀 파이프라인',  msg: '풀 파이프라인 구성해줘 (ML + LLM + 백테스트)' },
-  { label: '빠른 전략',     msg: 'ML 캐시와 LLM으로 빠른 전략 생성 파이프라인 만들어줘' },
-  { label: 'ML만',         msg: 'ML 모델 학습 파이프라인만 만들어줘' },
-  { label: '캔버스 설명',   msg: '현재 캔버스 구성을 설명해줘' },
+  { label: '풀 파이프라인',   msg: '풀 파이프라인 구성해줘 (ML + LLM + 최적화)' },
+  { label: '빠른 전략',      msg: 'ML 캐시와 LLM으로 빠른 전략 생성 파이프라인 만들어줘' },
+  { label: '백테스트+최적화', msg: '전략빌더로 전략 만들고 백테스트 후 최적화까지 하는 파이프라인 구성해줘' },
+  { label: 'ML만',          msg: 'ML 모델 학습 파이프라인만 만들어줘' },
+  { label: '캔버스 설명',    msg: '현재 캔버스 구성을 설명해줘' },
 ]
 
 // ── Canvas 상태 ───────────────────────────────────────────────────
@@ -693,8 +712,41 @@ function deleteNode(nodeId) {
   if (selectedNode.value?.id === nodeId) selectedNode.value = null
 }
 
+// ── 연결 허용 규칙 ────────────────────────────────────────────────
+// 'sourceNodeType:sourceHandle' → 연결 가능한 'targetNodeType:targetHandle' 목록
+const VALID_CONNECTIONS = {
+  'marketContext:market_data':       ['llmGenerator:market_data'],
+  'techIndicators:indicator_data':   ['mlModel:indicator_data'],
+  'mlScores:ml_scores':              ['llmGenerator:ml_scores'],
+  'mlModel:ml_scores':               ['llmGenerator:ml_scores', 'botApply:tickers'],
+  'llmGenerator:strategy':           ['backtest:strategy', 'strategyOptimize:strategy', 'botApply:strategy', 'botApply:tickers'],
+  'strategy:strategy':               ['backtest:strategy', 'strategyOptimize:strategy', 'botApply:strategy'],
+  'strategyBuilder:strategy':        ['backtest:strategy', 'strategyOptimize:strategy', 'botApply:strategy'],
+  'backtest:backtest_result':        ['strategyOptimize:backtest_result', 'botApply:tickers'],
+  'strategyOptimize:strategy':       ['botApply:strategy', 'botApply:tickers'],
+  'accountConfig:account_config':    ['botApply:account_config'],
+}
+
+const connectionError = ref(null)
+
 // ── 연결 ─────────────────────────────────────────────────────────
 function onConnect(params) {
+  const srcNode = nodes.value.find(n => n.id === params.source)
+  const tgtNode = nodes.value.find(n => n.id === params.target)
+  if (!srcNode || !tgtNode) return
+
+  const key = `${srcNode.type}:${params.sourceHandle}`
+  const allowed = VALID_CONNECTIONS[key] ?? []
+  const targetKey = `${tgtNode.type}:${params.targetHandle}`
+
+  if (!allowed.includes(targetKey)) {
+    const srcLabel = NODE_DEFS[srcNode.type]?.label ?? srcNode.type
+    const tgtLabel = NODE_DEFS[tgtNode.type]?.label ?? tgtNode.type
+    connectionError.value = `연결 불가: ${srcLabel} [${params.sourceHandle}] → ${tgtLabel} [${params.targetHandle}]`
+    setTimeout(() => { connectionError.value = null }, 4000)
+    return
+  }
+
   const id = `e-${params.source}-${params.sourceHandle}-${params.target}-${params.targetHandle}`
   if (edges.value.find(e => e.id === id)) return
   edges.value = [...edges.value, {
@@ -749,7 +801,10 @@ async function pollTask(basePath, taskId, timeoutMs = 300000) {
 
 // 연결된 상위 노드 결과 수집
 function getInputResult(nodeId, handleId) {
-  const edge = edges.value.find(e => e.target === nodeId && e.targetHandle === handleId)
+  // targetHandle 정확히 일치하는 엣지 우선
+  let edge = edges.value.find(e => e.target === nodeId && e.targetHandle === handleId)
+  // 못 찾으면 같은 핸들명을 출력하는 소스 노드 중 연결된 것 검색 (핸들 미설정 대비)
+  if (!edge) edge = edges.value.find(e => e.target === nodeId && e.sourceHandle === handleId)
   if (!edge) return null
   const src = nodes.value.find(n => n.id === edge.source)
   return src?.data?.result ?? null
@@ -817,19 +872,33 @@ async function runNode(nodeId) {
     else if (node.type === 'llmGenerator') {
       const res = await apiPost('/ai/generate-strategy')
       const raw = await pollTask('/ai/generate-strategy', res.task_id)
-      result = raw.status === 'ok' ? raw : raw
+      if (raw.status === 'gated') throw new Error(`전략 품질 기준 미달: ${raw.gate_reason || '조건 미충족'}`)
+      if (raw.status === 'error') throw new Error(raw.message || 'LLM 전략 생성 실패')
+      result = raw
     }
 
     // ── backtest ──────────────────────────────────────────────────
     else if (node.type === 'backtest') {
       const strategyResult = getInputResult(nodeId, 'strategy')
       const strategyId = strategyResult?.strategy_id
-      if (!strategyId) throw new Error('LLM 전략 생성 노드를 먼저 연결하고 실행하세요')
+      if (!strategyId) throw new Error('전략 노드를 먼저 연결하고 실행하세요 (llmGenerator, strategyBuilder, strategy 중 하나)')
       const res = await apiPost('/ai/backtest-strategy', {
         strategy_id: strategyId,
         tickers_source: node.data.config.tickers_source || 'ml_top',
       })
       result = await pollTask('/ai/backtest-strategy', res.task_id)
+    }
+
+    // ── strategyOptimize ──────────────────────────────────────────
+    else if (node.type === 'strategyOptimize') {
+      const strategyResult = getInputResult(nodeId, 'strategy')
+      const strategyId = strategyResult?.strategy_id
+      if (!strategyId) throw new Error('전략 노드를 먼저 연결하고 실행하세요 (llmGenerator, strategyBuilder, strategy 중 하나)')
+      const res = await apiPost('/ai/optimize-and-update', {
+        strategy_id: strategyId,
+        tickers_source: node.data.config.tickers_source || 'ml_top',
+      })
+      result = await pollTask('/ai/optimize-and-update', res.task_id)
     }
 
     // ── strategy (기존 전략 선택) ──────────────────────────────────
@@ -884,11 +953,14 @@ async function runNode(nodeId) {
 
       // strategy 노드가 미실행 상태면 config에서 직접 읽어 처리
       if (!strategyResult) {
-        const stratEdge = edges.value.find(e => e.target === nodeId && e.targetHandle === 'strategy')
+        const stratEdge = edges.value.find(e => e.target === nodeId && (e.targetHandle === 'strategy' || e.sourceHandle === 'strategy'))
         const srcNode = stratEdge ? nodes.value.find(n => n.id === stratEdge.source) : null
         if (srcNode?.type === 'strategy' && srcNode.data?.config?.strategy_id) {
           const s = await apiGet(`/strategies/${srcNode.data.config.strategy_id}`)
           strategyResult = { strategy_id: s.id, strategy_name: s.name, strategy_type: s.strategy_type, conditions: s.conditions }
+        } else if (srcNode && !srcNode.data?.result) {
+          const srcLabel = NODE_DEFS[srcNode.type]?.label || srcNode.type
+          throw new Error(`'${srcLabel}' 노드를 먼저 실행하세요 (연결은 됐지만 결과가 없습니다)`)
         }
       }
 
@@ -917,7 +989,7 @@ async function runNode(nodeId) {
         }
       }
       if (botTickers.length === 0) {
-        throw new Error('매매 종목이 비어있습니다. mlScores, mlModel, 또는 backtest 노드를 [매매 종목] 핸들에 연결하고 먼저 실행하세요.')
+        throw new Error('매매 종목이 비어있습니다. mlModel, backtest, 또는 strategyOptimize 노드를 [매매 종목] 핸들에 연결하고 먼저 실행하세요.')
       }
 
       let botId = node.data.config.bot_id
@@ -1370,7 +1442,7 @@ async function deleteCanvas(id) {
 
 watch(chatMessages, () => _saveChatMessages(currentCanvasId.value), { deep: true })
 
-function onClickOutside() { showCanvasMenu.value = false }
+function onClickOutside() { showCanvasMenu.value = false; openPalette.value = null }
 
 onMounted(async () => {
   document.addEventListener('click', onClickOutside)
@@ -1881,4 +1953,15 @@ onUnmounted(() => {
   background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.2);
   border-radius: 5px; color: #10b981; font-size: 11px;
 }
+
+/* ── 연결 오류 토스트 ── */
+.conn-error-toast {
+  position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+  background: #1f1b2e; border: 1px solid #ef4444;
+  color: #fca5a5; padding: 10px 20px; border-radius: 8px;
+  font-size: 13px; z-index: 9999; pointer-events: none;
+  box-shadow: 0 4px 20px rgba(239,68,68,.25);
+}
+.fade-enter-active, .fade-leave-active { transition: opacity .3s, transform .3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
 </style>

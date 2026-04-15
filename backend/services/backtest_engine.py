@@ -380,6 +380,13 @@ def run_backtest(
     wins = [t for t in sell_trades if t['pnl'] > 0]
     win_rate = len(wins) / len(sell_trades) * 100 if sell_trades else 0
 
+    # 신호 빈도 지표 — 전략이 현실적으로 자주 발동되는지 검증
+    buy_trades = [t for t in all_trades if t['type'] == 'BUY']
+    trading_days = max(days * 5 // 7, 1)  # 영업일 근사
+    avg_daily_signals = round(len(buy_trades) / trading_days, 3)
+    tickers_with_signal = len({t['ticker'] for t in buy_trades})
+    signal_ticker_pct = round(tickers_with_signal / len(tickers) * 100, 1) if tickers else 0
+
     metrics = {
         'total_return_pct': round(total_return, 2),
         'annualized_return_pct': round(annualized_return, 2),
@@ -390,6 +397,8 @@ def run_backtest(
         'num_trades': len(sell_trades),
         'final_value': round(final_total, 0),
         'initial_capital': initial_capital,
+        'avg_daily_signals': avg_daily_signals,
+        'signal_ticker_pct': signal_ticker_pct,
     }
     metrics['total_score'], metrics['grade'] = _score(metrics)
 

@@ -241,8 +241,14 @@
 
     <!-- 보고서 탭 -->
     <div v-if="activeTab === 'reports'">
-      <div v-if="reports.length === 0 && !reportScore" class="empty-tab">일별 보고서가 없습니다.</div>
+      <div v-if="reports.length === 0 && !reportScore && !reportScoreInsufficient" class="empty-tab">일별 보고서가 없습니다.</div>
       <div v-else>
+
+        <!-- 데이터 부족 안내 -->
+        <div v-if="reportScoreInsufficient" class="insufficient-notice">
+          📊 성과 평가를 위한 데이터가 아직 부족합니다.<br>
+          <span class="insufficient-reason">{{ reportScoreInsufficient }}</span>
+        </div>
 
         <!-- ① 종합 점수 카드 -->
         <div v-if="reportScore" class="score-section">
@@ -502,6 +508,7 @@ const orders = ref([])
 const executions = ref([])
 const reports = ref([])
 const reportScore = ref(null)
+const reportScoreInsufficient = ref(null)
 const strategies = ref([])
 const activeTab = ref('positions')
 const lineChartEl = ref(null)
@@ -651,7 +658,11 @@ async function fetchReports() {
     await nextTick()
     renderCharts(data.slice().reverse())
   }
-  if (sRes.ok) reportScore.value = await sRes.json()
+  if (sRes.ok) {
+    const score = await sRes.json()
+    reportScore.value = score.insufficient ? null : score
+    reportScoreInsufficient.value = score.insufficient ? score.reason : null
+  }
 }
 
 async function renderCharts(data) {
@@ -1352,4 +1363,15 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 .meta-item { display: flex; flex-direction: column; gap: 3px; min-width: 90px; }
 .mi-label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
 .mi-val { font-size: 13px; font-weight: 600; color: #e5e7eb; }
+.insufficient-notice {
+  background: #1e2030;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 16px 20px;
+  color: #9ca3af;
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+.insufficient-reason { color: #6b7280; font-size: 12px; }
 </style>
