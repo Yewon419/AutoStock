@@ -129,20 +129,24 @@ def _signal_key(bot_id: int, ticker: str) -> str:
     return f"rt:sig:{bot_id}:{ticker}"
 
 
-def _get_or_init_peak(bot_id: int, ticker: str, fallback: float) -> float:
-    """Redis에서 peak 조회. 없으면 fallback(매수가)으로 초기화."""
+def _get_or_init_peak(bot_id: int, ticker: str, fallback: float, position=None) -> float:
+    """peak 조회 우선순위: Redis → DB(position.trailing_peak) → fallback(매수가)."""
     raw = _redis_client.get(_peak_key(bot_id, ticker))
-    if raw is None:
-        _redis_client.setex(_peak_key(bot_id, ticker), PEAK_KEY_TTL, fallback)
-        return fallback
-    return float(raw)
+    if raw is not None:
+        return float(raw)
+    # Redis 없으면 DB에서 복구
+    db_peak = float(position.trailing_peak) if (position and position.trailing_peak) else fallback
+    _redis_client.setex(_peak_key(bot_id, ticker), PEAK_KEY_TTL, db_peak)
+    return db_peak
 
 
-def _update_peak(bot_id: int, ticker: str, curr_price: float) -> float:
-    """현재가가 peak 초과 시 갱신. 현재 peak 반환."""
-    peak = _get_or_init_peak(bot_id, ticker, curr_price)
+def _update_peak(bot_id: int, ticker: str, curr_price: float, position=None) -> float:
+    """현재가가 peak 초과 시 Redis + DB 동시 갱신. 현재 peak 반환."""
+    peak = _get_or_init_peak(bot_id, ticker, curr_price, position)
     if curr_price > peak:
         _redis_client.setex(_peak_key(bot_id, ticker), PEAK_KEY_TTL, curr_price)
+        if position is not None:
+            position.trailing_peak = curr_price
         return curr_price
     return peak
 
@@ -302,7 +306,7 @@ def _run_scalping_cycle_inner(db, bot: TradingBot):
 
             # 1) 트레일링 스탑 (설정된 경우 우선 체크)
             if trailing_stop_pct > 0:
-                peak = _update_peak(bot.id, ticker, curr_price)
+                peak = _update_peak(bot.id, ticker, curr_price, position)
                 trail_price = peak * (1 - trailing_stop_pct / 100)
                 if curr_price <= trail_price:
                     sell_reason = "trailing_stop"

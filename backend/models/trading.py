@@ -101,6 +101,7 @@ class Position(Base):
     ticker = Column(String(10), nullable=False)
     quantity = Column(Integer, nullable=False)
     avg_price = Column(DECIMAL(10, 2), nullable=False)
+    trailing_peak = Column(DECIMAL(10, 2), nullable=True)  # 트레일링 스탑 최고가 (재시작 시에도 유지)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (

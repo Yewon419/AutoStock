@@ -8,6 +8,7 @@
 import json
 import logging
 import math
+import time as _time
 from datetime import datetime, date, time, timezone
 from zoneinfo import ZoneInfo
 
@@ -59,6 +60,22 @@ def _calc_sharpe(daily_returns: list) -> float:
     if std_r == 0:
         return 0.0
     return max(-999.0, min(999.0, mean_r / std_r * math.sqrt(252)))
+
+
+def _retry_order(fn, ticker: str, side: str, max_retries: int = 2, delay: float = 1.5):
+    """주문 실패 시 최대 max_retries회 재시도. 마지막 예외를 그대로 raise."""
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                logger.warning(
+                    f"[bot_engine] {side} {ticker} 재시도 {attempt + 1}/{max_retries - 1}: {exc}"
+                )
+                _time.sleep(delay)
+    raise last_exc  # type: ignore[misc]
 
 
 def _latest_prices_map(db, tickers: list) -> dict:
@@ -217,7 +234,15 @@ def _run_cycle_inner(db, bot: TradingBot):
         position = position_map.get(ticker)
 
         rt = _redis_client.get(f"rt:price:{ticker}")
-        curr_price = float(rt) if rt else float(latest_price.close_price)
+        if rt:
+            curr_price = float(rt)
+        else:
+            curr_price = float(latest_price.close_price)
+            if bot_mode in ('real', 'paper'):
+                logger.warning(
+                    f"[bot_engine] bot_id={bot.id} {ticker} 실시간가 없음 — 전일 종가 사용 "
+                    f"({curr_price:,.0f}). 실시간 피드가 실행 중인지 확인하세요."
+                )
 
         if position is None:
             # 매수 신호 체크
@@ -249,26 +274,26 @@ def _run_cycle_inner(db, bot: TradingBot):
                     logger.warning(f"[bot_engine] bot_id={bot.id} {ticker} 주문 금액 초과 ({cost:,.0f} > budget:{per_pos_budget:,.0f})")
                     continue
                 try:
-                    result = broker.place_buy(bot.id, ticker, qty, curr_price)
+                    result = _retry_order(lambda: broker.place_buy(bot.id, ticker, qty, curr_price), ticker, "BUY")
                     _execute_buy(db, bot, ticker, qty, result.filled_price, fee, result.order_number)
                     today_count += 1
                     # 오늘 신호 처리 완료 기록 (자정에 만료)
                     _redis_client.set(last_signal_key, today_str, ex=86400)
                     logger.info(f"[bot_engine] bot_id={bot.id} BUY {ticker} {qty}주 @{result.filled_price:,.0f}")
                 except Exception as e:
-                    logger.error(f"[bot_engine] BUY 실패 {ticker}: {e}")
+                    logger.error(f"[bot_engine] BUY 최종 실패 {ticker}: {e}")
         else:
             # 손절/익절 체크
             avg = float(position.avg_price)
             pnl_pct = (curr_price - avg) / avg * 100
             if pnl_pct <= -float(bot.stop_loss_pct) or pnl_pct >= float(bot.take_profit_pct):
                 try:
-                    result = broker.place_sell(bot.id, ticker, position.quantity, curr_price)
+                    result = _retry_order(lambda: broker.place_sell(bot.id, ticker, position.quantity, curr_price), ticker, "SELL")
                     _execute_sell(db, bot, position, result.filled_price, result.order_number)
                     today_count += 1
                     logger.info(f"[bot_engine] bot_id={bot.id} SELL {ticker} pnl={pnl_pct:.1f}%")
                 except Exception as e:
-                    logger.error(f"[bot_engine] SELL 실패 {ticker}: {e}")
+                    logger.error(f"[bot_engine] SELL 최종 실패 {ticker}: {e}")
 
     db.commit()
 
