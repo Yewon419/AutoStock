@@ -104,6 +104,20 @@ def run_all_bots():
 
 
 def _run_cycle(db, bot: TradingBot):
+    # ── 중복 실행 방지: Celery 사이클이 겹칠 경우 선행 사이클이 끝날 때까지 스킵 ──
+    lock_key = f"autostock:bot_cycle_lock:{bot.id}"
+    acquired = _redis_client.set(lock_key, "1", nx=True, ex=360)  # 6분 TTL
+    if not acquired:
+        logger.info(f"[bot_engine] bot_id={bot.id} 이전 사이클 실행 중 — 스킵")
+        return
+
+    try:
+        _run_cycle_inner(db, bot)
+    finally:
+        _redis_client.delete(lock_key)
+
+
+def _run_cycle_inner(db, bot: TradingBot):
     now_kr = datetime.now(tz=SEOUL)
     now_t = now_kr.time().replace(tzinfo=None)
 
@@ -171,15 +185,9 @@ def _run_cycle(db, bot: TradingBot):
         for p in db.query(Position).filter(Position.bot_id == bot.id).all()
     }
 
-    # 총 포트폴리오 가치 기준 종목당 배분 예산 계산
-    # (보유 포지션 가치 포함 → 매수할수록 예산이 줄어드는 문제 해소)
-    holdings_value = sum(
-        (float(price_map[p.ticker].close_price) if p.ticker in price_map else float(p.avg_price))
-        * p.quantity
-        for p in position_map.values()
-    )
-    total_portfolio = float(bot.cash) + holdings_value
-    per_pos_budget = total_portfolio * float(bot.position_size_pct) / 100
+    # 종목당 배분 예산: 초기자금 기준 고정 분배
+    # total_portfolio(현재 평가액) 기준이면 수익 시 예산이 커져 비의도적 레버리지 발생
+    per_pos_budget = float(bot.initial_cash) * float(bot.position_size_pct) / 100
 
     max_daily = int(bot.max_daily_trades)
     max_pos = int(bot.max_positions)

@@ -150,6 +150,20 @@ def _update_peak(bot_id: int, ticker: str, curr_price: float) -> float:
 # ── 단타 봇 사이클 ────────────────────────────────────────────────────
 
 def _run_scalping_cycle(db, bot: TradingBot):
+    # ── 중복 실행 방지 ──────────────────────────────────────────────────
+    lock_key = f"autostock:bot_cycle_lock:{bot.id}"
+    acquired = _redis_client.set(lock_key, "1", nx=True, ex=120)  # 2분 TTL (단타 사이클은 짧음)
+    if not acquired:
+        logger.info("[scalping_engine] bot_id=%d 이전 사이클 실행 중 — 스킵", bot.id)
+        return
+
+    try:
+        _run_scalping_cycle_inner(db, bot)
+    finally:
+        _redis_client.delete(lock_key)
+
+
+def _run_scalping_cycle_inner(db, bot: TradingBot):
     now_kr = datetime.now(tz=SEOUL)
     now_t = now_kr.time().replace(tzinfo=None)
 
@@ -252,8 +266,8 @@ def _run_scalping_cycle(db, bot: TradingBot):
             if not signal_met or count < confirm_bars:
                 continue
 
-            # 진입 수량 / 금액 계산
-            qty = int(float(bot.cash) * float(bot.position_size_pct) / 100 / curr_price)
+            # 진입 수량 / 금액 계산 (초기자금 기준 고정 분배 — 수익 시 레버리지 방지)
+            qty = int(float(bot.initial_cash) * float(bot.position_size_pct) / 100 / curr_price)
             if qty <= 0:
                 continue
             fee = round(curr_price * qty * COMMISSION, 2)
