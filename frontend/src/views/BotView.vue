@@ -368,14 +368,19 @@ async function startBot(bot) {
 
 async function stopBot(bot) {
   await fetch(`${API}/bots/${bot.id}/stop`, { method: 'POST', headers: headers() })
-  fetchBots()
+  await fetchBots()
 }
 
 async function deleteBot(bot) {
-  if (!confirm(`"${bot.name}" 봇을 삭제하시겠습니까?`)) return
+  if (bot.status === 'RUNNING') {
+    if (!confirm(`"${bot.name}" 봇이 실행 중입니다.\n정지 후 삭제하시겠습니까?`)) return
+    await fetch(`${API}/bots/${bot.id}/stop`, { method: 'POST', headers: headers() })
+  } else {
+    if (!confirm(`"${bot.name}" 봇을 삭제하시겠습니까?`)) return
+  }
   const res = await fetch(`${API}/bots/${bot.id}`, { method: 'DELETE', headers: headers() })
-  if (res.ok) fetchBots()
-  else alert('실행 중인 봇은 삭제할 수 없습니다')
+  if (res.ok) await fetchBots()
+  else alert('삭제 실패: 서버 오류가 발생했습니다')
 }
 
 function goDetail(id) {
