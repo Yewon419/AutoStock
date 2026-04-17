@@ -205,25 +205,9 @@ def _run_cycle_inner(db, bot: TradingBot):
     max_daily = int(bot.max_daily_trades)
     max_pos = int(bot.max_positions)
 
-    # 종목당 배분 예산 계산
-    # target_investment_pct 설정 시: 잔여 투입 가능액을 남은 포지션 슬롯에 균등 배분
-    # 미설정 시: 초기자금 × position_size_pct 고정 방식 (레거시)
-    target_pct = float(bot.target_investment_pct) if bot.target_investment_pct is not None else 0.0
-    if target_pct > 0:
-        max_investable = float(bot.initial_cash) * target_pct / 100
-        currently_invested = sum(
-            float(p.avg_price) * p.quantity for p in position_map.values()
-        )
-        remaining_budget = max(0.0, max_investable - currently_invested)
-        remaining_slots = max(1, max_pos - len(position_map))
-        per_pos_budget = remaining_budget / remaining_slots
-        logger.debug(
-            f"[bot_engine] bot_id={bot.id} 동적 배분 "
-            f"max={max_investable:,.0f} invested={currently_invested:,.0f} "
-            f"slots={remaining_slots} per_pos={per_pos_budget:,.0f}"
-        )
-    else:
-        per_pos_budget = float(bot.initial_cash) * float(bot.position_size_pct) / 100
+    # 종목당 배분 예산: 초기자금 기준 고정 분배
+    # total_portfolio(현재 평가액) 기준이면 수익 시 예산이 커져 비의도적 레버리지 발생
+    per_pos_budget = float(bot.initial_cash) * float(bot.position_size_pct) / 100
 
     # 브로커 초기화 및 잔고 사이클 시작 전 1회 검증
     # real/paper: 실패 시 stale 잔고로 주문하는 것을 막기 위해 사이클 전체 skip
