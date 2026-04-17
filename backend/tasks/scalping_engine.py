@@ -270,8 +270,18 @@ def _run_scalping_cycle_inner(db, bot: TradingBot):
             if not signal_met or count < confirm_bars:
                 continue
 
-            # 진입 수량 / 금액 계산 (초기자금 기준 고정 분배 — 수익 시 레버리지 방지)
-            qty = int(float(bot.initial_cash) * float(bot.position_size_pct) / 100 / curr_price)
+            # 진입 수량 / 금액 계산
+            target_pct = float(bot.target_investment_pct) if bot.target_investment_pct is not None else 0.0
+            if target_pct > 0:
+                all_pos = db.query(Position).filter(Position.bot_id == bot.id).all()
+                currently_invested = sum(float(p.avg_price) * p.quantity for p in all_pos)
+                max_investable = float(bot.initial_cash) * target_pct / 100
+                remaining_budget = max(0.0, max_investable - currently_invested)
+                remaining_slots = max(1, int(bot.max_positions) - pos_count)
+                per_pos_budget = remaining_budget / remaining_slots
+            else:
+                per_pos_budget = float(bot.initial_cash) * float(bot.position_size_pct) / 100
+            qty = int(per_pos_budget / curr_price)
             if qty <= 0:
                 continue
             fee = round(curr_price * qty * COMMISSION, 2)

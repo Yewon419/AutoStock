@@ -46,6 +46,7 @@ class TradingBot(Base):
     intraday_close_time = Column(Time, default=func.cast("14:50:00", Time))
     trailing_stop_pct = Column(DECIMAL(5, 2), default=None)  # 트레일링 스탑 % (None=비활성화)
     confirm_bars = Column(Integer, default=1)                 # 연속 신호 확인 봉 수 (1=즉시 진입)
+    target_investment_pct = Column(DECIMAL(5, 2), default=None)  # 총 투입 비율 % (None=position_size_pct 고정 방식)
 
     # 가상 자금 (mock/paper 모드)
     tickers = Column(JSON, default=list)
