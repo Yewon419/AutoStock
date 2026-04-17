@@ -12,7 +12,7 @@ celery_app = Celery(
         "tasks.bot_engine", "tasks.scanner", "tasks.ai_tasks",
         "tasks.kis_price_stream",
         "tasks.intraday_collector", "tasks.scalping_engine",
-        "tasks.llm_strategy",
+        "tasks.llm_strategy", "tasks.bot_diagnostics",
     ],
 )
 
@@ -75,6 +75,11 @@ celery_app.conf.beat_schedule = {
     "run-scalping-bots": {
         "task": "tasks.scalping_engine.run_scalping_bots",
         "schedule": crontab(minute="*", hour="9-15", day_of_week="1-5"),
+    },
+    # 평일 15:35 KST - 장 마감 후 봇 전략 자동 진단 (프리미엄 기능)
+    "bot-diagnostics": {
+        "task": "tasks.bot_diagnostics.run_bot_diagnostics",
+        "schedule": crontab(hour=15, minute=35, day_of_week="1-5"),
     },
 }
 

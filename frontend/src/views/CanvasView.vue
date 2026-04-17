@@ -1192,10 +1192,20 @@ function miniMapColor(node) {
 
 // 인사이트 데이터가 필요한 키워드
 const INSIGHT_KEYWORDS = ['데이터', '분석', '최적화', '업데이트', '현황', '지금', '현재', '추천', '제안', '어때', '맞아', '봐줘', '확인']
+const BOT_KEYWORDS    = ['전략', '봇', '성과', '손익', '수익', '손절', '포지션', '분석', '어때', '봐줘', '확인', '점검', '진단', '조건', '문제']
 
 async function fetchInsights() {
   try {
     const res = await fetch(`${API}/ai/canvas-insights`, { headers: headers() })
+    if (!res.ok) return null
+    return await res.json()
+  } catch { return null }
+}
+
+async function fetchBotContext(botIds) {
+  if (!botIds?.length) return null
+  try {
+    const res = await fetch(`${API}/ai/bot-context?bot_ids=${botIds.join(',')}`, { headers: headers() })
     if (!res.ok) return null
     return await res.json()
   } catch { return null }
@@ -1222,10 +1232,16 @@ async function sendChat(msg) {
     const needsInsights = INSIGHT_KEYWORDS.some(k => text.includes(k))
     const insights = needsInsights ? await fetchInsights() : null
 
+    // botApply 노드에 봇이 설정돼 있고 봇/전략 관련 질문이면 성과 컨텍스트 포함
+    const botApplyNode = nodes.value.find(n => n.type === 'botApply')
+    const configuredBotId = botApplyNode?.data?.config?.bot_id
+    const needsBotContext = configuredBotId && BOT_KEYWORDS.some(k => text.includes(k))
+    const botContext = needsBotContext ? await fetchBotContext([configuredBotId]) : null
+
     const res = await fetch(`${API}/ai/canvas-assistant`, {
       method: 'POST',
       headers: headers(true),
-      body: JSON.stringify({ message: text, canvas: canvasState, insights }),
+      body: JSON.stringify({ message: text, canvas: canvasState, insights, bot_context: botContext }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))

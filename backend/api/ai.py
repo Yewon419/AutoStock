@@ -270,7 +270,8 @@ class CanvasState(BaseModel):
 class CanvasAssistantRequest(BaseModel):
     message: str
     canvas: CanvasState = CanvasState()
-    insights: Optional[dict] = None  # GET /ai/canvas-insights 결과
+    insights: Optional[dict] = None      # GET /ai/canvas-insights 결과
+    bot_context: Optional[dict] = None   # GET /ai/bot-context 결과
 
 
 _KNOWLEDGE_DIR = os.path.join(os.path.dirname(__file__), "..", "knowledge")
@@ -403,6 +404,23 @@ update_config 명령으로 기존 노드 설정을 직접 업데이트하세요:
 - backtest 종목소스 변경: {{"type": "update_config", "node_type": "backtest", "config": {{"tickers_source": "ml_top"}}}}
 - strategy 선택 변경: {{"type": "update_config", "node_type": "strategy", "config": {{"strategy_id": 5}}}}
 
+[봇 성과 데이터 진단]
+사용자 메시지에 [봇 성과 데이터] 섹션이 포함되면 반드시 전략 효율성을 분석하고 구체적 개선 명령을 반환하세요.
+
+진단 기준:
+- 전략 조건 RSI/Stoch D가 70 이상 구간: 고점 추격 전략 → 조건값 완화 (RSI 40~60, Stoch D 20~50 권장) → update_config로 strategyBuilder 조건 수정 또는 llmGenerator 재실행
+- 손절 임박(pnl < -3%) 포지션이 2개 이상: 전략 재생성 (run_node llmGenerator) 권장
+- 승률 < 40%이고 거래 5건 이상: 전략 조건 강화 필요, strategyOptimize 실행 권장
+- 실현 거래 < 3건: 표본 부족 → 판단 보류 안내
+- position_count > max_positions: 내부 경쟁 조건(race condition) 버그 알림 — 코드 수정 필요, AI 명령으로 해결 불가
+- 미실현 손익이 전체적으로 음수이고 RSI 조건이 오버슈팅 구간: 전략 재설계 권장
+- stop_loss와 take_profit의 비율이 1:1 미만(예: 5%/5%): risk-reward 개선 필요
+
+개선 명령 예시:
+- update_config로 strategyBuilder 조건을 즉시 수정
+- run_node llmGenerator로 새 전략 생성
+- run_node strategyOptimize로 파라미터 최적화
+
 [자동 최적화 시 노드 추가·제거 규칙]
 최적화는 기존 노드를 수정하는 것에 그치지 않고, 파이프라인 구성 자체를 자유롭게 변경해도 됩니다.
 - 필요한 노드가 없으면 add_node + connect로 추가하세요.
@@ -446,7 +464,12 @@ commands가 필요 없으면 []로."""
     if req.insights:
         insights_desc = f"\n\n[실시간 데이터]\n{json.dumps(req.insights, ensure_ascii=False, indent=2)}"
 
-    user_msg = f"{canvas_desc}{insights_desc}\n\n사용자 요청: {req.message}"
+    # 봇 성과 데이터 메시지 구성
+    bot_context_desc = ""
+    if req.bot_context:
+        bot_context_desc = f"\n\n[봇 성과 데이터]\n{json.dumps(req.bot_context, ensure_ascii=False, indent=2)}"
+
+    user_msg = f"{canvas_desc}{insights_desc}{bot_context_desc}\n\n사용자 요청: {req.message}"
 
     try:
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -476,6 +499,75 @@ commands가 필요 없으면 []로."""
         return {"reply": raw, "commands": []}
     except Exception as e:
         return {"reply": f"오류: {str(e)}", "commands": []}
+
+
+@router.get("/bot-context")
+def get_bot_context(
+    bot_ids: str,
+    _: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """봇 성과 데이터 요약 — AI 캔버스 어시스턴트 컨텍스트 주입용.
+
+    bot_ids: 콤마 구분 bot_id 문자열 (예: "17,9")
+    """
+    from models.trading import TradingBot, Position, Execution
+    from models.strategy import Strategy
+    from datetime import datetime, timezone, timedelta
+
+    ids = [int(x.strip()) for x in bot_ids.split(",") if x.strip().isdigit()]
+    bots = db.query(TradingBot).filter(TradingBot.id.in_(ids)).all()
+
+    since = datetime.now(tz=timezone.utc) - timedelta(days=30)
+    result: list[dict] = []
+
+    for bot in bots:
+        strat = db.query(Strategy).filter_by(id=bot.strategy_id).first()
+        positions = db.query(Position).filter_by(bot_id=bot.id).all()
+        sells = db.query(Execution).filter(
+            Execution.bot_id == bot.id,
+            Execution.execution_type == "SELL",
+            Execution.executed_at >= since,
+        ).all()
+
+        trade_count = len(sells)
+        win_count = sum(1 for e in sells if float(e.profit_loss or 0) > 0)
+        realized_pnl = sum(float(e.profit_loss or 0) for e in sells)
+        win_rate = round(win_count / trade_count * 100, 1) if trade_count else None
+
+        pos_list = [
+            {
+                "ticker": p.ticker,
+                "quantity": p.quantity,
+                "avg_price": float(p.avg_price),
+                "pnl_pct": None,  # 실시간가 없으면 None
+            }
+            for p in positions
+        ]
+
+        result.append({
+            "bot_id": bot.id,
+            "bot_name": bot.name,
+            "mode": bot.mode,
+            "status": bot.status,
+            "strategy_name": strat.name if strat else None,
+            "strategy_type": strat.strategy_type if strat else None,
+            "conditions": strat.conditions if strat else [],
+            "stop_loss_pct": float(bot.stop_loss_pct),
+            "take_profit_pct": float(bot.take_profit_pct),
+            "cash": float(bot.cash),
+            "initial_cash": float(bot.initial_cash),
+            "pnl_cash": round(float(bot.cash) - float(bot.initial_cash), 0),
+            "max_positions": bot.max_positions,
+            "position_count": len(positions),
+            "positions": pos_list,
+            "trade_count_30d": trade_count,
+            "win_count_30d": win_count,
+            "win_rate_30d": win_rate,
+            "realized_pnl_30d": round(realized_pnl, 0),
+        })
+
+    return {"bots": result}
 
 
 @router.get("/canvas-insights")
