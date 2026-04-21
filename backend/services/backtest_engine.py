@@ -6,6 +6,7 @@
 """
 import logging
 import math
+from collections import defaultdict
 from datetime import date as Date
 from typing import List, Optional
 
@@ -31,19 +32,27 @@ SUPPORTED_INDICATORS = {
 
 
 def _get_val(ind_row, field: str, vol_ctx: dict = None, price_row=None, prev_close: float = None) -> Optional[float]:
-    """지표 값 조회 — volume_ratio/opening_gap은 동적 계산"""
+    """지표 값 조회 — volume_ratio/opening_gap은 동적 계산.
+
+    vol_ctx 구조: {ticker: {date: rolling_20d_avg_volume}}. 날짜별 조회로 lookahead 제거.
+    """
     if field == 'volume_ratio':
         if vol_ctx is None or price_row is None:
             return None
         ticker = getattr(price_row, 'ticker', None)
-        avg_vol = vol_ctx.get(ticker, 0)
+        ticker_map = vol_ctx.get(ticker, {})
+        avg_vol = ticker_map.get(price_row.date, 0) if isinstance(ticker_map, dict) else 0
         curr_vol = float(price_row.volume or 0)
         return curr_vol / avg_vol if avg_vol > 0 else None
 
     if field == 'opening_gap':
         if price_row is None or prev_close is None or prev_close == 0:
             return None
-        open_p = float(price_row.open_price or 0)
+        # open_price가 None/0이면 거래 정지 등 비정상 → None (신호 평가 제외).
+        # 기존엔 0 → -100% 반환으로 below 조건이 항상 true였음.
+        if not price_row.open_price:
+            return None
+        open_p = float(price_row.open_price)
         return (open_p - prev_close) / prev_close * 100
 
     if ind_row is None:
@@ -174,23 +183,34 @@ def _score(metrics: dict) -> tuple:
 
 
 def _build_vol_ctx(db: Session, tickers: List[str], start: Date, end: Date) -> dict:
-    """ticker별 20일 평균 거래량 계산 (volume_ratio 조건용)"""
-    vol_ctx = {}
+    """ticker별 날짜별 앞 20일 rolling 평균 거래량 계산 (volume_ratio 조건용).
+
+    반환: {ticker: {date: avg_volume}}
+    각 date의 평균은 자신을 제외한 앞 20개 거래일만 사용 — 미래 거래량 참조 차단 (lookahead bias 제거).
+    windowing을 위해 start 이전 20거래일까지 조회 후 평균 계산.
+    """
+    WINDOW = 20
+    vol_ctx: dict = defaultdict(dict)
     for ticker in tickers:
-        prices = (
+        # start보다 앞선 20거래일도 로드해서 start 당일부터 rolling 평균이 계산되도록 함
+        rows = (
             db.query(StockPrice.date, StockPrice.volume)
-            .filter(StockPrice.ticker == ticker, StockPrice.date >= start, StockPrice.date <= end)
+            .filter(StockPrice.ticker == ticker, StockPrice.date <= end)
             .order_by(StockPrice.date.asc())
             .all()
         )
-        if not prices:
+        if not rows:
             continue
-        vols = [float(p.volume or 0) for p in prices]
-        # 20일 이동평균 — 각 날짜마다 앞 20일 평균이 필요하지만
-        # 백테스트 단순화를 위해 전체 평균 사용
-        avg = sum(vols) / len(vols) if vols else 0
-        vol_ctx[ticker] = avg
-    return vol_ctx
+        vols = [float(r.volume or 0) for r in rows]
+        for i, r in enumerate(rows):
+            if r.date < start:
+                continue
+            # 앞 WINDOW 거래일 (자신 제외). 데이터 부족하면 available 전체.
+            lo = max(0, i - WINDOW)
+            window = vols[lo:i]
+            if window:
+                vol_ctx[ticker][r.date] = sum(window) / len(window)
+    return dict(vol_ctx)
 
 
 def run_backtest(

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -25,7 +25,7 @@ class StrategyCreate(BaseModel):
     name: str
     description: Optional[str] = None
     conditions: List[ConditionItem]
-    strategy_type: str = 'swing'  # swing | scalping
+    strategy_type: Literal['swing', 'scalping'] = 'swing'
 
 
 class StrategyUpdate(BaseModel):
@@ -33,7 +33,7 @@ class StrategyUpdate(BaseModel):
     description: Optional[str] = None
     conditions: Optional[List[ConditionItem]] = None
     is_active: Optional[bool] = None
-    strategy_type: Optional[str] = None
+    strategy_type: Optional[Literal['swing', 'scalping']] = None
 
 
 class StrategyResponse(BaseModel):

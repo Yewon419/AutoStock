@@ -141,6 +141,28 @@ def stop_bot(db: Session, bot_id: int, user_id: int):
     return bot
 
 
+def rebaseline_bot(db: Session, bot_id: int, user_id: int):
+    """initial_cash를 '현재 현금 + 보유 평가금액'으로 재설정.
+
+    입금/출금 후 position_size_pct, max_drawdown_pct의 기준점을 현재로 스냅.
+    RUNNING 중에는 cycle race 위험으로 거부 — 먼저 정지 후 호출.
+    """
+    bot = get_bot(db, bot_id, user_id)
+    if not bot:
+        return None
+    if bot.status == 'RUNNING':
+        return None  # 호출자가 STOPPED 아님을 알 수 있도록 None 반환
+
+    enriched = enrich_bot_assets(db, bot)
+    total = float(enriched.get('total_assets') or 0)
+    if total <= 0:
+        return None
+    bot.initial_cash = total
+    db.commit()
+    db.refresh(bot)
+    return bot
+
+
 # ── 포지션 / 주문 / 보고서 ─────────────────────────────────────────
 
 def get_positions(db: Session, bot_id: int):

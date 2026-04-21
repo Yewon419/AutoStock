@@ -996,7 +996,16 @@ async function runNode(nodeId) {
       if (!botId) {
         // 봇 미지정 시 전략명 기반 봇 자동 생성
         const botName = `${strategyResult.strategy_name || '자동생성'} 봇`
-        const createBody = { name: botName, mode: botMode, tickers: botTickers, initial_cash: 10000000 }
+        // 전략 타입(scalping|swing)을 봇에 그대로 전파 — 미전달 시 백엔드 default가 swing이라
+        // 단타 전략으로 만든 봇이 스윙 엔진에서 돌아가는 버그 발생.
+        const botType = strategyResult.strategy_type === 'scalping' ? 'scalping' : 'swing'
+        const createBody = {
+          name: botName,
+          mode: botMode,
+          tickers: botTickers,
+          initial_cash: 10000000,
+          bot_type: botType,
+        }
         if (botAccountId) createBody.account_id = botAccountId
         const createRes = await fetch(`${API}/bots`, {
           method: 'POST',

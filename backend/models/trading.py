@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Time, DECIMAL, Text, ForeignKey, Numeric, Index, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Time, DECIMAL, Text, ForeignKey, Numeric, Index, JSON, UniqueConstraint
 from sqlalchemy.sql import func
 from core.database import Base
 
@@ -106,6 +106,7 @@ class Position(Base):
 
     __table_args__ = (
         Index("idx_positions_bot_id", "bot_id"),
+        UniqueConstraint("bot_id", "ticker", name="uq_positions_bot_ticker"),
     )
 
 

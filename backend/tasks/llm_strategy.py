@@ -75,6 +75,22 @@ ML 예측 모델 데이터가 제공되는 경우 반드시 다음을 반영하�
 - 지표명은 반드시 제공된 목록에서만 선택"""
 
 
+# ── 타입 정규화 ────────────────────────────────────────────────────
+
+def _normalize_strategy_type(raw) -> str:
+    """LLM 출력의 strategy_type을 허용 값(swing|scalping)으로 정규화.
+
+    LLM이 'day_trading', 'intraday' 등 규격 외 별칭을 반환해도
+    단타 계열이면 scalping에 매핑. 그 외는 전부 swing.
+    """
+    if not raw:
+        return "swing"
+    r = str(raw).lower().strip()
+    if r in ("scalping", "day_trading", "day-trading", "daytrade", "intraday", "scalp"):
+        return "scalping"
+    return "swing"
+
+
 # ── 기술 지표 요약 빌더 ──────────────────────────────────────────────
 
 def _build_technical_summary(db) -> str:
@@ -444,7 +460,7 @@ def _save_strategy(db, user_id: int, result: dict, backtest: dict = None) -> Str
         name=name,
         description=result.get("analysis", ""),
         conditions=conditions,
-        strategy_type=result.get("strategy_type", "swing"),
+        strategy_type=_normalize_strategy_type(result.get("strategy_type")),
         source="ai_generated",
         ai_analysis=result.get("analysis", ""),
         ai_confidence=confidence,
@@ -505,7 +521,7 @@ def generate_strategy(user_id: int = 1):
         # 6. 임시 조건 정규화 → 자동 백테스트 (저장 전 품질 검증)
         from tasks.llm_strategy import _normalize_conditions
         temp_conditions = _normalize_conditions(result.get("conditions", []))
-        backtest = _auto_backtest(db, temp_conditions, result.get("strategy_type", "swing"))
+        backtest = _auto_backtest(db, temp_conditions, _normalize_strategy_type(result.get("strategy_type")))
 
         # 7. 게이팅: 백테스트 기준 미달 시 저장 거부
         passed, gate_reason = _gate_strategy(backtest)

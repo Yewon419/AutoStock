@@ -1,5 +1,5 @@
 from datetime import datetime, time
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -54,7 +54,7 @@ class BotCreate(BaseModel):
     trading_start_time: Optional[str] = "09:00"   # "HH:MM"
     trading_end_time: Optional[str] = "15:20"
     # 단타 설정
-    bot_type: str = 'swing'                        # swing | scalping
+    bot_type: Literal['swing', 'scalping'] = 'swing'
     candle_interval: int = 5                       # 분봉 단위 (1,3,5,10,15)
     intraday_close: bool = False                   # 당일 강제 청산 여부
     intraday_close_time: Optional[str] = "14:50"  # "HH:MM"
@@ -77,7 +77,7 @@ class BotUpdate(BaseModel):
     trading_start_time: Optional[str] = None
     trading_end_time: Optional[str] = None
     # 단타 설정
-    bot_type: Optional[str] = None
+    bot_type: Optional[Literal['swing', 'scalping']] = None
     candle_interval: Optional[int] = None
     intraday_close: Optional[bool] = None
     intraday_close_time: Optional[str] = None
@@ -246,6 +246,26 @@ def stop_bot(
     if not bot:
         raise HTTPException(status_code=400, detail="봇을 정지할 수 없습니다")
     return bot
+
+
+@router.post("/bots/{bot_id}/rebaseline", response_model=BotResponse)
+def rebaseline_bot(
+    bot_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """initial_cash를 '현재 현금 + 보유 평가금액'으로 재설정. 입금/출금 후 기준 스냅.
+
+    RUNNING 봇은 거부 — 먼저 /stop 호출 필요. (per_pos_budget/MDD 기준점 변경이므로
+    사이클 중간 실행 금지)
+    """
+    bot = trading_service.rebaseline_bot(db, bot_id, _user_id(current_user))
+    if not bot:
+        raise HTTPException(
+            status_code=400,
+            detail="봇을 찾을 수 없거나, RUNNING 상태이거나, 평가금액 계산 불가",
+        )
+    return trading_service.enrich_bot_assets(db, bot)
 
 
 # ── 봇 데이터 ────────────────────────────────────────────────────────
