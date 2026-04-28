@@ -45,8 +45,11 @@ _WATCHDOG_ESCALATE_KEY = "autostock:watchdog:escalated"           # 30m TTL 키
 _WATCHDOG_WINDOW_SECONDS = 1800        # 30분 슬라이딩 윈도우
 _WATCHDOG_ESCALATE_THRESHOLD = 3       # 30분 내 3회 초과 → 에스컬레이션
 _ALERTS_KEY = "autostock:alerts"
+# KRX 정규장: 평일 09:00~15:30 KST. Watchdog는 정규장 시간에만 재기동을 시도한다.
 _MARKET_OPEN_HOUR = 9                  # KST
-_MARKET_CLOSE_HOUR = 16                # 09:00~15:59 사이만 watchdog 동작
+_MARKET_OPEN_MINUTE = 0
+_MARKET_CLOSE_HOUR = 15
+_MARKET_CLOSE_MINUTE = 30
 
 
 def _get_running_tickers() -> list[str]:
@@ -126,14 +129,32 @@ async def _stream_once(tickers: list[str], approval_key: str, redis_client, dead
             await ws.send(sub_msg)
         logger.info("[KisPriceStream] %d개 종목 구독 완료, 수신 시작", len(tickers))
 
+        # 연결 직후 1회 heartbeat 갱신 — WS alive 신호 (메시지 수신 전이라도)
+        try:
+            redis_client.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, str(int(_time.time())))
+        except Exception as e:
+            logger.warning("[KisPriceStream] 초기 heartbeat 갱신 실패: %r", e)
+
         while asyncio.get_event_loop().time() < deadline:
             try:
                 raw = await asyncio.wait_for(ws.recv(), timeout=30)
             except asyncio.TimeoutError:
+                # 30s 동안 메시지 없음 — WS는 살아있음(ping_interval=30이 keepalive 처리).
+                # 거래 무발생 구간(장 종료 후, 점심시간 무거래)에도 heartbeat을 유지해
+                # watchdog의 false-positive 재기동을 방지한다.
+                try:
+                    redis_client.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, str(int(_time.time())))
+                except Exception as e:
+                    logger.warning("[KisPriceStream] keepalive heartbeat 갱신 실패: %r", e)
                 continue
 
             result = _parse_price(raw)
             if not result:
+                # 비-가격 메시지(ping/pong, 시스템 메시지 등)도 WS alive 시그널 → heartbeat 갱신
+                try:
+                    redis_client.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, str(int(_time.time())))
+                except Exception:
+                    pass
                 continue
             ticker, price = result
             try:
@@ -193,12 +214,15 @@ async def _stream_with_reconnect(tickers: list[str], approval_key: str):
 
 
 def _is_market_hours() -> bool:
-    """KST 평일 09:00~15:59 (장중)인지 판단. 장외에는 watchdog이 재기동을 시도하지 않는다."""
+    """KST 평일 09:00~15:30(KRX 정규장)인지 판단. 장외에는 watchdog이 재기동을 시도하지 않는다."""
     from datetime import datetime, timezone, timedelta
     kst = datetime.now(timezone(timedelta(hours=9)))
     if kst.weekday() >= 5:  # 토(5), 일(6)
         return False
-    return _MARKET_OPEN_HOUR <= kst.hour < _MARKET_CLOSE_HOUR
+    cur_minutes = kst.hour * 60 + kst.minute
+    open_minutes = _MARKET_OPEN_HOUR * 60 + _MARKET_OPEN_MINUTE
+    close_minutes = _MARKET_CLOSE_HOUR * 60 + _MARKET_CLOSE_MINUTE
+    return open_minutes <= cur_minutes < close_minutes
 
 
 def _push_alert(redis_client, alert_type: str, message: str, extra: dict | None = None) -> None:

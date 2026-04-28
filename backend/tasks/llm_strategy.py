@@ -410,6 +410,9 @@ REVIEWER_SYSTEM_PROMPT = """당신은 한국 주식 자동매매 전략을 최�
 3. 백테스트 결과 신뢰도: num_trades, win_rate, total_return_pct가 일반화 가능한 수준인가?
    - 거래 수가 적으면(< 10) 통계적 신뢰 부족
    - 수익률은 좋은데 거래 수가 1~2건이면 핏 가능성 큼
+   - ⚠ 단, strategy_type='scalping'(분봉 단타)은 현재 시스템에 자동 백테스트가 미구현되어
+     백테스트 결과가 비어있는 것이 *정상*이다. scalping에 대해서는 "백테스트 데이터 없음"
+     자체를 reject 사유로 삼지 말 것. 의미·논리·시장 정합성으로 평가하라.
 4. 시장 국면 정합성: 시장 컨텍스트(지수, ML 분포)와 전략 방향이 정합적인가?
 5. 리스크 구조: 조건이 한 종목 군에만 편중되지 않았는가? signal_ticker_pct가 적절한가?
 
@@ -661,10 +664,15 @@ def _save_strategy(db, user_id: int, result: dict, backtest: dict = None, review
 # ── Celery 태스크 ─────────────────────────────────────────────────────
 
 @celery_app.task(name="tasks.llm_strategy.generate_strategy")
-def generate_strategy(user_id: int = 1):
+def generate_strategy(user_id: int = 1, force_strategy_type: Optional[str] = None):
     """
     시장 컨텍스트 수집 → Claude 분석 → 전략 조건 생성 → DB 저장
     매일 08:30 자동 실행 + 수동 트리거 가능
+
+    Args:
+        user_id: 전략 소유자
+        force_strategy_type: 'swing' | 'scalping' (선택). 지정 시 LLM이 해당 타입만 생성하도록 강제.
+            None이면 LLM이 시장 상황에 따라 자율 결정. (기본 None)
     """
     db = SessionLocal()
     try:
@@ -685,67 +693,142 @@ def generate_strategy(user_id: int = 1):
         else:
             logger.info("[llm_strategy] ML 컨텍스트 없음 — 시장 데이터만 사용")
 
-        # 4. 프롬프트 조합
+        # 4. 프롬프트 조합 (force_strategy_type이 지정되면 타입 강제 지시 추가)
         market_text = _build_market_context_text(ctx)
         indicator_list = "\n".join(f"- {ind}" for ind in AVAILABLE_INDICATORS)
 
-        user_message = f"""{market_text}
+        forced_norm = _normalize_strategy_type(force_strategy_type) if force_strategy_type else None
+        if forced_norm == "scalping":
+            type_directive = (
+                "\n\n⚠ 필수: 이번 호출은 단타(scalping) 전략 생성 전용입니다.\n"
+                "- 반드시 strategy_type='scalping'으로 응답하세요.\n"
+                "- 분봉 단위 회전 트레이딩에 적합한 진입 조건만 사용 (vwap, price_vs_vwap, atr, volume_ratio, rsi 과매도 반등 등).\n"
+                "- swing 트레이딩 패턴(추세 추종, 일봉 골든크로스 등)은 사용 금지.\n"
+                "- 가드레일은 그대로 적용: RSI > 65, stoch > 70 영역 매수 진입 절대 금지.\n"
+            )
+        elif forced_norm == "swing":
+            type_directive = (
+                "\n\n⚠ 필수: 이번 호출은 스윙(swing) 전략 생성 전용입니다.\n"
+                "- 반드시 strategy_type='swing'으로 응답하세요.\n"
+                "- 일봉 단위 추세 추종 또는 눌림목 매수 패턴 사용.\n"
+            )
+        else:
+            type_directive = ""
+
+        base_message = f"""{market_text}
 {ml_context}
 === 기술적 지표 요약 (DB 전체 종목) ===
 {tech_summary}
 
 === 사용 가능한 지표 목록 ===
 {indicator_list}
-
+{type_directive}
 위 시장 데이터와 ML 분석 결과를 종합하여 현재 시장에 최적화된 매매 전략 조건을 생성해주세요."""
 
-        # 5. Claude API 호출
-        result = _call_claude(user_message)
-        logger.info("[llm_strategy] Claude 응답: 전략=%s, 신뢰도=%s",
-                    result.get("strategy_name"), result.get("confidence"))
-
-        # 6. 임시 조건 정규화 → 자동 백테스트 (저장 전 품질 검증)
+        # 5~8단계: Claude 호출 → 게이트/리뷰. reject 시 issues 피드백 후 1회 재시도.
         from tasks.llm_strategy import _normalize_conditions
-        temp_conditions = _normalize_conditions(result.get("conditions", []))
-        norm_strategy_type = _normalize_strategy_type(result.get("strategy_type"))
-        backtest = _auto_backtest(db, temp_conditions, norm_strategy_type)
+        MAX_ATTEMPTS = 2
+        attempt = 0
+        last_failure: dict = {}
+        prev_failure_block = ""
 
-        # 7. 룰 게이팅: 의미 게이트(과매수 영역 매수 등) + 백테스트 기준 미달 시 저장 거부
-        passed, gate_reason = _gate_strategy(backtest, conditions=temp_conditions, strategy_type=norm_strategy_type)
-        if not passed:
-            logger.warning("[llm_strategy] 전략 게이팅 거부: %s", gate_reason)
-            return {
-                "status": "gated",
-                "gate_reason": gate_reason,
-                "analysis": result.get("analysis"),
-                "conditions": temp_conditions,
-                "risk_level": result.get("risk_level"),
-                "ml_enhanced": bool(ml_context),
-                "backtest": backtest,
-            }
+        while attempt < MAX_ATTEMPTS:
+            attempt += 1
+            user_message = base_message + prev_failure_block
 
-        # 8. LLM 자기검토 — 룰 게이트가 못 잡는 의미 결함을 별도 LLM 호출로 최종 평가
-        review = _review_strategy(
-            result=result,
-            conditions=temp_conditions,
-            backtest=backtest,
-            strategy_type=norm_strategy_type,
-            market_summary=tech_summary,
-        )
-        if review.get("verdict") == "reject":
-            logger.warning(
-                "[llm_strategy] LLM 자기검토 거부: score=%s, issues=%s",
-                review.get("score"), review.get("issues"),
+            # 5. Claude API 호출
+            result = _call_claude(user_message)
+            logger.info(
+                "[llm_strategy] Claude 응답 attempt=%d: 전략=%s, 신뢰도=%s",
+                attempt, result.get("strategy_name"), result.get("confidence"),
             )
+
+            # 6. 정규화 + 타입 강제 검사
+            temp_conditions = _normalize_conditions(result.get("conditions", []))
+            norm_strategy_type = _normalize_strategy_type(result.get("strategy_type"))
+
+            if forced_norm and norm_strategy_type != forced_norm:
+                logger.warning(
+                    "[llm_strategy] attempt=%d force_strategy_type=%s 위반 (LLM=%s)",
+                    attempt, forced_norm, norm_strategy_type,
+                )
+                last_failure = {
+                    "stage": "type_mismatch",
+                    "reason": f"force_strategy_type={forced_norm}이지만 LLM이 {norm_strategy_type}로 응답",
+                    "result": result, "conditions": temp_conditions, "backtest": {},
+                }
+                prev_failure_block = (
+                    f"\n\n[직전 시도 실패 — 재생성 시 반드시 반영]\n"
+                    f"- 타입 불일치: 반드시 strategy_type='{forced_norm}'으로 응답할 것.\n"
+                )
+                continue
+
+            backtest = _auto_backtest(db, temp_conditions, norm_strategy_type)
+
+            # 7. 룰 게이트
+            passed, gate_reason = _gate_strategy(
+                backtest, conditions=temp_conditions, strategy_type=norm_strategy_type,
+            )
+            if not passed:
+                logger.warning("[llm_strategy] attempt=%d 룰 게이트 거부: %s", attempt, gate_reason)
+                last_failure = {
+                    "stage": "rule_gate", "reason": gate_reason,
+                    "result": result, "conditions": temp_conditions, "backtest": backtest,
+                }
+                prev_failure_block = (
+                    f"\n\n[직전 시도 실패 — 재생성 시 반드시 반영]\n"
+                    f"- 룰 게이트 거부 사유: {gate_reason}\n"
+                    f"- 직전 조건: {json.dumps(temp_conditions, ensure_ascii=False)}\n"
+                    f"- 같은 영역/패턴을 다시 시도하지 말고, 위 사유를 해소하는 다른 조건 조합을 사용할 것.\n"
+                )
+                continue
+
+            # 8. LLM 자기검토
+            review = _review_strategy(
+                result=result,
+                conditions=temp_conditions,
+                backtest=backtest,
+                strategy_type=norm_strategy_type,
+                market_summary=tech_summary,
+            )
+            if review.get("verdict") == "reject":
+                logger.warning(
+                    "[llm_strategy] attempt=%d 리뷰 거부: score=%s, issues=%s",
+                    attempt, review.get("score"), review.get("issues"),
+                )
+                last_failure = {
+                    "stage": "review_rejected", "review": review,
+                    "result": result, "conditions": temp_conditions, "backtest": backtest,
+                }
+                issues_list = review.get("issues") or []
+                issues_text = "\n".join(f"  · {i}" for i in issues_list)
+                prev_failure_block = (
+                    f"\n\n[직전 시도 실패 — 재생성 시 반드시 반영]\n"
+                    f"- 리뷰 거부 사유: {review.get('reasoning', '')}\n"
+                    f"- 발견된 결함:\n{issues_text}\n"
+                    f"- 직전 조건: {json.dumps(temp_conditions, ensure_ascii=False)}\n"
+                    f"- 위 결함을 모두 해소하는 다른 조건 조합으로 재생성할 것. 같은 패턴 반복 금지.\n"
+                )
+                continue
+
+            # 모든 게이트 통과
+            break
+        else:
+            # while-else: break 없이 종료 (= 모든 시도 실패)
+            stage = last_failure.get("stage", "unknown")
+            logger.warning("[llm_strategy] %d회 시도 모두 실패 (last_stage=%s)", MAX_ATTEMPTS, stage)
             return {
-                "status": "review_rejected",
-                "review": review,
-                "gate_reason": f"LLM 리뷰 거부: {review.get('reasoning', '')}",
-                "analysis": result.get("analysis"),
-                "conditions": temp_conditions,
-                "risk_level": result.get("risk_level"),
+                "status": "review_rejected" if stage == "review_rejected" else "gated",
+                "gate_reason": last_failure.get("reason") or (
+                    f"LLM 리뷰 거부: {(last_failure.get('review') or {}).get('reasoning', '')}"
+                ),
+                "review": last_failure.get("review", {}),
+                "analysis": (last_failure.get("result") or {}).get("analysis"),
+                "conditions": last_failure.get("conditions", []),
+                "risk_level": (last_failure.get("result") or {}).get("risk_level"),
                 "ml_enhanced": bool(ml_context),
-                "backtest": backtest,
+                "backtest": last_failure.get("backtest", {}),
+                "attempts": attempt,
             }
 
         # 9. 전략 저장 (룰 게이트 + LLM 검토 모두 통과)
@@ -764,6 +847,7 @@ def generate_strategy(user_id: int = 1):
             "ml_enhanced": bool(ml_context),
             "backtest": backtest,
             "review": review,
+            "attempts": attempt,
         }
 
     except Exception as e:
