@@ -37,6 +37,17 @@ _RECONNECT_MAX = 20
 _RECONNECT_BACKOFF_INITIAL = 5
 _RECONNECT_BACKOFF_MAX = 300
 
+# Watchdog 정책
+_WATCHDOG_STALE_SECONDS = 180          # heartbeat 누락 180s 이상이면 재기동 트리거
+_WATCHDOG_RESTART_COUNT_KEY = "autostock:watchdog:restart_count"  # sliding 30m count
+_WATCHDOG_LAST_ACTION_KEY = "autostock:watchdog:last_action_ts"
+_WATCHDOG_ESCALATE_KEY = "autostock:watchdog:escalated"           # 30m TTL 키
+_WATCHDOG_WINDOW_SECONDS = 1800        # 30분 슬라이딩 윈도우
+_WATCHDOG_ESCALATE_THRESHOLD = 3       # 30분 내 3회 초과 → 에스컬레이션
+_ALERTS_KEY = "autostock:alerts"
+_MARKET_OPEN_HOUR = 9                  # KST
+_MARKET_CLOSE_HOUR = 16                # 09:00~15:59 사이만 watchdog 동작
+
 
 def _get_running_tickers() -> list[str]:
     """RUNNING 상태 봇의 tickers 전체 수집 (중복 제거)"""
@@ -179,6 +190,140 @@ async def _stream_with_reconnect(tickers: list[str], approval_key: str):
 
     if attempts >= _RECONNECT_MAX:
         logger.error("[KisPriceStream] 재연결 최대 시도(%d) 초과 — 스트림 종료", _RECONNECT_MAX)
+
+
+def _is_market_hours() -> bool:
+    """KST 평일 09:00~15:59 (장중)인지 판단. 장외에는 watchdog이 재기동을 시도하지 않는다."""
+    from datetime import datetime, timezone, timedelta
+    kst = datetime.now(timezone(timedelta(hours=9)))
+    if kst.weekday() >= 5:  # 토(5), 일(6)
+        return False
+    return _MARKET_OPEN_HOUR <= kst.hour < _MARKET_CLOSE_HOUR
+
+
+def _push_alert(redis_client, alert_type: str, message: str, extra: dict | None = None) -> None:
+    from datetime import datetime, timezone
+    payload = {
+        "type": alert_type,
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra:
+        payload.update(extra)
+    try:
+        redis_client.lpush(_ALERTS_KEY, json.dumps(payload, ensure_ascii=False))
+        redis_client.ltrim(_ALERTS_KEY, 0, 199)  # 최근 200건 유지
+    except Exception as e:
+        logger.warning("[Watchdog] alert push 실패: %s", e)
+
+
+def _is_start_task_active(celery_inspect) -> bool:
+    """celery inspect.active() 결과에 start_price_stream task가 떠 있는지 확인."""
+    try:
+        active = celery_inspect.active() or {}
+    except Exception as e:
+        logger.warning("[Watchdog] inspect.active 실패 (보수적으로 active=True 처리): %s", e)
+        return True  # 알 수 없을 땐 재기동을 보류 (안전 우선)
+    for _worker, tasks in active.items():
+        for t in tasks or []:
+            if (t.get("name") or "").endswith("start_price_stream"):
+                return True
+    return False
+
+
+@celery_app.task(name="tasks.kis_price_stream.watchdog_price_stream")
+def watchdog_price_stream():
+    """KIS 실시간 시세 스트림 Heartbeat Watchdog.
+
+    매 1분 실행 (Celery beat). 장중에만 동작.
+    - heartbeat 키가 stale이고 active task가 없으면 start_price_stream을 재기동
+    - 30분 내 3회 초과 재기동 시 에스컬레이션 알림 (코드 결함/외부 장애 의심)
+    """
+    if not _is_market_hours():
+        return {"status": "skipped", "reason": "outside_market_hours"}
+
+    if not settings.KIS_APP_KEY or not settings.KIS_APP_SECRET:
+        return {"status": "skipped", "reason": "kis_keys_missing"}
+
+    r = redis_sync.from_url(settings.REDIS_URL)
+
+    # 1) heartbeat 상태 확인
+    raw_ts = r.get(_HEARTBEAT_KEY)
+    now = int(_time.time())
+    if raw_ts is not None:
+        try:
+            last_ts = int(raw_ts)
+        except (TypeError, ValueError):
+            last_ts = 0
+        age = now - last_ts
+        if age < _WATCHDOG_STALE_SECONDS:
+            return {"status": "ok", "heartbeat_age_s": age}
+    else:
+        age = None  # 키 자체가 없음 (TTL 만료 또는 미기록)
+
+    # 2) RUNNING 봇이 없으면 스트림이 없는 게 정상 — skip
+    try:
+        running_tickers = _get_running_tickers()
+    except Exception as e:
+        logger.warning("[Watchdog] RUNNING 봇 조회 실패: %s", e)
+        running_tickers = []
+    if not running_tickers:
+        return {"status": "skipped", "reason": "no_running_bots"}
+
+    # 3) celery에 start_price_stream이 이미 떠 있으면 reconnect 진행 중일 가능성
+    inspect = celery_app.control.inspect(timeout=2.0)
+    if _is_start_task_active(inspect):
+        logger.info("[Watchdog] heartbeat stale (age=%s) but start_task active — 재기동 보류", age)
+        return {"status": "deferred", "reason": "start_task_active", "heartbeat_age_s": age}
+
+    # 4) 30분 윈도우 내 재기동 횟수 체크
+    try:
+        cur_count = int(r.get(_WATCHDOG_RESTART_COUNT_KEY) or 0)
+    except (TypeError, ValueError):
+        cur_count = 0
+
+    if cur_count >= _WATCHDOG_ESCALATE_THRESHOLD:
+        # 에스컬레이션 — 30분 윈도우 내 1번만 알림 (escalated 키 TTL로 디덥)
+        if not r.exists(_WATCHDOG_ESCALATE_KEY):
+            r.setex(_WATCHDOG_ESCALATE_KEY, _WATCHDOG_WINDOW_SECONDS, "1")
+            msg = (
+                f"[Watchdog] 30분 내 재기동 {cur_count}회 누적 — 코드 결함/외부 장애 의심. "
+                f"heartbeat_age_s={age} running_tickers={len(running_tickers)}"
+            )
+            logger.error(msg)
+            _push_alert(r, "STREAM_WATCHDOG_ESCALATE", msg, {"restart_count": cur_count, "heartbeat_age_s": age})
+        return {"status": "escalated", "restart_count": cur_count, "heartbeat_age_s": age}
+
+    # 5) 재기동 — start_price_stream을 stream 큐에 enqueue
+    try:
+        async_result = start_price_stream.apply_async(queue="stream")
+        new_count = r.incr(_WATCHDOG_RESTART_COUNT_KEY)
+        # 첫 진입 시에만 TTL 설정 → 30분 슬라이딩 윈도우
+        if new_count == 1:
+            r.expire(_WATCHDOG_RESTART_COUNT_KEY, _WATCHDOG_WINDOW_SECONDS)
+        from datetime import datetime, timezone
+        r.set(_WATCHDOG_LAST_ACTION_KEY, datetime.now(timezone.utc).isoformat())
+
+        msg = (
+            f"[Watchdog] heartbeat stale (age={age}s) — start_price_stream 재기동 "
+            f"(window count={new_count}/{_WATCHDOG_ESCALATE_THRESHOLD}, task_id={async_result.id})"
+        )
+        logger.warning(msg)
+        _push_alert(r, "STREAM_WATCHDOG_RESTART", msg, {
+            "restart_count": new_count,
+            "heartbeat_age_s": age,
+            "task_id": async_result.id,
+        })
+        return {
+            "status": "restarted",
+            "restart_count": new_count,
+            "heartbeat_age_s": age,
+            "task_id": async_result.id,
+        }
+    except Exception as e:
+        logger.error("[Watchdog] 재기동 enqueue 실패: %s", e, exc_info=True)
+        _push_alert(r, "STREAM_WATCHDOG_ERROR", f"재기동 enqueue 실패: {e}")
+        return {"status": "error", "error": str(e)}
 
 
 @celery_app.task(name="tasks.kis_price_stream.start_price_stream", bind=True, max_retries=10)
