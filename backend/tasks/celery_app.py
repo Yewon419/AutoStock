@@ -23,7 +23,15 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     task_track_started=True,
+    # 기본 큐: 'celery' (분 단위 cron, 짧은 작업). long-running은 'stream'으로 분리.
+    task_default_queue="celery",
 )
+
+# 큐 라우팅 — long-running task는 별도 worker(autostock-celery-stream-worker)로 격리.
+# 기존 celery-worker(concurrency 다수)는 'celery' 큐만 처리하므로 분 단위 task 적체 방지.
+celery_app.conf.task_routes = {
+    "tasks.kis_price_stream.start_price_stream": {"queue": "stream"},
+}
 
 # 스케줄
 celery_app.conf.beat_schedule = {

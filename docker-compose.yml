@@ -60,7 +60,24 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=2
+    # 'celery' 큐만 처리 — 분 단위 cron / indicator batch / 매매 사이클 등 짧은 작업
+    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=4 -Q celery -n default@%h
+
+  celery-stream-worker:
+    build: ./backend
+    container_name: autostock-celery-stream-worker
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    # 'stream' 큐 전용 — KisPriceStream(7시간 long-running) 격리, 다른 task와 슬롯 경합 방지
+    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=1 -Q stream -n stream@%h
 
   celery-beat:
     build: ./backend
