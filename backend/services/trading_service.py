@@ -1,7 +1,63 @@
 import math
+from datetime import time
 from sqlalchemy.orm import Session
 from models.trading import Account, TradingBot, Order, Execution, Position, BotReport
 from core.security import get_encryption_service
+
+
+# ── bot_type별 프로필 기본값 ───────────────────────────────────────
+# Canvas/API에서 값을 명시하지 않으면 아래 프로필이 적용됨.
+# 단일 진실원: "bot_type='scalping'이면 단타에 맞는 리스크/타이밍/신호 파라미터 자동 적용".
+# 호출자가 명시(None 아님)한 값은 존중 — 프로필로 덮어쓰지 않음.
+
+SCALPING_PROFILE: dict = {
+    'stop_loss_pct': 2.0,
+    'take_profit_pct': 4.0,
+    'max_drawdown_pct': 8.0,
+    'position_size_pct': 10.0,
+    'max_positions': 5,
+    'max_daily_trades': 40,
+    'max_order_amount': 1_000_000,
+    'trading_start_time': time(9, 0),
+    'trading_end_time': time(15, 20),
+    'candle_interval': 3,
+    'intraday_close': True,
+    'intraday_close_time': time(15, 10),
+    'trailing_stop_pct': 1.5,
+    'confirm_bars': 2,
+}
+
+SWING_PROFILE: dict = {
+    'stop_loss_pct': 5.0,
+    'take_profit_pct': 10.0,
+    'max_drawdown_pct': 15.0,
+    'position_size_pct': 10.0,
+    'max_positions': 5,
+    'max_daily_trades': 20,
+    'max_order_amount': 1_000_000,
+    'trading_start_time': time(9, 0),
+    'trading_end_time': time(15, 20),
+    'candle_interval': 5,
+    'intraday_close': False,
+    'intraday_close_time': time(14, 50),
+    'trailing_stop_pct': None,
+    'confirm_bars': 1,
+}
+
+
+def _apply_profile_defaults(data: dict) -> dict:
+    """bot_type 프로필 기본값을 data에 병합. data 값이 None인 필드만 프로필로 채움.
+
+    호출자가 명시적으로 값을 넣었으면(None 아님) 그 값 유지. Canvas처럼 타입만 전달하는
+    경로는 프로필 전체를 자동 적용받음.
+    """
+    bot_type = data.get('bot_type') or 'swing'
+    profile = SCALPING_PROFILE if bot_type == 'scalping' else SWING_PROFILE
+    merged = dict(data)
+    for key, val in profile.items():
+        if merged.get(key) is None:
+            merged[key] = val
+    return merged
 
 
 # ── 계좌 ───────────────────────────────────────────────────────────
@@ -69,31 +125,33 @@ def get_bot(db: Session, bot_id: int, user_id: int):
 
 
 def create_bot(db: Session, user_id: int, data: dict):
-    initial_cash = data.get('initial_cash', 10_000_000)
+    # bot_type 프로필로 미지정 필드 자동 채움 (Canvas AI 생성 봇이 일관된 설정을 갖도록).
+    merged = _apply_profile_defaults(data)
+    initial_cash = merged.get('initial_cash', 10_000_000)
     bot = TradingBot(
         user_id=user_id,
-        name=data['name'],
-        mode=data.get('mode', 'mock'),
-        strategy_id=data.get('strategy_id'),
-        account_id=data.get('account_id'),
-        tickers=data.get('tickers', []),
+        name=merged['name'],
+        mode=merged.get('mode', 'mock'),
+        strategy_id=merged.get('strategy_id'),
+        account_id=merged.get('account_id'),
+        tickers=merged.get('tickers', []),
         initial_cash=initial_cash,
         cash=initial_cash,
-        stop_loss_pct=data.get('stop_loss_pct', 5.0),
-        take_profit_pct=data.get('take_profit_pct', 10.0),
-        max_drawdown_pct=data.get('max_drawdown_pct', 15.0),
-        position_size_pct=data.get('position_size_pct', 10.0),
-        max_positions=data.get('max_positions', 5),
-        max_daily_trades=data.get('max_daily_trades', 20),
-        max_order_amount=data.get('max_order_amount', 1_000_000),
-        trading_start_time=data.get('trading_start_time'),
-        trading_end_time=data.get('trading_end_time'),
-        bot_type=data.get('bot_type', 'swing'),
-        candle_interval=data.get('candle_interval', 5),
-        intraday_close=data.get('intraday_close', False),
-        intraday_close_time=data.get('intraday_close_time'),
-        trailing_stop_pct=data.get('trailing_stop_pct'),
-        confirm_bars=data.get('confirm_bars', 1),
+        stop_loss_pct=merged.get('stop_loss_pct'),
+        take_profit_pct=merged.get('take_profit_pct'),
+        max_drawdown_pct=merged.get('max_drawdown_pct'),
+        position_size_pct=merged.get('position_size_pct'),
+        max_positions=merged.get('max_positions'),
+        max_daily_trades=merged.get('max_daily_trades'),
+        max_order_amount=merged.get('max_order_amount'),
+        trading_start_time=merged.get('trading_start_time'),
+        trading_end_time=merged.get('trading_end_time'),
+        bot_type=merged.get('bot_type', 'swing'),
+        candle_interval=merged.get('candle_interval'),
+        intraday_close=merged.get('intraday_close'),
+        intraday_close_time=merged.get('intraday_close_time'),
+        trailing_stop_pct=merged.get('trailing_stop_pct'),
+        confirm_bars=merged.get('confirm_bars'),
     )
     db.add(bot)
     db.commit()

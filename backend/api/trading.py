@@ -38,28 +38,35 @@ class AccountResponse(BaseModel):
 
 
 class BotCreate(BaseModel):
+    """봇 생성 스키마.
+
+    리스크/타이밍/단타 파라미터는 Optional[...] = None — 값을 비우면 trading_service가
+    bot_type 프로필(SCALPING_PROFILE / SWING_PROFILE)을 적용. Canvas AI가 bot_type만
+    전달해도 단타 봇은 SL 2% / TP 4% / intraday_close=true / trailing 1.5% 등
+    단타 프로필이 자동 적용됨. 명시적으로 값을 넣으면 그 값이 우선.
+    """
     name: str
     mode: str = 'mock'            # mock | paper | real
     strategy_id: Optional[int] = None
     account_id: Optional[int] = None
     tickers: List[str] = []
     initial_cash: float = 10_000_000
-    stop_loss_pct: float = 5.0
-    take_profit_pct: float = 10.0
-    max_drawdown_pct: float = 15.0
-    position_size_pct: float = 10.0
-    max_positions: int = 5
-    max_daily_trades: int = 20
-    max_order_amount: float = 1_000_000
-    trading_start_time: Optional[str] = "09:00"   # "HH:MM"
-    trading_end_time: Optional[str] = "15:20"
-    # 단타 설정
+    stop_loss_pct: Optional[float] = None
+    take_profit_pct: Optional[float] = None
+    max_drawdown_pct: Optional[float] = None
+    position_size_pct: Optional[float] = None
+    max_positions: Optional[int] = None
+    max_daily_trades: Optional[int] = None
+    max_order_amount: Optional[float] = None
+    trading_start_time: Optional[str] = None       # "HH:MM"
+    trading_end_time: Optional[str] = None
+    # 단타 설정 (bot_type 프로필로 자동 적용)
     bot_type: Literal['swing', 'scalping'] = 'swing'
-    candle_interval: int = 5                       # 분봉 단위 (1,3,5,10,15)
-    intraday_close: bool = False                   # 당일 강제 청산 여부
-    intraday_close_time: Optional[str] = "14:50"  # "HH:MM"
+    candle_interval: Optional[int] = None          # 분봉 단위 (1,3,5,10,15)
+    intraday_close: Optional[bool] = None          # 당일 강제 청산 여부
+    intraday_close_time: Optional[str] = None      # "HH:MM"
     trailing_stop_pct: Optional[float] = None      # 트레일링 스탑 % (None=비활성화)
-    confirm_bars: int = 1                          # 연속 신호 확인 봉 수 (1=즉시 진입)
+    confirm_bars: Optional[int] = None             # 연속 신호 확인 봉 수
 
 
 class BotUpdate(BaseModel):
