@@ -770,6 +770,12 @@ def _run_cycle_inner(db, bot: TradingBot):
 
 
 def _execute_buy(db, bot, ticker, qty, price, fee, order_number=None):
+    # Circuit Breaker: 포트폴리오 손실 -7%+ 시 신규 매수 차단
+    from services.circuit_breaker import is_new_buy_blocked
+    if is_new_buy_blocked():
+        logger.warning(f"[bot_engine] _execute_buy 차단 (Circuit Breaker WARN+) bot={bot.id} ticker={ticker}")
+        return
+
     now = datetime.now(tz=timezone.utc)
     order = Order(bot_id=bot.id, ticker=ticker, order_type='BUY',
                   quantity=qty, price=price, status='FILLED',

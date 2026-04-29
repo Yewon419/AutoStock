@@ -13,6 +13,7 @@ celery_app = Celery(
         "tasks.kis_price_stream",
         "tasks.intraday_collector", "tasks.scalping_engine",
         "tasks.llm_strategy", "tasks.bot_diagnostics",
+        "tasks.circuit_breaker_task",
     ],
 )
 
@@ -69,6 +70,12 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=30, day_of_week="1-5"),
         "kwargs": {"user_id": 1},
     },
+    # 평일 09:30 - 거부된 패턴 재시도 (시장 변화 시 자동 통과 → PATTERN_REOPENED 알림)
+    "reopen-pending-patterns": {
+        "task": "tasks.llm_strategy.reopen_pending_patterns",
+        "schedule": crontab(hour=9, minute=30, day_of_week="1-5"),
+        "kwargs": {"user_id": 1},
+    },
     # 평일 08:55 - 장 시작 전 KIS WebSocket 실시간 시세 스트림 시작
     "start-price-stream": {
         "task": "tasks.kis_price_stream.start_price_stream",
@@ -77,6 +84,11 @@ celery_app.conf.beat_schedule = {
     # 평일 09:00~15:59 매 1분 - heartbeat 감시 + 자동 재기동
     "watchdog-price-stream": {
         "task": "tasks.kis_price_stream.watchdog_price_stream",
+        "schedule": crontab(minute="*", hour="9-15", day_of_week="1-5"),
+    },
+    # 평일 정규장 매 1분 - 포트폴리오 Circuit Breaker (-7/-8.5/-10% 자동 방어)
+    "portfolio-circuit-breaker": {
+        "task": "tasks.circuit_breaker_task.run_circuit_breaker",
         "schedule": crontab(minute="*", hour="9-15", day_of_week="1-5"),
     },
     # 평일 09:00~15:00 매 1분 - scalping 봇 분봉 수집 & 지표 계산

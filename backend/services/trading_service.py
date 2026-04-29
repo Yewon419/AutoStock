@@ -45,18 +45,36 @@ SWING_PROFILE: dict = {
 }
 
 
-def _apply_profile_defaults(data: dict) -> dict:
-    """bot_type 프로필 기본값을 data에 병합. data 값이 None인 필드만 프로필로 채움.
+def _apply_profile_defaults(data: dict, db: Session = None) -> dict:
+    """bot_type 프로필 기본값을 data에 병합. 우선순위:
+    1) 호출자가 명시한 값 (None 아님) — 최우선
+    2) strategy.risk_params (AI 팔레트가 전략별 결정)
+    3) bot_type 프로필 디폴트 (SCALPING_PROFILE / SWING_PROFILE) — 폴백
 
-    호출자가 명시적으로 값을 넣었으면(None 아님) 그 값 유지. Canvas처럼 타입만 전달하는
-    경로는 프로필 전체를 자동 적용받음.
+    Canvas/API에서 strategy_id만 보내도 AI 팔레트가 정한 SL/TP/MDD 등이 자동 적용됨.
     """
+    from models.strategy import Strategy
+
     bot_type = data.get('bot_type') or 'swing'
     profile = SCALPING_PROFILE if bot_type == 'scalping' else SWING_PROFILE
     merged = dict(data)
-    for key, val in profile.items():
+
+    # Strategy.risk_params 로드 (AI 팔레트 결정값) — db가 제공된 경우만
+    strategy_rp: dict = {}
+    sid = merged.get('strategy_id')
+    if db is not None and sid:
+        strat = db.query(Strategy).filter(Strategy.id == sid).first()
+        if strat and isinstance(strat.risk_params, dict):
+            strategy_rp = strat.risk_params
+
+    # 우선순위 적용: 호출자 명시 > strategy.risk_params > 프로필 디폴트
+    for key, default_val in profile.items():
         if merged.get(key) is None:
-            merged[key] = val
+            if key in strategy_rp and strategy_rp[key] is not None:
+                merged[key] = strategy_rp[key]
+            else:
+                merged[key] = default_val
+
     return merged
 
 
@@ -125,8 +143,9 @@ def get_bot(db: Session, bot_id: int, user_id: int):
 
 
 def create_bot(db: Session, user_id: int, data: dict):
-    # bot_type 프로필로 미지정 필드 자동 채움 (Canvas AI 생성 봇이 일관된 설정을 갖도록).
-    merged = _apply_profile_defaults(data)
+    # bot_type 프로필 + strategy.risk_params로 미지정 필드 자동 채움.
+    # Canvas/API에서 strategy_id만 보내도 AI 팔레트가 결정한 SL/TP/MDD 등이 자동 적용됨.
+    merged = _apply_profile_defaults(data, db=db)
     initial_cash = merged.get('initial_cash', 10_000_000)
     bot = TradingBot(
         user_id=user_id,

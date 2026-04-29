@@ -76,7 +76,18 @@ ML 예측 모델 데이터가 제공되는 경우 반드시 다음을 반영하�
     {"indicator": "지표명", "condition": "조건", "value": 숫자, "value2": null또는숫자}
   ],
   "confidence": 신뢰도(0~100 정수),
-  "risk_level": "low | medium | high"
+  "risk_level": "low | medium | high",
+  "risk_params": {
+    "stop_loss_pct": 1.5~8.0 (전략 변동성에 맞춰 결정),
+    "take_profit_pct": 3.0~15.0 (손익비 ≥ 1.5 권장),
+    "max_drawdown_pct": 5.0~15.0 (포트폴리오 분산 고려),
+    "position_size_pct": 5.0~25.0 (전략당 종목 비중),
+    "max_positions": 1~6 (집중도와 회전율 조절),
+    "max_daily_trades": 5~50 (단타는 높게, 스윙은 낮게),
+    "trailing_stop_pct": null 또는 0.8~3.0,
+    "intraday_close": true (scalping) | false (swing),
+    "candle_interval": 1|3|5 (분봉, scalping용)
+  }
 }
 
 조건 생성 규칙:
@@ -84,7 +95,13 @@ ML 예측 모델 데이터가 제공되는 경우 반드시 다음을 반영하�
 - between 조건은 value(하한) < value2(상한) 형식
 - golden_cross/dead_cross는 value=0 (기준선 돌파 감지)
 - 지표명은 반드시 제공된 목록에서만 선택
-- 진입 영역 가드레일을 반드시 준수 (위반 시 자동 거부)"""
+- 진입 영역 가드레일을 반드시 준수 (위반 시 자동 거부)
+
+risk_params 결정 원칙:
+- 변동성 큰 전략(돌파/단타)은 stop_loss 작게(1.5~3%), take_profit 적당(3~6%), max_positions 작게(1~3)
+- 안정적 전략(눌림목/추세)은 stop_loss 보통(3~5%), take_profit 크게(8~12%), max_positions 보통(3~5)
+- 손익비(take_profit/stop_loss) ≥ 1.5 필수, 1.5 미만이면 자동 거부
+- scalping은 intraday_close=true 필수 (장 마감 전 청산)"""
 
 
 # ── 타입 정규화 ────────────────────────────────────────────────────
@@ -101,6 +118,136 @@ def _normalize_strategy_type(raw) -> str:
     if r in ("scalping", "day_trading", "day-trading", "daytrade", "intraday", "scalp"):
         return "scalping"
     return "swing"
+
+
+# ── 패턴 정의 (다변화 포트폴리오용 5패턴) ────────────────────────────
+
+PATTERNS: dict[str, dict] = {
+    "trend_breakout": {
+        "korean": "추세돌파",
+        "strategy_type": "swing",
+        "directive": (
+            "추세돌파(swing) 전략 — 정배열 + 모멘텀 가속 시점 매수.\n"
+            "필수 조합: price > ma_20 + macd_histogram above 0 + adx above 20 (또는 volume_ratio above 1.3)\n"
+            "RSI 사용 시 between 50~65 권장 (과매수 영역 금지). 종목군은 강세 추세 진행 중인 대형/중형 모멘텀주."
+        ),
+    },
+    "pullback": {
+        "korean": "눌림목",
+        "strategy_type": "swing",
+        "directive": (
+            "눌림목(swing) 전략 — 상승 추세 종목의 일시적 조정 후 회복 시점 매수.\n"
+            "필수 조합: RSI between 35~50 + macd_histogram above 0 + price > ma_20 (추세 유지 확인)\n"
+            "역추세 베팅이 아니라 *추세 유지 + 단기 조정* 종목만 포착."
+        ),
+    },
+    "volatility_squeeze": {
+        "korean": "변동성압축",
+        "strategy_type": "swing",
+        "directive": (
+            "변동성압축(swing) 전략 — 볼린저 밴드 폭 축소(BB_squeeze) 후 확장 시점 매수.\n"
+            "필수 조합: bollinger_lower~bollinger_upper 폭 축소 + volume_ratio above 1.3 + macd_histogram above 0\n"
+            "ML Feature Importance에서 ATR_norm/BB_squeeze가 상위인 환경에서 우위."
+        ),
+    },
+    "scalping_mean_reversion": {
+        "korean": "과매도단타",
+        "strategy_type": "scalping",
+        "directive": (
+            "과매도반등(scalping) 전략 — 분봉 RSI 과매도 + VWAP 하방 이탈 후 거래량 반등 매수.\n"
+            "필수 조합: RSI < 35 + price_vs_vwap below -0.5 + volume_ratio above 1.3\n"
+            "intraday_close=true 필수, candle_interval=1~3분."
+        ),
+    },
+    "scalping_breakout": {
+        "korean": "돌파단타",
+        "strategy_type": "scalping",
+        "directive": (
+            "돌파단타(scalping) 전략 — 분봉 VWAP 상향 돌파 + 변동성 확장 + 거래량 급증 매수.\n"
+            "필수 조합: price_vs_vwap above 0.3 + atr (변동성 확장) + volume_ratio above 2\n"
+            "RSI 50~65 권장 (과매수 65 초과 금지). intraday_close=true 필수, candle_interval=1~3분."
+        ),
+    },
+}
+
+
+def _normalize_pattern(raw) -> Optional[str]:
+    if not raw:
+        return None
+    r = str(raw).lower().strip()
+    if r in PATTERNS:
+        return r
+    return None
+
+
+# ── risk_params 검증 ──────────────────────────────────────────────
+
+def _validate_risk_params(rp: dict, strategy_type: str) -> tuple[bool, str, dict]:
+    """LLM이 결정한 risk_params를 검증하고 정규화. (ok, reason, normalized) 반환."""
+    if not isinstance(rp, dict):
+        return False, "risk_params 누락 또는 형식 오류", {}
+
+    def _f(key, lo, hi, default=None):
+        v = rp.get(key)
+        if v is None:
+            return default
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return default
+        if f < lo or f > hi:
+            return None  # 범위 위반 마커
+        return f
+
+    sl = _f("stop_loss_pct", 1.0, 10.0)
+    tp = _f("take_profit_pct", 2.0, 20.0)
+    md = _f("max_drawdown_pct", 3.0, 20.0)
+    ps = _f("position_size_pct", 3.0, 30.0)
+    mp = rp.get("max_positions")
+    mdt = rp.get("max_daily_trades")
+    ts = _f("trailing_stop_pct", 0.5, 5.0, default=None)
+    ic = bool(rp.get("intraday_close", strategy_type == "scalping"))
+    ci = rp.get("candle_interval")
+
+    if sl is None or tp is None or md is None or ps is None:
+        return False, "risk_params 값 범위 위반 (stop_loss/take_profit/max_drawdown/position_size 중)", {}
+
+    if sl == 0 or tp / sl < 1.5:
+        return False, f"손익비 미달 (TP {tp} / SL {sl} = {tp/sl if sl else 'inf'} < 1.5)", {}
+
+    try:
+        mp_int = int(mp) if mp is not None else (3 if strategy_type == "swing" else 2)
+        mdt_int = int(mdt) if mdt is not None else (10 if strategy_type == "swing" else 30)
+    except (TypeError, ValueError):
+        return False, "max_positions/max_daily_trades 형식 오류", {}
+
+    if mp_int < 1 or mp_int > 8:
+        return False, f"max_positions 범위 위반 ({mp_int})", {}
+    if mdt_int < 1 or mdt_int > 100:
+        return False, f"max_daily_trades 범위 위반 ({mdt_int})", {}
+
+    if strategy_type == "scalping" and not ic:
+        return False, "scalping 전략은 intraday_close=true 필수", {}
+
+    try:
+        ci_int = int(ci) if ci is not None else (5 if strategy_type == "swing" else 3)
+    except (TypeError, ValueError):
+        ci_int = 5 if strategy_type == "swing" else 3
+    if ci_int not in (1, 3, 5):
+        ci_int = 3 if strategy_type == "scalping" else 5
+
+    normalized = {
+        "stop_loss_pct": round(sl, 2),
+        "take_profit_pct": round(tp, 2),
+        "max_drawdown_pct": round(md, 2),
+        "position_size_pct": round(ps, 2),
+        "max_positions": mp_int,
+        "max_daily_trades": mdt_int,
+        "trailing_stop_pct": round(ts, 2) if ts is not None else None,
+        "intraday_close": ic,
+        "candle_interval": ci_int,
+    }
+    return True, "", normalized
 
 
 # ── 기술 지표 요약 빌더 ──────────────────────────────────────────────
@@ -410,9 +557,13 @@ REVIEWER_SYSTEM_PROMPT = """당신은 한국 주식 자동매매 전략을 최�
 3. 백테스트 결과 신뢰도: num_trades, win_rate, total_return_pct가 일반화 가능한 수준인가?
    - 거래 수가 적으면(< 10) 통계적 신뢰 부족
    - 수익률은 좋은데 거래 수가 1~2건이면 핏 가능성 큼
+   - 백테스트 win_rate가 50% 미만이라도 손익비(take_profit/stop_loss) ≥ 1.5면 기대값 양수 가능 →
+     win_rate만으로 reject하지 말고 risk_params의 손익비와 함께 판단할 것
    - ⚠ 단, strategy_type='scalping'(분봉 단타)은 현재 시스템에 자동 백테스트가 미구현되어
      백테스트 결과가 비어있는 것이 *정상*이다. scalping에 대해서는 "백테스트 데이터 없음"
      자체를 reject 사유로 삼지 말 것. 의미·논리·시장 정합성으로 평가하라.
+   - ⚠ risk_params(stop_loss/take_profit/max_positions 등)는 별도 검증을 이미 통과한 값이다.
+     "출구 전략 미정의" 같은 사유로 reject하지 말 것 — 입력에 명시된 risk_params를 신뢰할 것.
 4. 시장 국면 정합성: 시장 컨텍스트(지수, ML 분포)와 전략 방향이 정합적인가?
 5. 리스크 구조: 조건이 한 종목 군에만 편중되지 않았는가? signal_ticker_pct가 적절한가?
 
@@ -430,7 +581,7 @@ REVIEWER_SYSTEM_PROMPT = """당신은 한국 주식 자동매매 전략을 최�
 - pass: 결함 없음, 즉시 배포 가능"""
 
 
-def _review_strategy(result: dict, conditions: list, backtest: dict, strategy_type: str, market_summary: str = "") -> dict:
+def _review_strategy(result: dict, conditions: list, backtest: dict, strategy_type: str, market_summary: str = "", risk_params: Optional[dict] = None) -> dict:
     """LLM 자기검토 — 생성된 전략을 별도 LLM 호출로 최종 평가.
 
     룰 기반 `_gate_strategy`로 못 잡는 의미적 결함(의도-조건 불일치,
@@ -446,7 +597,11 @@ def _review_strategy(result: dict, conditions: list, backtest: dict, strategy_ty
         import anthropic
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-        # 검토 입력: 전략 + 조건 + 백테스트 + 시장 요약
+        # risk_params 텍스트 (LLM이 결정한 SL/TP/MDD 등)
+        rp_for_prompt = risk_params if risk_params is not None else result.get("risk_params")
+        rp_text = json.dumps(rp_for_prompt, ensure_ascii=False, indent=2) if rp_for_prompt else "(LLM이 risk_params 미제출)"
+
+        # 검토 입력: 전략 + 조건 + risk_params + 백테스트 + 시장 요약
         review_input = (
             f"=== 검토 대상 전략 ===\n"
             f"전략명: {result.get('strategy_name', 'N/A')}\n"
@@ -456,6 +611,8 @@ def _review_strategy(result: dict, conditions: list, backtest: dict, strategy_ty
             f"자기 신뢰도: {result.get('confidence', 'N/A')}\n\n"
             f"=== 진입 조건 (AND 결합) ===\n"
             f"{json.dumps(conditions, ensure_ascii=False, indent=2)}\n\n"
+            f"=== 리스크 파라미터 (출구 전략 — 별도 검증 통과 완료) ===\n"
+            f"{rp_text}\n\n"
             f"=== 자동 백테스트 결과 (최근 180일, ML 상위 종목) ===\n"
             f"{json.dumps(backtest, ensure_ascii=False, indent=2) if backtest else '(백테스트 데이터 없음)'}\n\n"
             f"=== 시장 요약 (생성 시점) ===\n"
@@ -608,8 +765,13 @@ def _gate_strategy(backtest: dict, conditions: list = None, strategy_type: str =
     return True, ""
 
 
-def _save_strategy(db, user_id: int, result: dict, backtest: dict = None, review: dict = None) -> Strategy:
-    """LLM 결과 → Strategy 레코드 생성. review가 있으면 분석/신뢰도에 반영."""
+def _save_strategy(
+    db, user_id: int, result: dict,
+    backtest: dict = None, review: dict = None,
+    pattern: Optional[str] = None, risk_params: Optional[dict] = None,
+) -> Strategy:
+    """LLM 결과 → Strategy 레코드 생성. review가 있으면 분석/신뢰도에 반영.
+    pattern/risk_params는 force_pattern 호출 시 설정되어 봇 생성 단계에서 우선 적용된다."""
     conditions = _normalize_conditions(result.get("conditions", []))
     if not conditions:
         raise ValueError("유효한 조건이 없습니다")
@@ -649,6 +811,8 @@ def _save_strategy(db, user_id: int, result: dict, backtest: dict = None, review
         source="ai_generated",
         ai_analysis=analysis_with_review,
         ai_confidence=confidence,
+        pattern=pattern,
+        risk_params=risk_params,
     )
     db.add(strategy)
     db.commit()
@@ -663,8 +827,132 @@ def _save_strategy(db, user_id: int, result: dict, backtest: dict = None, review
 
 # ── Celery 태스크 ─────────────────────────────────────────────────────
 
+# ── Pattern Reopening Monitor ───────────────────────────────────────
+# 거부된 패턴(예: trend_breakout)을 주기적으로 재시도해 시장 적합 시점 자동 포착.
+
+_PENDING_PATTERN_KEY = "autostock:pattern:pending"           # SET — 재시도 대기 패턴
+_PATTERN_REJECT_KEY = "autostock:pattern:reject:{pattern}"   # JSON — 마지막 시도 메타데이터
+_PATTERN_REJECT_TTL = 30 * 24 * 3600                         # 30일
+_PATTERN_REOPENED_ALERT = "PATTERN_REOPENED"
+_PATTERN_REOPEN_COOLDOWN_HOURS = 20                          # 같은 패턴 1일 1회 시도 (08:30 cron 다음 09:30 reopen 사이클)
+
+
+def mark_pattern_rejected(pattern: str, attempts: int, review: dict) -> None:
+    """generate_strategy가 패턴을 reject했을 때 호출 — 재시도 큐에 등록."""
+    if not pattern:
+        return
+    try:
+        import redis as _redis
+        from datetime import datetime as _dt, timezone as _tz
+        r = _redis.from_url(settings.REDIS_URL)
+        meta = {
+            "pattern": pattern,
+            "last_attempt": _dt.now(_tz.utc).isoformat(),
+            "attempts": attempts,
+            "last_review_score": (review or {}).get("score"),
+            "last_review_reasoning": (review or {}).get("reasoning", "")[:500],
+        }
+        r.setex(_PATTERN_REJECT_KEY.format(pattern=pattern), _PATTERN_REJECT_TTL, json.dumps(meta, ensure_ascii=False))
+        r.sadd(_PENDING_PATTERN_KEY, pattern)
+        logger.info("[llm_strategy] pattern '%s' marked for reopening monitor", pattern)
+    except Exception as e:
+        logger.warning("[llm_strategy] mark_pattern_rejected 실패: %s", e)
+
+
+def _push_pattern_alert(alert_type: str, message: str, extra: Optional[dict] = None) -> None:
+    try:
+        import redis as _redis
+        from datetime import datetime as _dt, timezone as _tz
+        r = _redis.from_url(settings.REDIS_URL)
+        payload = {
+            "type": alert_type,
+            "message": message,
+            "timestamp": _dt.now(_tz.utc).isoformat(),
+        }
+        if extra:
+            payload.update(extra)
+        r.lpush("autostock:alerts", json.dumps(payload, ensure_ascii=False))
+        r.ltrim("autostock:alerts", 0, 199)
+    except Exception as e:
+        logger.warning("[llm_strategy] alert push 실패: %s", e)
+
+
+@celery_app.task(name="tasks.llm_strategy.reopen_pending_patterns")
+def reopen_pending_patterns(user_id: int = 1):
+    """매일 09:30 KST 실행 — 거부된 패턴이 시장 변화로 통과 가능한지 재시도.
+
+    통과 시: strategy 자동 저장 + PATTERN_REOPENED 알림 (사용자가 봇 추가 결정).
+    재거부 시: 메타데이터 갱신, 큐 유지.
+    """
+    import redis as _redis
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+
+    r = _redis.from_url(settings.REDIS_URL)
+    pending_raw = r.smembers(_PENDING_PATTERN_KEY)
+    pending = sorted({(p.decode() if isinstance(p, bytes) else p) for p in pending_raw})
+
+    if not pending:
+        logger.info("[reopen_patterns] 대기 패턴 없음")
+        return {"status": "no_pending"}
+
+    summary: list[dict] = []
+    for pattern in pending:
+        if pattern not in PATTERNS:
+            r.srem(_PENDING_PATTERN_KEY, pattern)
+            r.delete(_PATTERN_REJECT_KEY.format(pattern=pattern))
+            continue
+
+        # 쿨다운 체크: 마지막 시도 시각이 _PATTERN_REOPEN_COOLDOWN_HOURS 내면 skip
+        meta_raw = r.get(_PATTERN_REJECT_KEY.format(pattern=pattern))
+        if meta_raw:
+            try:
+                meta = json.loads(meta_raw)
+                last = _dt.fromisoformat(meta.get("last_attempt"))
+                age_h = (_dt.now(_tz.utc) - last).total_seconds() / 3600
+                if age_h < _PATTERN_REOPEN_COOLDOWN_HOURS:
+                    logger.info("[reopen_patterns] %s skip (cooldown %.1fh<%dh)", pattern, age_h, _PATTERN_REOPEN_COOLDOWN_HOURS)
+                    summary.append({"pattern": pattern, "result": "cooldown", "age_h": round(age_h, 1)})
+                    continue
+            except Exception:
+                pass
+
+        logger.info("[reopen_patterns] retrying pattern '%s'", pattern)
+        result = generate_strategy(user_id=user_id, force_pattern=pattern)
+        st = result.get("status")
+
+        if st == "ok":
+            r.srem(_PENDING_PATTERN_KEY, pattern)
+            r.delete(_PATTERN_REJECT_KEY.format(pattern=pattern))
+            sid = result.get("strategy_id")
+            sname = result.get("strategy_name")
+            verdict = (result.get("review") or {}).get("verdict", "?")
+            score = (result.get("review") or {}).get("score", "?")
+            msg = (
+                f"[패턴 재오픈] '{pattern}' 패턴이 시장 변화로 통과 (strategy_id={sid}, name={sname}, "
+                f"리뷰={verdict}/{score}). 봇 추가 여부 결정 필요."
+            )
+            _push_pattern_alert(_PATTERN_REOPENED_ALERT, msg, {
+                "pattern": pattern, "strategy_id": sid, "strategy_name": sname,
+                "review_verdict": verdict, "review_score": score,
+            })
+            summary.append({"pattern": pattern, "result": "passed", "strategy_id": sid})
+        else:
+            # 재거부 — 메타데이터 갱신, 큐 유지
+            mark_pattern_rejected(pattern, result.get("attempts", 0), result.get("review", {}))
+            summary.append({
+                "pattern": pattern, "result": "still_rejected",
+                "score": (result.get("review") or {}).get("score"),
+            })
+
+    return {"status": "ok", "summary": summary}
+
+
 @celery_app.task(name="tasks.llm_strategy.generate_strategy")
-def generate_strategy(user_id: int = 1, force_strategy_type: Optional[str] = None):
+def generate_strategy(
+    user_id: int = 1,
+    force_strategy_type: Optional[str] = None,
+    force_pattern: Optional[str] = None,
+):
     """
     시장 컨텍스트 수집 → Claude 분석 → 전략 조건 생성 → DB 저장
     매일 08:30 자동 실행 + 수동 트리거 가능
@@ -672,7 +960,9 @@ def generate_strategy(user_id: int = 1, force_strategy_type: Optional[str] = Non
     Args:
         user_id: 전략 소유자
         force_strategy_type: 'swing' | 'scalping' (선택). 지정 시 LLM이 해당 타입만 생성하도록 강제.
-            None이면 LLM이 시장 상황에 따라 자율 결정. (기본 None)
+        force_pattern: PATTERNS 키 중 하나 (선택). 5패턴(trend_breakout/pullback/volatility_squeeze/
+            scalping_mean_reversion/scalping_breakout)을 강제하여 포트폴리오 다변화에 사용.
+            지정 시 strategy_type은 패턴 정의에 따라 자동 결정 (force_strategy_type 무시).
     """
     db = SessionLocal()
     try:
@@ -697,23 +987,35 @@ def generate_strategy(user_id: int = 1, force_strategy_type: Optional[str] = Non
         market_text = _build_market_context_text(ctx)
         indicator_list = "\n".join(f"- {ind}" for ind in AVAILABLE_INDICATORS)
 
-        forced_norm = _normalize_strategy_type(force_strategy_type) if force_strategy_type else None
-        if forced_norm == "scalping":
+        # force_pattern이 지정되면 strategy_type도 자동 결정 (패턴 정의 우선)
+        norm_pattern = _normalize_pattern(force_pattern)
+        if norm_pattern:
+            pattern_def = PATTERNS[norm_pattern]
+            forced_norm = pattern_def["strategy_type"]
             type_directive = (
-                "\n\n⚠ 필수: 이번 호출은 단타(scalping) 전략 생성 전용입니다.\n"
-                "- 반드시 strategy_type='scalping'으로 응답하세요.\n"
-                "- 분봉 단위 회전 트레이딩에 적합한 진입 조건만 사용 (vwap, price_vs_vwap, atr, volume_ratio, rsi 과매도 반등 등).\n"
-                "- swing 트레이딩 패턴(추세 추종, 일봉 골든크로스 등)은 사용 금지.\n"
-                "- 가드레일은 그대로 적용: RSI > 65, stoch > 70 영역 매수 진입 절대 금지.\n"
-            )
-        elif forced_norm == "swing":
-            type_directive = (
-                "\n\n⚠ 필수: 이번 호출은 스윙(swing) 전략 생성 전용입니다.\n"
-                "- 반드시 strategy_type='swing'으로 응답하세요.\n"
-                "- 일봉 단위 추세 추종 또는 눌림목 매수 패턴 사용.\n"
+                f"\n\n⚠ 필수: 이번 호출은 '{pattern_def['korean']}'({norm_pattern}) 패턴 전용입니다.\n"
+                f"- 반드시 strategy_type='{forced_norm}'으로 응답하세요.\n"
+                f"- 패턴 가이드:\n  {pattern_def['directive']}\n"
+                f"- 가드레일은 그대로 적용: RSI > 65, stoch > 70 영역 매수 진입 절대 금지.\n"
             )
         else:
-            type_directive = ""
+            forced_norm = _normalize_strategy_type(force_strategy_type) if force_strategy_type else None
+            if forced_norm == "scalping":
+                type_directive = (
+                    "\n\n⚠ 필수: 이번 호출은 단타(scalping) 전략 생성 전용입니다.\n"
+                    "- 반드시 strategy_type='scalping'으로 응답하세요.\n"
+                    "- 분봉 단위 회전 트레이딩에 적합한 진입 조건만 사용 (vwap, price_vs_vwap, atr, volume_ratio, rsi 과매도 반등 등).\n"
+                    "- swing 트레이딩 패턴(추세 추종, 일봉 골든크로스 등)은 사용 금지.\n"
+                    "- 가드레일은 그대로 적용: RSI > 65, stoch > 70 영역 매수 진입 절대 금지.\n"
+                )
+            elif forced_norm == "swing":
+                type_directive = (
+                    "\n\n⚠ 필수: 이번 호출은 스윙(swing) 전략 생성 전용입니다.\n"
+                    "- 반드시 strategy_type='swing'으로 응답하세요.\n"
+                    "- 일봉 단위 추세 추종 또는 눌림목 매수 패턴 사용.\n"
+                )
+            else:
+                type_directive = ""
 
         base_message = f"""{market_text}
 {ml_context}
@@ -783,13 +1085,14 @@ def generate_strategy(user_id: int = 1, force_strategy_type: Optional[str] = Non
                 )
                 continue
 
-            # 8. LLM 자기검토
+            # 8. LLM 자기검토 (LLM이 응답한 risk_params를 함께 전달 — 출구 전략 false-reject 방지)
             review = _review_strategy(
                 result=result,
                 conditions=temp_conditions,
                 backtest=backtest,
                 strategy_type=norm_strategy_type,
                 market_summary=tech_summary,
+                risk_params=result.get("risk_params"),
             )
             if review.get("verdict") == "reject":
                 logger.warning(
@@ -811,12 +1114,36 @@ def generate_strategy(user_id: int = 1, force_strategy_type: Optional[str] = Non
                 )
                 continue
 
+            # 8.5. risk_params 검증 (LLM이 결정한 SL/TP/MDD 등)
+            rp_ok, rp_reason, normalized_rp = _validate_risk_params(
+                result.get("risk_params") or {}, norm_strategy_type,
+            )
+            if not rp_ok:
+                logger.warning("[llm_strategy] attempt=%d risk_params 검증 실패: %s", attempt, rp_reason)
+                last_failure = {
+                    "stage": "risk_params", "reason": rp_reason,
+                    "result": result, "conditions": temp_conditions, "backtest": backtest,
+                    "review": review,
+                }
+                prev_failure_block = (
+                    f"\n\n[직전 시도 실패 — 재생성 시 반드시 반영]\n"
+                    f"- risk_params 검증 실패: {rp_reason}\n"
+                    f"- 직전 risk_params: {json.dumps(result.get('risk_params'), ensure_ascii=False)}\n"
+                    f"- 손익비(take_profit/stop_loss) >= 1.5 필수, 모든 값 범위 준수.\n"
+                )
+                continue
+
             # 모든 게이트 통과
             break
         else:
             # while-else: break 없이 종료 (= 모든 시도 실패)
             stage = last_failure.get("stage", "unknown")
             logger.warning("[llm_strategy] %d회 시도 모두 실패 (last_stage=%s)", MAX_ATTEMPTS, stage)
+
+            # force_pattern으로 호출됐는데 거부됐으면 reopen 큐에 등록 (시장 변화 시 재시도)
+            if norm_pattern:
+                mark_pattern_rejected(norm_pattern, attempt, last_failure.get("review") or {})
+
             return {
                 "status": "review_rejected" if stage == "review_rejected" else "gated",
                 "gate_reason": last_failure.get("reason") or (
@@ -829,10 +1156,16 @@ def generate_strategy(user_id: int = 1, force_strategy_type: Optional[str] = Non
                 "ml_enhanced": bool(ml_context),
                 "backtest": last_failure.get("backtest", {}),
                 "attempts": attempt,
+                "pattern": norm_pattern,
+                "reopen_queued": bool(norm_pattern),
             }
 
-        # 9. 전략 저장 (룰 게이트 + LLM 검토 모두 통과)
-        strategy = _save_strategy(db, user_id, result, backtest=backtest, review=review)
+        # 9. 전략 저장 (룰 게이트 + 리뷰 + risk_params 모두 통과)
+        strategy = _save_strategy(
+            db, user_id, result,
+            backtest=backtest, review=review,
+            pattern=norm_pattern, risk_params=normalized_rp,
+        )
 
         return {
             "status": "ok",
@@ -848,6 +1181,8 @@ def generate_strategy(user_id: int = 1, force_strategy_type: Optional[str] = Non
             "backtest": backtest,
             "review": review,
             "attempts": attempt,
+            "pattern": norm_pattern,
+            "risk_params": normalized_rp,
         }
 
     except Exception as e:

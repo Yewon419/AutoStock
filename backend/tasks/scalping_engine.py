@@ -179,6 +179,13 @@ def _submit_and_track(db, bot, broker_obj, side: str, ticker: str, qty: int,
     반환: 생성된 order_id (성공) 또는 None (실패). 실패 시 로그/알림 처리.
     side는 'BUY' | 'SELL'. in-cycle 신규 주문이므로 skip_cash_adjust=False로 finalize.
     """
+    # Circuit Breaker: 신규 BUY만 차단 (SELL은 청산을 위해 항상 허용)
+    if side == 'BUY':
+        from services.circuit_breaker import is_new_buy_blocked
+        if is_new_buy_blocked():
+            logger.warning("[scalping_engine] BUY 차단 (Circuit Breaker WARN+) bot=%d ticker=%s", bot.id, ticker)
+            return None
+
     try:
         if side == 'BUY':
             result = broker_obj.place_buy(bot.id, ticker, qty, curr_price)
