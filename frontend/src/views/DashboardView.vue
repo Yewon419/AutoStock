@@ -46,6 +46,11 @@
         <div class="stat-value blue">{{ fmtMoney(summary.mock_assets) }}</div>
         <div class="stat-sub" :class="pnlClass(summary.mock_pnl)">{{ fmtPnl(summary.mock_pnl) }}</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-label">Paper 자산</div>
+        <div class="stat-value blue">{{ fmtMoney(summary.paper_assets) }}</div>
+        <div class="stat-sub" :class="pnlClass(summary.paper_pnl)">{{ fmtPnl(summary.paper_pnl) }}</div>
+      </div>
       <div class="stat-card stat-card-real">
         <div class="stat-label-real">실계좌 자산</div>
         <div class="stat-value gold">{{ fmtMoney(summary.real_assets) }}</div>
@@ -180,7 +185,7 @@ const auth = useAuthStore()
 const router = useRouter()
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
 
-const summary = ref({ running: 0, stopped: 0, error: 0, total_assets: 0, total_pnl: 0, mock_assets: 0, mock_pnl: 0, real_assets: 0, real_pnl: 0, daily_pnl: 0, today_trades: 0 })
+const summary = ref({ running: 0, stopped: 0, error: 0, total_assets: 0, total_pnl: 0, mock_assets: 0, mock_pnl: 0, paper_assets: 0, paper_pnl: 0, real_assets: 0, real_pnl: 0, daily_pnl: 0, today_trades: 0 })
 const botSnapshots = ref([])
 const alerts = ref([])
 const brokerStatus = ref({ mode: 'mock', connected: null })

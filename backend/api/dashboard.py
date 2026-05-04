@@ -35,11 +35,13 @@ def get_summary(
     stopped = sum(1 for b in bots if b.status == 'STOPPED')
     error = sum(1 for b in bots if b.status == 'ERROR')
 
-    # 전체 총 자산 계산 (mock / real·paper 분리)
+    # 전체 총 자산 계산 (mock / paper / real 분리)
     total_assets = 0.0
     total_pnl = 0.0
     mock_assets = 0.0
     mock_pnl = 0.0
+    paper_assets = 0.0
+    paper_pnl = 0.0
     real_assets = 0.0
     real_pnl = 0.0
     for bot in bots:
@@ -55,12 +57,15 @@ def get_summary(
         total_assets += bot_total
         total_pnl += bot_pnl
         mode = getattr(bot, 'mode', 'mock') or 'mock'
-        if mode == 'mock':
-            mock_assets += bot_total
-            mock_pnl += bot_pnl
-        else:
+        if mode == 'paper':
+            paper_assets += bot_total
+            paper_pnl += bot_pnl
+        elif mode == 'real':
             real_assets += bot_total
             real_pnl += bot_pnl
+        else:
+            mock_assets += bot_total
+            mock_pnl += bot_pnl
 
     # 오늘 거래 수 및 일일 PnL
     today = date.today()
@@ -99,6 +104,8 @@ def get_summary(
         "total_pnl": round(total_pnl, 0),
         "mock_assets": round(mock_assets, 0),
         "mock_pnl": round(mock_pnl, 0),
+        "paper_assets": round(paper_assets, 0),
+        "paper_pnl": round(paper_pnl, 0),
         "real_assets": round(real_assets, 0),
         "real_pnl": round(real_pnl, 0),
         "daily_pnl": round(daily_pnl, 0),
