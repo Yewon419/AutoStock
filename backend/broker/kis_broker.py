@@ -25,6 +25,8 @@ _PAPER_BASE = "https://openapivts.koreainvestment.com:29443"
 _REAL_BASE  = "https://openapi.koreainvestment.com:9443"
 
 _TOKEN_REDIS_KEY_FMT = "kis:access_token:{mode}"  # paper/real 토큰 분리 캐시
+_ERROR_COUNT_KEY_FMT = "autostock:kis_error_count:{minute_bucket}"  # mechanism_audit E3
+_ERROR_COUNT_TTL = 300  # 5분 (5분 주기 감사가 1번은 읽을 수 있도록)
 
 
 class KisBroker(BaseBroker):
@@ -108,6 +110,18 @@ class KisBroker(BaseBroker):
     # Orders
     # ------------------------------------------------------------------
 
+    def _bump_error_counter(self) -> None:
+        """매커니즘 감사(E3)용: 분 단위 에러 카운터 INCR. 본 흐름에 영향 없도록 swallow."""
+        try:
+            bucket = int(time.time()) // 60
+            key = _ERROR_COUNT_KEY_FMT.format(minute_bucket=bucket)
+            pipe = self._redis.pipeline()
+            pipe.incr(key)
+            pipe.expire(key, _ERROR_COUNT_TTL)
+            pipe.execute()
+        except Exception as e:
+            logger.warning("[KisBroker] error_count INCR 실패: %r", e)
+
     def _place_order(self, side: str, bot_id: int, ticker: str, quantity: int, price: float) -> OrderResult:
         """매수/매도 공통. 주문 접수만 하고 ODNO 반환. 실체결가는 check_order_fill로 별도 조회."""
         # 모의: VTTC080{1,2}U / 실계좌: TTTC080{1,2}U
@@ -124,11 +138,16 @@ class KisBroker(BaseBroker):
             "ORD_UNPR": "0",
         }
         url = f"{self._base_url}/uapi/domestic-stock/v1/trading/order-cash"
-        resp = requests.post(url, headers=self._headers(tr_id), json=body, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = requests.post(url, headers=self._headers(tr_id), json=body, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            self._bump_error_counter()
+            raise
 
         if data.get("rt_cd") != "0":
+            self._bump_error_counter()
             raise RuntimeError(
                 f"KIS {side} 거부: ticker={ticker} qty={quantity} "
                 f"msg={data.get('msg1')} rt_cd={data.get('rt_cd')} body={body}"
@@ -136,6 +155,7 @@ class KisBroker(BaseBroker):
 
         order_no = data.get("output", {}).get("ODNO", "")
         if not order_no:
+            self._bump_error_counter()
             raise RuntimeError(f"KIS {side} 접수됐으나 ODNO 누락: {data}")
         logger.info(
             "[KisBroker] %s 접수 bot=%d %s %d주 order=%s (mode=%s)",

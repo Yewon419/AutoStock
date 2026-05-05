@@ -124,6 +124,16 @@ def _upsert_position(db, bot_id: int, ticker: str, add_qty: int, add_price: floa
     except IntegrityError:
         # 동시 race로 같은 (bot_id, ticker) row가 선점됨 → 재조회 후 update.
         # savepoint가 rollback되어 바깥 트랜잭션은 유지됨.
+        # 매커니즘 감사(E4)용: 누적 카운터 + 분 단위 윈도우 카운터. 본 흐름 영향 없도록 swallow.
+        try:
+            bucket = int(_time.time()) // 60
+            pipe = _redis_client.pipeline()
+            pipe.incr("autostock:integrity_error_count")
+            pipe.incr(f"autostock:integrity_error_count:{bucket}")
+            pipe.expire(f"autostock:integrity_error_count:{bucket}", 1800)
+            pipe.execute()
+        except Exception as e:
+            logger.warning(f"[bot_engine] integrity_error_count INCR 실패: {e!r}")
         existing = db.query(Position).filter(
             Position.bot_id == bot_id, Position.ticker == ticker
         ).first()

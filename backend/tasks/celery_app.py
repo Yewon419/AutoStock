@@ -1,7 +1,15 @@
+import logging
+import time as _time
+
+import redis as _redis_sync
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import worker_ready
+from celery.signals import task_prerun, worker_ready
 from core.config import settings
+
+_logger = logging.getLogger(__name__)
+_BEAT_LAST_FIRE_KEY_FMT = "autostock:beat_last_fire:{task}"
+_BEAT_LAST_FIRE_TTL = 3600  # 1h — 매커니즘 감사가 정규장 5분 주기로 충분히 읽을 수 있는 길이
 
 celery_app = Celery(
     "autostock",
@@ -14,6 +22,7 @@ celery_app = Celery(
         "tasks.intraday_collector", "tasks.scalping_engine",
         "tasks.llm_strategy", "tasks.bot_diagnostics",
         "tasks.circuit_breaker_task",
+        "tasks.mechanism_audit",
     ],
 )
 
@@ -106,6 +115,11 @@ celery_app.conf.beat_schedule = {
         "task": "tasks.bot_diagnostics.run_bot_diagnostics",
         "schedule": crontab(hour=15, minute=35, day_of_week="1-5"),
     },
+    # 평일 정규장 매 5분 - 매커니즘 감사 (봇 invariant 검사, 위반 시에만 alert)
+    "audit-mechanisms": {
+        "task": "tasks.mechanism_audit.run_audit",
+        "schedule": crontab(minute="*/5", hour="9-15", day_of_week="1-5"),
+    },
 }
 
 
@@ -114,3 +128,18 @@ def on_worker_ready(**kwargs):
     """워커 시작 시 누락 데이터 즉시 체크"""
     from tasks.collect import collect_missing_data
     collect_missing_data.delay()
+
+
+# ── Phase 1.5 후크: 매커니즘 감사용 발사 시각 기록 ────────────────────
+# beat이 발사한 모든 task의 시작 시각을 Redis에 SET. mechanism_audit.run_audit이
+# A1(run_all_bots 5분 주기) 등의 발사 누락 검사에 사용. 본 task 흐름에 영향 없도록 try/except.
+@task_prerun.connect
+def _record_beat_last_fire(task_id=None, task=None, **kwargs):
+    if task is None:
+        return
+    try:
+        client = _redis_sync.from_url(settings.REDIS_URL, decode_responses=True)
+        key = _BEAT_LAST_FIRE_KEY_FMT.format(task=task.name)
+        client.setex(key, _BEAT_LAST_FIRE_TTL, str(int(_time.time())))
+    except Exception as e:
+        _logger.warning("[celery_app] beat_last_fire 기록 실패 task=%s: %r", getattr(task, "name", "?"), e)
