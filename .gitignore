@@ -35,3 +35,6 @@ docker-compose.override.yml
 # ── 로그 ──────────────────────────────────────────────────
 *.log
 logs/
+
+# Audit logs (mechanism_audit daily check output)
+ops/audit_logs/
