@@ -94,7 +94,9 @@ ML 예측 모델 데이터가 제공되는 경우 반드시 다음을 반영하�
 - conditions는 2~4개 (AND 조건, 모두 충족 시 매수 신호)
 - between 조건은 value(하한) < value2(상한) 형식
 - golden_cross/dead_cross는 value=0 (기준선 돌파 감지)
-- 지표명은 반드시 제공된 목록에서만 선택
+- 지표명은 반드시 제공된 목록에서만 선택 (임의 작명·오타 시 자동 거부)
+- swing 전략은 일봉 엔진이 평가 가능한 지표만 사용 (vwap, price_vs_vwap 등 분봉 전용 제외)
+- scalping 전략은 분봉 엔진이 평가 가능한 지표만 사용 (stoch_k/stoch_d, ma_50, ma_200, adx, obv 제외)
 - 진입 영역 가드레일을 반드시 준수 (위반 시 자동 거부)
 
 risk_params 결정 원칙:
@@ -686,20 +688,57 @@ def _normalize_conditions(conditions: list) -> list:
     return normalized
 
 
+# swing/scalping 각 엔진이 실제로 평가 가능한 indicator 집합 (단일 진실원).
+# 엔진과 불일치 시 LLM이 만든 strategy가 silent False로 매번 매수 0건이 되는 사고 방지.
+# (5/6 incident: bot_20 strategy가 volume_ratio 사용했으나 swing 엔진에서 평가 불가했던 사례.
+#  Phase A에서 swing 엔진이 vol_ctx를 받도록 보강됐으므로 이제 swing도 인트라데이 동적지표 OK.)
+_SWING_VALID_INDICATORS = {
+    "rsi", "macd", "macd_signal", "macd_histogram",
+    "stoch_k", "stoch_d",
+    "bollinger_upper", "bollinger_middle", "bollinger_lower",
+    "ma_5", "ma_10", "ma_20", "ma_50", "ma_200",
+    "atr", "adx", "obv",
+    "volume_ratio", "opening_gap", "ma5_minus_ma20",
+}
+_SCALPING_VALID_INDICATORS = {
+    "rsi", "macd", "macd_signal", "macd_histogram",
+    "bollinger_upper", "bollinger_middle", "bollinger_lower",
+    "ma_5", "ma_10", "ma_20",
+    "volume_ratio", "opening_gap", "atr",
+    "vwap", "price_vs_vwap", "ma5_minus_ma10", "ma5_minus_ma20",
+}
+
+
 def _gate_semantic(conditions: list, strategy_type: str) -> tuple:
     """의미 게이트 — 과매수 영역 매수 등 구조적 결함을 백테스트 이전 단계에서 차단.
 
     백테스트는 과거 핏일 수 있어 '추세 막바지 추격' 같은 의미적 결함을 잡지 못한다.
     여기서 진입 영역 가드레일(SYSTEM_PROMPT)과 동일한 룰을 코드로 강제한다.
+
+    추가: 엔진이 실제 평가 가능한 indicator만 사용하는지 검증 (swing/scalping 각 화이트리스트).
+    엔진 미지원 indicator는 평가 시 silent False가 되어 매수 0건 → 사고 차단.
     """
     OVERBOUGHT_RSI_LOWER = 65.0   # RSI 진입 하한이 이 이상이면 과매수 추격
     OVERBOUGHT_STOCH_LOWER = 70.0 # stoch_k/stoch_d 진입 하한이 이 이상이면 과매수 추격
+
+    valid_set = (
+        _SCALPING_VALID_INDICATORS if strategy_type == "scalping"
+        else _SWING_VALID_INDICATORS
+    )
 
     for c in conditions:
         ind = (c.get("indicator") or "").lower()
         cond = (c.get("condition") or "").lower()
         v1 = c.get("value")
         v2 = c.get("value2")
+
+        # indicator 화이트리스트 — 엔진 미지원 지표 사용 차단
+        if ind and ind not in valid_set:
+            return False, (
+                f"indicator '{ind}'은(는) {strategy_type} 엔진이 평가 불가. "
+                f"허용 목록 외 지표는 매번 silent False가 되어 매수 0건 사고 발생. "
+                f"허용된 indicator만 사용하세요."
+            )
 
         def _to_float(x):
             try:

@@ -15,7 +15,7 @@ from core.database import SessionLocal
 from models.trading import TradingBot
 from models.market import TechnicalIndicator, StockPrice
 from models.strategy import Strategy
-from services.backtest_engine import _all_conditions_met, SUPPORTED_INDICATORS
+from services.backtest_engine import _all_conditions_met, SUPPORTED_INDICATORS, build_vol_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +86,15 @@ def scan_bot_tickers():
                 .all()
             }
 
-        # 거래량 맵 (많을수록 우선 선택)
-        vol_map = {
-            p.ticker: int(p.volume or 0)
-            for p in db.query(StockPrice)
-            .filter(StockPrice.date == latest_date)
-            .all()
-        }
+        # 가격 row 맵 (latest_date 기준) — vol_map + volume_ratio 평가의 price_row 둘 다 사용
+        price_rows = (
+            db.query(StockPrice).filter(StockPrice.date == latest_date).all()
+        )
+        price_row_map = {p.ticker: p for p in price_rows}
+        vol_map = {ticker: int(p.volume or 0) for ticker, p in price_row_map.items()}
+
+        # 인트라데이 indicator(volume_ratio) 평가용 vol_ctx — 전체 종목 한 번 계산
+        vol_ctx = build_vol_ctx(db, list(price_row_map.keys()), latest_date)
 
         results = []
         for bot in bots:
@@ -119,11 +121,14 @@ def scan_bot_tickers():
                         f"[scanner] bot_id={bot.id} 단타 봇 — 일봉 조건 없음, 거래량 상위 {MAX_TICKERS}개 선택"
                     )
             else:
-                # 스윙 봇: 기존 로직 (전체 조건 일봉 평가)
+                # 스윙 봇: 전체 조건 일봉 평가 (volume_ratio 등 동적 지표는 vol_ctx + price_row로 평가)
                 matched = [
                     ticker
                     for ticker, ind in ind_map.items()
-                    if _all_conditions_met(strategy.conditions, ind, prev_map.get(ticker))
+                    if _all_conditions_met(
+                        strategy.conditions, ind, prev_map.get(ticker),
+                        vol_ctx=vol_ctx, price_row=price_row_map.get(ticker),
+                    )
                 ]
 
             # 공통: 거래량 많은 순 정렬 후 상위 MAX_TICKERS개

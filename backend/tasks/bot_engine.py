@@ -22,7 +22,7 @@ from core.database import SessionLocal
 from models.trading import TradingBot, Order, Execution, Position, BotReport
 from models.market import StockPrice, TechnicalIndicator
 from models.strategy import Strategy
-from services.backtest_engine import _all_conditions_met
+from services.backtest_engine import _all_conditions_met, build_vol_ctx
 from broker.factory import get_broker
 from broker.base import (
     FILL_FILLED, FILL_PARTIAL, FILL_PENDING, FILL_REJECTED, FILL_CANCELLED, FILL_UNKNOWN,
@@ -602,6 +602,10 @@ def _run_cycle_inner(db, bot: TradingBot):
     eval_tickers: list[str] = list(universe | set(position_map.keys()))
     price_map = _latest_prices_map(db, eval_tickers)
 
+    # 인트라데이 indicator(volume_ratio) 평가용 vol_ctx — 종목 루프 진입 전 1회 일괄 계산.
+    # latest_ind_date 기준 직전 20 거래일 평균 거래량. ind_date가 없으면 빈 dict로 초기화.
+    vol_ctx = build_vol_ctx(db, eval_tickers, latest_ind_date) if latest_ind_date else {}
+
     # 현재 미체결 주문 티커 (중복 접수 방지용, 사이클 내 접수도 누적)
     pending_buy_tickers, pending_sell_tickers = _pending_order_sets(db, bot.id)
 
@@ -645,7 +649,10 @@ def _run_cycle_inner(db, bot: TradingBot):
             if last_signal_date == today_str:
                 continue
 
-            if _all_conditions_met(strategy.conditions, latest_ind, prev_ind):
+            if _all_conditions_met(
+                strategy.conditions, latest_ind, prev_ind,
+                vol_ctx=vol_ctx, price_row=latest_price,
+            ):
                 # 총 포트폴리오 기준 종목당 예산으로 수량 결정
                 qty = int(per_pos_budget / curr_price)
                 if qty <= 0:

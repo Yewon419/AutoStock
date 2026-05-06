@@ -113,6 +113,37 @@ def _all_conditions_met(conditions: list, ind_row, prev_ind_row,
     )
 
 
+def build_vol_ctx(db: Session, tickers: list[str], target_date: Date,
+                  lookback_days: int = 20) -> dict:
+    """target_date 직전 N 거래일 평균 거래량을 ticker별로 계산.
+
+    반환 구조: ``{ticker: {target_date: avg_volume}}`` — 백테스트(날짜별 rolling)와
+    동일한 형태로 라이브 호출자가 그대로 _all_conditions_met에 전달 가능.
+
+    호출자(scanner / bot_engine swing)가 매 사이클 시작에 1회 만들어 재사용.
+    """
+    if not tickers:
+        return {}
+    rows = (
+        db.query(StockPrice.ticker, StockPrice.volume, StockPrice.date)
+        .filter(
+            StockPrice.ticker.in_(tickers),
+            StockPrice.date < target_date,
+        )
+        .order_by(StockPrice.ticker, StockPrice.date.desc())
+        .all()
+    )
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for ticker, vol, _date in rows:
+        if len(grouped[ticker]) < lookback_days:
+            grouped[ticker].append(int(vol or 0))
+    out: dict[str, dict] = {}
+    for ticker, vols in grouped.items():
+        if vols:
+            out[ticker] = {target_date: sum(vols) / len(vols)}
+    return out
+
+
 def _calc_max_drawdown(values: list) -> float:
     if len(values) < 2:
         return 0.0
