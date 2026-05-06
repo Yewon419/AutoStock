@@ -32,6 +32,10 @@ _HEARTBEAT_TTL = 120               # 2분 — 그 이상 갱신 없으면 stale
 _STREAM_DURATION = 7 * 3600        # 최대 7시간 유지 (08:55 ~ 15:55)
 _STATS_INTERVAL = 300              # 5분마다 통계 로그
 
+# universe 동기화 — scanner가 봇 tickers 갱신 후 SET. stream이 polling으로 감지해
+# 정상 종료 → watchdog이 다음 분 stale 보고 새 universe로 재기동. 키 DEL은 watchdog 책임.
+_STREAM_UNIVERSE_DIRTY_KEY = "autostock:price_stream:universe_dirty"
+
 # 끊김 시 재연결 정책
 _RECONNECT_MAX = 20
 _RECONNECT_BACKOFF_INITIAL = 5
@@ -146,6 +150,13 @@ async def _stream_once(tickers: list[str], approval_key: str, redis_client, dead
                     redis_client.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, str(int(_time.time())))
                 except Exception as e:
                     logger.warning("[KisPriceStream] keepalive heartbeat 갱신 실패: %r", e)
+                # universe 갱신 신호 감지 — 정상 종료해 watchdog이 새 universe로 재기동하도록.
+                try:
+                    if redis_client.get(_STREAM_UNIVERSE_DIRTY_KEY) is not None:
+                        logger.info("[KisPriceStream] universe_dirty 감지 → 세션 종료 (재기동 유도)")
+                        return msg_count
+                except Exception as e:
+                    logger.warning("[KisPriceStream] dirty 키 조회 실패: %r", e)
                 continue
 
             result = _parse_price(raw)
@@ -161,6 +172,16 @@ async def _stream_once(tickers: list[str], approval_key: str, redis_client, dead
                 redis_client.setex(f"rt:price:{ticker}", _RT_PRICE_TTL, str(price))
                 redis_client.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, str(int(_time.time())))
                 msg_count += 1
+                # universe 갱신 신호 — 장 활성으로 메시지가 계속 들어오면 timeout 분기를 안 타므로
+                # 여기서도 주기적으로 폴링. 매 100건(시장 활성 시 ~10초) 간격이면 충분히 빠르고
+                # redis 부담 작음.
+                if msg_count % 100 == 0:
+                    if redis_client.get(_STREAM_UNIVERSE_DIRTY_KEY) is not None:
+                        logger.info(
+                            "[KisPriceStream] universe_dirty 감지 (msg=%d) → 세션 종료 (재기동 유도)",
+                            msg_count,
+                        )
+                        return msg_count
             except Exception as e:
                 logger.warning("[KisPriceStream] Redis 저장 실패 %s: %r", ticker, e)
 
@@ -185,10 +206,29 @@ async def _stream_with_reconnect(tickers: list[str], approval_key: str):
     approval_key는 만료될 수 있으므로 재연결 직전 재발급 시도(실패 시 기존 키 재사용).
     """
     r = redis_sync.from_url(settings.REDIS_URL, decode_responses=True)
+    # 이 task는 이미 fresh universe(_get_running_tickers 결과)로 진입했으므로 stale dirty 신호는 정리.
+    # 안 하면 첫 iteration에서 자기 자신이 다시 종료 → 무한 재기동 루프.
+    try:
+        r.delete(_STREAM_UNIVERSE_DIRTY_KEY)
+    except Exception as e:
+        logger.warning("[KisPriceStream] 진입 시 dirty 정리 실패: %r", e)
     deadline = asyncio.get_event_loop().time() + _STREAM_DURATION
     backoff = _RECONNECT_BACKOFF_INITIAL
     attempts = 0
     while asyncio.get_event_loop().time() < deadline and attempts < _RECONNECT_MAX:
+        # universe 갱신 신호 감지 — task 자체를 종료해 watchdog이 새 universe로 재기동하게 함.
+        # heartbeat 키를 명시적 DEL해 watchdog의 stale 감지 시차를 단축(최대 ~120s → ~60s).
+        try:
+            if r.get(_STREAM_UNIVERSE_DIRTY_KEY) is not None:
+                logger.info("[KisPriceStream] universe_dirty — task 종료 (watchdog이 새 universe로 재기동)")
+                try:
+                    r.delete(_HEARTBEAT_KEY)
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            logger.warning("[KisPriceStream] dirty 키 조회 실패(reconnect 루프): %r", e)
+
         attempts += 1
         try:
             count = await _stream_once(tickers, approval_key, r, deadline)
@@ -327,6 +367,11 @@ def watchdog_price_stream():
             r.expire(_WATCHDOG_RESTART_COUNT_KEY, _WATCHDOG_WINDOW_SECONDS)
         from datetime import datetime, timezone
         r.set(_WATCHDOG_LAST_ACTION_KEY, datetime.now(timezone.utc).isoformat())
+        # universe_dirty 신호로 인한 재기동이었다면 키 정리 (없어도 무해).
+        try:
+            r.delete(_STREAM_UNIVERSE_DIRTY_KEY)
+        except Exception:
+            pass
 
         msg = (
             f"[Watchdog] heartbeat stale (age={age}s) — start_price_stream 재기동 "

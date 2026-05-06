@@ -10,7 +10,10 @@
 """
 import logging
 
+import redis as _redis_sync
+
 from tasks.celery_app import celery_app
+from core.config import settings
 from core.database import SessionLocal
 from models.trading import TradingBot
 from models.market import TechnicalIndicator, StockPrice
@@ -20,6 +23,10 @@ from services.backtest_engine import _all_conditions_met, SUPPORTED_INDICATORS, 
 logger = logging.getLogger(__name__)
 
 MAX_TICKERS = 30  # 봇당 최대 종목 수
+# stream 자동 동기화 신호 — universe 갱신 후 SET하면 stream task가 다음 30s 안에 정상 종료,
+# watchdog이 다음 분 stale 감지하고 새 universe로 재기동.
+_STREAM_UNIVERSE_DIRTY_KEY = "autostock:price_stream:universe_dirty"
+_STREAM_DIRTY_TTL = 86400
 
 # 일봉 DB에 없는 인트라데이 전용 지표 — 단타 스캐너에서 건너뜀
 _INTRADAY_ONLY = {'volume_ratio', 'opening_gap', 'bb_upper', 'bb_middle', 'bb_lower',
@@ -145,6 +152,17 @@ def scan_bot_tickers():
             results.append({"bot_id": bot.id, "bot_type": mode_label, "ticker_count": len(matched)})
 
         db.commit()
+
+        # universe가 실제로 바뀐 봇이 있으면 stream 재기동 신호 push.
+        # stream task가 dirty 키를 polling으로 감지해 정상 종료 → watchdog이 새 universe로 재기동.
+        if any(r["ticker_count"] > 0 for r in results):
+            try:
+                redis_client = _redis_sync.from_url(settings.REDIS_URL, decode_responses=True)
+                redis_client.set(_STREAM_UNIVERSE_DIRTY_KEY, "1", ex=_STREAM_DIRTY_TTL)
+                logger.info("[scanner] universe 갱신 — stream 재기동 신호 push (dirty 키 SET)")
+            except Exception as e:
+                logger.warning("[scanner] dirty 키 SET 실패: %r", e)
+
         return {"status": "ok", "date": str(latest_date), "bots": results}
 
     except Exception as e:
