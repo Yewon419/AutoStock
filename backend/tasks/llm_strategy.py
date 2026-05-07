@@ -766,11 +766,48 @@ def _gate_semantic(conditions: list, strategy_type: str) -> tuple:
     return True, ""
 
 
-def _gate_strategy(backtest: dict, conditions: list = None, strategy_type: str = "swing") -> tuple:
+# 신호 발생률 게이트 임계값. mock 시뮬 N회 중 4중 조건 통과율이 이 값 미만이면
+# 패턴-조건 미스매치로 판정하여 거부. 0.5%면 N=500에서 약 2~3건만 발생해도 통과 —
+# 패턴 정의와 정합되는 조건은 통상 5~30% 통과율을 보이므로 보수적 컷오프로 충분.
+_SIGNAL_RATE_THRESHOLD = 0.005
+
+
+def _gate_signal_rate(conditions: list, pattern: str | None, strategy_type: str) -> tuple:
+    """신호 발생률 게이트 — mock 시뮬로 strategy.conditions가 실제로 신호 가능한지 검증.
+
+    scalping 전용. swing은 _auto_backtest로 통계 검증되므로 skip.
+    pattern이 mock 시나리오 매트릭스에 없으면 skip (시뮬 미지원 패턴 후방 호환).
+    """
+    if strategy_type != "scalping" or not pattern:
+        return True, ""
+    try:
+        from services.strategy_simulator import simulate_signal_rate
+    except ImportError as e:
+        logger.warning("[llm_strategy] strategy_simulator import 실패 — 신호률 게이트 skip: %s", e)
+        return True, ""
+
+    rate = simulate_signal_rate(conditions, pattern, n_trials=500)
+    if rate < 0:
+        logger.info("[llm_strategy] 신호률 게이트 skip — pattern '%s' mock 시나리오 미등록", pattern)
+        return True, ""
+    logger.info("[llm_strategy] 신호률 게이트: pattern=%s rate=%.2f%% (threshold=%.2f%%)",
+                pattern, rate * 100, _SIGNAL_RATE_THRESHOLD * 100)
+    if rate < _SIGNAL_RATE_THRESHOLD:
+        return False, (
+            f"신호 발생률 미달 (mock 시뮬 N=500: {rate*100:.2f}% < {_SIGNAL_RATE_THRESHOLD*100:.1f}%) — "
+            f"strategy.conditions가 '{pattern}' 패턴 mock 환경에서 거의 신호 발생 불가. "
+            f"패턴 정의와 정합되는 진입 영역으로 재생성할 것."
+        )
+    return True, ""
+
+
+def _gate_strategy(backtest: dict, conditions: list = None, strategy_type: str = "swing",
+                   pattern: str | None = None) -> tuple:
     """전략 품질 게이팅 → (통과 여부, 거부 사유).
 
     1) 의미 게이트 (가드레일) — 백테스트 결과와 무관하게 구조적 결함 차단
-    2) 백테스트 게이트 — 거래 빈도/승률/수익률 등 통계적 검증
+    2) 신호 발생률 게이트 (scalping 전용) — mock 시뮬로 패턴-조건 정합성 사전 검증
+    3) 백테스트 게이트 — 거래 빈도/승률/수익률 등 통계적 검증
     """
     # 1) 의미 게이트
     if conditions:
@@ -778,7 +815,13 @@ def _gate_strategy(backtest: dict, conditions: list = None, strategy_type: str =
         if not ok:
             return False, reason
 
-    # 2) 백테스트 게이트
+    # 2) 신호 발생률 게이트 (scalping 전용)
+    if conditions:
+        ok, reason = _gate_signal_rate(conditions, pattern, strategy_type)
+        if not ok:
+            return False, reason
+
+    # 3) 백테스트 게이트
     if not backtest:
         return True, ""  # 백테스트 실패 시 통과 (데이터 부족 상황)
 
@@ -1106,9 +1149,10 @@ def generate_strategy(
 
             backtest = _auto_backtest(db, temp_conditions, norm_strategy_type)
 
-            # 7. 룰 게이트
+            # 7. 룰 게이트 (의미 + 신호률 + 백테스트)
             passed, gate_reason = _gate_strategy(
                 backtest, conditions=temp_conditions, strategy_type=norm_strategy_type,
+                pattern=norm_pattern,
             )
             if not passed:
                 logger.warning("[llm_strategy] attempt=%d 룰 게이트 거부: %s", attempt, gate_reason)
