@@ -39,8 +39,10 @@ celery_app.conf.update(
 
 # 큐 라우팅 — long-running task는 별도 worker(autostock-celery-stream-worker)로 격리.
 # 기존 celery-worker(concurrency 다수)는 'celery' 큐만 처리하므로 분 단위 task 적체 방지.
+# watchdog_price_stream도 'stream' 큐로 격리: default 큐 backlog 폭증 시에도 스트림 감시 보장.
 celery_app.conf.task_routes = {
     "tasks.kis_price_stream.start_price_stream": {"queue": "stream"},
+    "tasks.kis_price_stream.watchdog_price_stream": {"queue": "stream"},
 }
 
 # 스케줄

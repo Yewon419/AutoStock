@@ -76,8 +76,9 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    # 'stream' 큐 전용 — KisPriceStream(7시간 long-running) 격리, 다른 task와 슬롯 경합 방지
-    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=1 -Q stream -n stream@%h
+    # 'stream' 큐 전용 — KisPriceStream(7시간 long-running)이 conc 1 점유,
+    # watchdog_price_stream(분 단위)이 나머지 1 슬롯에서 동작. default 큐 적체와 무관하게 스트림 감시 보장.
+    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=2 -Q stream -n stream@%h
 
   celery-beat:
     build: ./backend
