@@ -7,6 +7,7 @@
 import json
 import logging
 import random
+import time as _time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -53,63 +54,119 @@ def _fetch_candles(ticker: str, interval: int, mode: str, ref_price: float = Non
         return _mock_candles(ticker, interval, ref_price)
 
 
-def _mock_candles(ticker: str, interval: int, ref_price: float = None) -> list[dict]:
-    """실제 종가(ref_price) 기반 더미 캔들 생성.
+# ── mock 시나리오 패턴 매트릭스 ─────────────────────────────────────
+# scalping 전략 strategy.pattern과 1:1 매핑. (ticker, 분봉_시각) 쌍 결정론 분기 →
+# 같은 분 내 같은 ticker는 항상 같은 패턴, 매분 패턴 순환. KIS 활성 종목이 소수여도
+# 시간이 흐르면 각 봇의 패턴에 매핑되는 분이 도래해 모든 봇 시뮬 가능.
+_MOCK_PATTERNS: tuple[str, ...] = ("scalping_mean_reversion", "scalping_breakout")
 
-    과매도 + 거래량 급증 패턴 (i=0 오래된 봉 → i=199 최신 봉):
-      1) 횡보 (i=0~89):    ±0.3%, 중간 거래량 (800~2500)
-      2) 하락 (i=90~197):  편향 하락, 거래량 감소 (100~400) → 20봉 평균 낮아짐
-      3) 최신 2봉 (i=198~199): 50% 확률로 거래량 폭발 (5000~10000)
-         → volume_ratio = 7500 / ~250(20봉평균) ≈ 30 >> 1.5
-         → RSI는 90봉 하락으로 35 이하 유지
 
-    매 분 새로 생성(mock 모드 merge 미사용)하므로 확률적으로 신호 발생.
-    ref_price: DB 실제 종가 → 없으면 rt:price → 없으면 1000원 기본값
+def _pick_mock_pattern(ticker: str) -> str:
+    """(ticker, 현재 분봉_시각) → mock 시나리오 패턴 결정.
+
+    `int(time.time() // 60)`으로 분 단위 인덱스. 매분 +1 → 패턴 순환.
+    같은 분 내에서는 같은 ticker가 같은 패턴 = 디버깅 시 (ticker, 분)으로 reproduce 가능.
     """
-    if ref_price is None:
-        rt = _redis_client.get(f"rt:price:{ticker}")
-        ref_price = float(rt) if rt else 1_000.0
-    base_price = ref_price
+    minute_idx = int(_time.time() // 60)
+    return _MOCK_PATTERNS[(sum(ord(c) for c in ticker) + minute_idx) % len(_MOCK_PATTERNS)]
 
+
+def _make_candle(i: int, open_p: float, chg: float, vol: int) -> dict:
+    """OHLCV 봉 1개 dict 생성 (high/low는 ±0.2% 위크 추가)."""
+    close_p = round(open_p * (1 + chg), 0)
+    high_p = round(max(open_p, close_p) * (1 + random.uniform(0, 0.002)), 0)
+    low_p = round(min(open_p, close_p) * (1 - random.uniform(0, 0.002)), 0)
+    return {
+        "t": f"{9 + i // 60:02d}:{i % 60:02d}",
+        "o": open_p, "h": high_p, "l": low_p, "c": close_p, "v": vol,
+    }
+
+
+def _mock_scenario_mean_reversion(base_price: float) -> list[dict]:
+    """과매도 + 거래량 급증 시나리오 (bot_21 류 scalping_mean_reversion).
+      i=0~89:    횡보 ±0.3%, vol 800~2500
+      i=90~197:  하락 편향 (-0.4%~+0.05%), vol 100~400 (20봉 평균 낮아짐)
+      i=198~199: 50% 확률 vol 폭발 5000~10000
+    목표 지표: RSI<35, volume_ratio>1.3, price_vs_vwap<-0.5
+    """
     peak_price = round(base_price * random.uniform(1.08, 1.15), 0)
-
-    candles = []
+    candles: list[dict] = []
     price = peak_price
-    total = MAX_CANDLES  # 200봉
-
-    # 최신 2봉의 거래량 급등 여부 결정 (50% 확률)
     spike = random.random() < 0.5
-
-    for i in range(total):
+    for i in range(MAX_CANDLES):
         if i < 90:
             chg = random.uniform(-0.003, 0.003)
             vol = random.randint(800, 2500)
         elif i < 198:
-            # 하락 + 낮은 거래량 → 20봉 이동평균을 낮게 유지
             chg = random.uniform(-0.004, 0.0005)
             vol = random.randint(100, 400)
         else:
-            # 최신 2봉: spike 시 거래량 폭발, 아닐 시 계속 낮음
             chg = random.uniform(-0.003, 0.001)
             vol = random.randint(5000, 10000) if spike else random.randint(100, 400)
-
-        open_p = price
-        close_p = round(price * (1 + chg), 0)
-        high_p = round(max(open_p, close_p) * (1 + random.uniform(0, 0.002)), 0)
-        low_p = round(min(open_p, close_p) * (1 - random.uniform(0, 0.002)), 0)
-        candles.append({
-            "t": f"{9 + i // 60:02d}:{i % 60:02d}",
-            "o": open_p,
-            "h": high_p,
-            "l": low_p,
-            "c": close_p,
-            "v": vol,
-        })
-        price = close_p
-
-    # 최신순 정렬
+        c = _make_candle(i, price, chg, vol)
+        candles.append(c)
+        price = c["c"]
     candles.reverse()
     return candles
+
+
+def _mock_scenario_breakout(base_price: float) -> list[dict]:
+    """추세 돌파 시나리오 (bot_22 류 scalping_breakout).
+      i=0~49:    박스권 ±0.3%, vol 800~2500
+      i=50~140:  완만한 상승 (+0.03%~+0.15%), vol 800~2500 (누적 ~+5~13%)
+      i=141~180: 변동 (-0.08%~+0.12%), vol 800~2500 (RSI 70대로 식음)
+      i=181~197: 조정 (-0.2%~+0.08%), vol 800~2500 (RSI 50~65로 식음)
+      i=198~199: 50% 확률 vol 폭발 5000~10000
+    목표 지표: RSI 50~65, volume_ratio>2, price_vs_vwap>0.3, ATR>0.5
+    base_price 기준 −10~−14%에서 출발해 누적 상승 → 후반 가격이 VWAP 위.
+    """
+    start_price = round(base_price * random.uniform(0.86, 0.90), 0)
+    candles: list[dict] = []
+    price = start_price
+    spike = random.random() < 0.5
+    for i in range(MAX_CANDLES):
+        if i < 50:
+            chg = random.uniform(-0.003, 0.003)
+            vol = random.randint(800, 2500)
+        elif i < 150:
+            # 누적 상승 — VWAP 대비 가격 +5~12% 형성
+            chg = random.uniform(0.0005, 0.0018)
+            vol = random.randint(800, 2500)
+        elif i < 165:
+            # 약한 조정 — RSI를 70대 이하로 끌어내림
+            chg = random.uniform(-0.0012, 0.0006)
+            vol = random.randint(800, 2500)
+        elif i < 198:
+            # 약한 양봉 우세 박스권 — RSI 50~65 영역 안정 유지 (마지막 14봉이 RSI 결정)
+            chg = random.uniform(-0.0012, 0.0014)
+            vol = random.randint(800, 2500)
+        else:
+            chg = random.uniform(-0.0005, 0.002)
+            vol = random.randint(5000, 10000) if spike else random.randint(800, 2500)
+        c = _make_candle(i, price, chg, vol)
+        candles.append(c)
+        price = c["c"]
+    candles.reverse()
+    return candles
+
+
+_MOCK_SCENARIOS = {
+    "scalping_mean_reversion": _mock_scenario_mean_reversion,
+    "scalping_breakout": _mock_scenario_breakout,
+}
+
+
+def _mock_candles(ticker: str, interval: int, ref_price: float | None = None) -> list[dict]:
+    """ticker → 패턴 매핑 후 시나리오별 더미 캔들 생성.
+
+    ref_price: DB 실제 종가 → 없으면 rt:price → 없으면 1000원 기본값.
+    매 분 새로 생성(mock 모드 merge 미사용)하므로 확률적으로 신호 발생.
+    """
+    if ref_price is None:
+        rt = _redis_client.get(f"rt:price:{ticker}")
+        ref_price = float(rt) if rt else 1_000.0
+    pattern = _pick_mock_pattern(ticker)
+    return _MOCK_SCENARIOS[pattern](ref_price)
 
 
 # ── 캔들 Redis 저장/로드 ──────────────────────────────────────────────
