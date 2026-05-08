@@ -61,14 +61,18 @@ def _fetch_candles(ticker: str, interval: int, mode: str, ref_price: float = Non
 _MOCK_PATTERNS: tuple[str, ...] = ("scalping_mean_reversion", "scalping_breakout")
 
 
-def _pick_mock_pattern(ticker: str) -> str:
-    """(ticker, 현재 분봉_시각) → mock 시나리오 패턴 결정.
+_MOCK_PATTERN_SWAP_SECONDS = 300  # 5분 주기 — confirm_bars=2 + signal TTL 90s에 정합 여유
 
-    `int(time.time() // 60)`으로 분 단위 인덱스. 매분 +1 → 패턴 순환.
-    같은 분 내에서는 같은 ticker가 같은 패턴 = 디버깅 시 (ticker, 분)으로 reproduce 가능.
+
+def _pick_mock_pattern(ticker: str) -> str:
+    """(ticker, 시간 슬롯) → mock 시나리오 패턴 결정.
+
+    슬롯 단위 = `_MOCK_PATTERN_SWAP_SECONDS`. 한 슬롯 안에서는 같은 ticker가 같은 패턴 →
+    confirm_bars=2(연속 2분 신호 충족) 충족 가능. 슬롯 경계에서 패턴 swap → 매 N분마다
+    각 봇 패턴에 매핑되는 ticker 집합 변경. 디버깅은 (ticker, 슬롯)으로 reproduce 가능.
     """
-    minute_idx = int(_time.time() // 60)
-    return _MOCK_PATTERNS[(sum(ord(c) for c in ticker) + minute_idx) % len(_MOCK_PATTERNS)]
+    slot_idx = int(_time.time() // _MOCK_PATTERN_SWAP_SECONDS)
+    return _MOCK_PATTERNS[(sum(ord(c) for c in ticker) + slot_idx) % len(_MOCK_PATTERNS)]
 
 
 def _make_candle(i: int, open_p: float, chg: float, vol: int) -> dict:
@@ -92,7 +96,7 @@ def _mock_scenario_mean_reversion(base_price: float) -> list[dict]:
     peak_price = round(base_price * random.uniform(1.08, 1.15), 0)
     candles: list[dict] = []
     price = peak_price
-    spike = random.random() < 0.5
+    spike = random.random() < 0.7
     for i in range(MAX_CANDLES):
         if i < 90:
             chg = random.uniform(-0.003, 0.003)
@@ -123,7 +127,7 @@ def _mock_scenario_breakout(base_price: float) -> list[dict]:
     start_price = round(base_price * random.uniform(0.86, 0.90), 0)
     candles: list[dict] = []
     price = start_price
-    spike = random.random() < 0.5
+    spike = random.random() < 0.7
     for i in range(MAX_CANDLES):
         if i < 50:
             chg = random.uniform(-0.003, 0.003)
