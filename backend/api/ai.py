@@ -72,6 +72,22 @@ def get_latest_scores(_: dict = Depends(get_current_user)):
     return {"scores": scores, "meta": meta}
 
 
+@router.get("/ml-insight")
+def get_ml_insight(
+    top_n: int = 20,
+    _: dict = Depends(get_current_user),
+):
+    """
+    ML 결과를 시장 진단 + 종목별 z-score 기여도 설명으로 가공
+    - top_n: 종목 인사이트를 생성할 상위 종목 수 (기본 20)
+    """
+    from dataclasses import asdict
+    from services.ml_insight import compute_insight
+
+    insight = compute_insight(top_n=top_n)
+    return asdict(insight)
+
+
 @router.post("/optimize")
 def trigger_optimize(req: OptimizeRequest, _: dict = Depends(get_current_user)):
     """전략 파라미터 최적화 태스크 실행"""

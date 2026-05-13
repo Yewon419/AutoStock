@@ -308,7 +308,7 @@ def train_and_score():
             "feature_count": len(_FEATURE_NAMES),
         }), ex=86400 * 2)
 
-        # ── Feature importance 저장 (LLM 연동용) ──────────────────────
+        # ── Feature importance 저장 (LLM·인사이트 연동용) ────────────
         fi_sorted = sorted(
             zip(_FEATURE_NAMES, clf.feature_importances_),
             key=lambda x: -x[1],
@@ -318,12 +318,25 @@ def train_and_score():
             for name, imp in fi_sorted
         ]), ex=86400 * 2)
 
-        # ── 상위 종목 기술적 프로필 저장 (LLM 연동용) ─────────────────
+        # ── 피처 분포 통계 저장 (인사이트 z-score 계산용) ─────────────
+        feature_stats = {
+            name: {
+                "mean": round(float(X_all[:, i].mean()), 6),
+                "std":  round(float(X_all[:, i].std()), 6),
+            }
+            for i, name in enumerate(_FEATURE_NAMES)
+        }
+        r.set("autostock:ml_feature_stats", json.dumps(feature_stats), ex=86400 * 2)
+
+        # ── 상위 종목 프로필 저장 (raw 피처 13개 + 요약 지표) ─────────
+        # predict_tickers 인덱스로 X_pred(스케일 전) 원본 피처값 매핑
+        predict_X_arr = np.array(predict_X)
+        ticker_to_idx = {t: i for i, t in enumerate(predict_tickers)}
         profiles = {}
         for ticker in top_tickers:
             ind = ind_map.get(ticker, {}).get(latest_date)
             price = price_map.get(ticker, {}).get(latest_date)
-            if not ind or not price:
+            if not ind or not price or ticker not in ticker_to_idx:
                 continue
             ma20 = _safe_float(ind.ma_20)
             ma50 = _safe_float(ind.ma_50)
@@ -332,6 +345,8 @@ def train_and_score():
             boll_range = boll_u - boll_l
             close = float(price)
             boll_pos = (close - boll_l) / boll_range if boll_range > 0 else 0.5
+
+            raw_features = predict_X_arr[ticker_to_idx[ticker]]
             profiles[ticker] = {
                 "score": top_scores[ticker],
                 "rsi": round(_safe_float(ind.rsi), 1),
@@ -339,6 +354,10 @@ def train_and_score():
                 "macd_hist_pos": bool(_safe_float(ind.macd_histogram) > 0),
                 "boll_pos": round(boll_pos, 2),
                 "ma_ratio": round(ma20 / ma50, 3) if ma50 > 0 else 1.0,
+                "features": {
+                    name: round(float(raw_features[i]), 4)
+                    for i, name in enumerate(_FEATURE_NAMES)
+                },
             }
         r.set("autostock:ml_top_profiles", json.dumps(profiles), ex=86400 * 2)
 
