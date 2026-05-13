@@ -78,10 +78,12 @@ def train_and_score():
             .all()
         )
 
-        # 가격 맵: {ticker: {date: close_price}}
+        # 가격 맵: {ticker: {date: close_price}}, 거래량 맵: {ticker: {date: volume}}
         price_map: dict = {}
+        vol_map_full: dict = {}
         for p in prices:
             price_map.setdefault(p.ticker, {})[p.date] = float(p.close_price)
+            vol_map_full.setdefault(p.ticker, {})[p.date] = int(p.volume or 0)
 
         # 지표 맵: {ticker: {date: indicator_row}}
         ind_map: dict = {}
@@ -111,7 +113,7 @@ def train_and_score():
             'BB_squeeze',        # (BB상단 - BB하단) / BB중간 → 변동성 수축
         ]
 
-        def _extract_features(ind, ind_map_ticker, ind_date, ind_dates_sorted, ticker_prices, vol_ctx_ticker):
+        def _extract_features(ind, ind_map_ticker, ind_date, ind_dates_sorted, ticker_prices, ticker_vols):
             """단일 날짜의 피처 벡터 추출. 실패 시 None 반환."""
             ma_20 = _safe_float(ind.ma_20)
             ma_50 = _safe_float(ind.ma_50)
@@ -151,8 +153,19 @@ def train_and_score():
                     past_macd = _safe_float(past_ind5.macd_histogram) / ma_20 if ma_20 > 0 else 0
                     macd_hist_slope = macd_hist_norm - past_macd
 
-            # 거래량 비율 (20일 평균 대비)
-            vol_ratio = vol_ctx_ticker if vol_ctx_ticker > 0 else 1.0
+            # 거래량 비율 (그 날 거래량 / 직전 20일 평균)
+            vol_ratio = 1.0
+            if idx >= 20:
+                past_vols = [
+                    ticker_vols.get(d, 0)
+                    for d in ind_dates_sorted[idx - 20:idx]
+                ]
+                past_vols = [v for v in past_vols if v > 0]
+                if past_vols:
+                    avg_vol_20 = sum(past_vols) / len(past_vols)
+                    today_vol = ticker_vols.get(ind_date, 0)
+                    if avg_vol_20 > 0:
+                        vol_ratio = today_vol / avg_vol_20
 
             # 현재가 vs MA20 (%)
             price_vs_ma20 = (close - ma_20) / ma_20 * 100
@@ -166,42 +179,24 @@ def train_and_score():
                 rsi_3d_delta, macd_hist_slope, vol_ratio, price_vs_ma20, bb_squeeze,
             ]
 
-        # ── 거래량 비율 컨텍스트 사전 계산 ────────────────────────────
-        # ticker별 최신 거래량 / 전체 평균 거래량
-        vol_avg_map: dict = {}
-        for ticker, ticker_prices_dict in price_map.items():
-            vols = [float(p) for p in ticker_prices_dict.values() if p]
-            # StockPrice 객체가 아니라 close_price만 있으므로 별도 volume 조회 필요
-            # 여기선 vol_map(최신일 거래량)을 전체 평균의 proxy로 사용
-            pass  # vol_ratio는 아래에서 vol_map 기반으로 단순 처리
-
         train_X, train_y = [], []
         predict_tickers = []
         predict_X = []
 
         for ticker, ticker_inds in ind_map.items():
             ticker_prices_dict = price_map.get(ticker, {})
+            ticker_vols_dict = vol_map_full.get(ticker, {})
             price_dates = sorted(ticker_prices_dict.keys())
             ind_dates = sorted(ticker_inds.keys())
 
-            if len(ind_dates) < 15:  # 변화율 피처를 위해 최소 15일 필요
+            if len(ind_dates) < 21:  # vol_ratio 직전 20일 + 당일
                 continue
-
-            # 해당 종목 거래량 비율 (최신 거래량 / 전체기간 평균) — 간소화
-            latest_vol = vol_map.get(ticker, 0)
-            all_prices_q = (
-                db.query(StockPrice.volume)
-                .filter(StockPrice.ticker == ticker, StockPrice.date >= lookback_start)
-                .all()
-            )
-            avg_vol = sum(float(r.volume or 0) for r in all_prices_q) / max(len(all_prices_q), 1)
-            vol_ratio_ticker = latest_vol / avg_vol if avg_vol > 0 else 1.0
 
             for ind_date in ind_dates:
                 ind = ticker_inds[ind_date]
                 features = _extract_features(
                     ind, ticker_inds, ind_date, ind_dates,
-                    ticker_prices_dict, vol_ratio_ticker,
+                    ticker_prices_dict, ticker_vols_dict,
                 )
                 if features is None:
                     continue
