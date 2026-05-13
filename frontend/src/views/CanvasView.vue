@@ -269,10 +269,25 @@
             </div>
           </div>
 
+          <!-- ML 인사이트 (mlModel 노드 성공 시) -->
+          <div
+            class="panel-section"
+            v-if="selectedNode.type === 'mlModel' && selectedNode.data.status === 'success'"
+          >
+            <div class="section-label">ML 인사이트</div>
+            <MlInsightPanel :api-base="API" :auth-token="auth.token" :top-n="20" />
+          </div>
+
           <!-- 결과 -->
           <div class="panel-section" v-if="selectedNode.data.result">
-            <div class="section-label">실행 결과</div>
-            <pre class="result-json">{{ JSON.stringify(selectedNode.data.result, null, 2) }}</pre>
+            <div class="section-label">
+              {{ selectedNode.type === 'mlModel' ? '원시 결과 (디버그)' : '실행 결과' }}
+            </div>
+            <details v-if="selectedNode.type === 'mlModel'" class="raw-result-details">
+              <summary>펼쳐서 보기</summary>
+              <pre class="result-json">{{ JSON.stringify(selectedNode.data.result, null, 2) }}</pre>
+            </details>
+            <pre v-else class="result-json">{{ JSON.stringify(selectedNode.data.result, null, 2) }}</pre>
           </div>
 
           <button @click="runNode(selectedNode.id)" class="btn-run-full" :disabled="selectedNode.data.status === 'running'">
@@ -378,6 +393,7 @@ import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
 import FlowNode from '@/components/canvas/FlowNode.vue'
+import MlInsightPanel from '@/components/canvas/MlInsightPanel.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()

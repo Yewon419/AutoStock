@@ -472,7 +472,7 @@ onUnmounted(() => {
 .trades-table td { padding: 10px 12px; border-bottom: 1px solid #1e2130; }
 .trades-table tr:last-child td { border-bottom: none; }
 .trades-table tr.win td { background: rgba(74, 222, 128, 0.03); }
-.trades-table tr.loss td { background: rgba(248, 113, 113, 0.03); }
+.trades-table tr.loss td { background: rgba(96, 165, 250, 0.05); }
 .ticker-col { font-family: monospace; color: #9ca3af; }
 .reason-col { color: #6b7280; }
 .pos { color: #ef4444; }  /* 한국: 빨강=수익 */

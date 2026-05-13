@@ -1056,7 +1056,7 @@ onUnmounted(() => {
 
 /* 수익/손실 색 */
 .positive { color: #ef4444; }
-.negative { color: #10b981; }
+.negative { color: #60a5fa; }
 
 /* 최적 행 */
 .best-row td { background: rgba(245, 158, 11, 0.08); }

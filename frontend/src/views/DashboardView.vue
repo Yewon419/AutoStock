@@ -414,7 +414,7 @@ onUnmounted(() => {
 .blue { color: #4f9eff; }
 .gold { color: #f59e0b; }
 .profit { color: #ef4444; }
-.loss { color: #10b981; }
+.loss { color: #60a5fa; }
 .stat-bots { display: flex; gap: 10px; align-items: baseline; }
 .bot-num { font-size: 18px; font-weight: 700; display: flex; align-items: baseline; gap: 3px; }
 .bot-num small { font-size: 10px; font-weight: 400; }

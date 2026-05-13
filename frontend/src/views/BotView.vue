@@ -37,7 +37,7 @@
           </div>
           <div class="stat">
             <span class="stat-label">총자산</span>
-            <span class="stat-value" :class="totalAssetsPnl(bot) >= 0 ? 'text-green' : 'text-red'">
+            <span class="stat-value" :class="totalAssetsPnl(bot) >= 0 ? 'profit' : 'loss'">
               {{ fmtMoney(bot.total_assets ?? bot.cash) }}
             </span>
           </div>
@@ -47,7 +47,7 @@
           </div>
           <div class="stat">
             <span class="stat-label">수익률</span>
-            <span class="stat-value" :class="totalAssetsPnl(bot) >= 0 ? 'text-green' : 'text-red'">
+            <span class="stat-value" :class="totalAssetsPnl(bot) >= 0 ? 'profit' : 'loss'">
               {{ totalAssetsPnl(bot) >= 0 ? '+' : '' }}{{ totalAssetsPnl(bot).toFixed(2) }}%
             </span>
           </div>
@@ -839,6 +839,6 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .btn-secondary:hover { border-color: #4b5563; color: #e5e7eb; }
-.text-green { color: #22c55e; }
-.text-red { color: #ef4444; }
+.profit { color: #ef4444; }
+.loss { color: #60a5fa; }
 </style>

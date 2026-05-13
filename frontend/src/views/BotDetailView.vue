@@ -1001,8 +1001,8 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 .p-main { font-size: 18px; font-weight: 700; color: #e5e7eb; }
 .p-sub { font-size: 11px; color: #6b7280; }
 
-.val-good { color: #10b981; }
-.val-bad  { color: #ef4444; }
+.val-good { color: #ef4444; }
+.val-bad  { color: #60a5fa; }
 
 /* 종목 태그 */
 .tickers-row {
