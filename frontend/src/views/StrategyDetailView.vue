@@ -297,7 +297,7 @@ watch(result, (val) => {
 
 function renderEquityChart(curve) {
   if (!equityRef.value) return
-  import('lightweight-charts').then(({ createChart }) => {
+  import('lightweight-charts').then(({ createChart, LineSeries }) => {
     if (equityChart) equityChart.remove()
     equityChart = createChart(equityRef.value, {
       width: equityRef.value.clientWidth,
@@ -307,7 +307,7 @@ function renderEquityChart(curve) {
       timeScale: { borderColor: '#2a2d3e', timeVisible: true },
       rightPriceScale: { borderColor: '#2a2d3e' },
     })
-    const series = equityChart.addLineSeries({ color: '#4f9eff', lineWidth: 2 })
+    const series = equityChart.addSeries(LineSeries, { color: '#4f9eff', lineWidth: 2 })
     const data = curve.map(p => ({
       time: Math.floor(new Date(p.date).getTime() / 1000),
       value: p.value,

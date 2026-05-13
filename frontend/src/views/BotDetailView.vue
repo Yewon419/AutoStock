@@ -667,7 +667,7 @@ async function fetchReports() {
 
 async function renderCharts(data) {
   if (!data.length) return
-  const { createChart } = await import('lightweight-charts')
+  const { createChart, LineSeries, HistogramSeries } = await import('lightweight-charts')
 
   const commonOpts = {
     layout: { background: { color: '#1a1d27' }, textColor: '#9ca3af' },
@@ -680,7 +680,7 @@ async function renderCharts(data) {
   if (lineChartEl.value) {
     if (lineChart) { lineChart.remove(); lineChart = null }
     lineChart = createChart(lineChartEl.value, { ...commonOpts, height: 180 })
-    const ls = lineChart.addLineSeries({
+    const ls = lineChart.addSeries(LineSeries, {
       color: '#4f9eff',
       lineWidth: 2,
       priceFormat: { type: 'price', precision: 0, minMove: 1 },
@@ -693,7 +693,7 @@ async function renderCharts(data) {
   if (barChartEl.value) {
     if (barChart) { barChart.remove(); barChart = null }
     barChart = createChart(barChartEl.value, { ...commonOpts, height: 180 })
-    const hs = barChart.addHistogramSeries({
+    const hs = barChart.addSeries(HistogramSeries, {
       priceFormat: { type: 'price', precision: 0, minMove: 1 },
     })
     hs.setData(data.map(r => ({
@@ -723,7 +723,7 @@ async function onExecTickerChange() {
 
 async function renderExecChartForTicker(data, ticker) {
   if (!execChartEl.value) return
-  const { createChart } = await import('lightweight-charts')
+  const { createChart, CandlestickSeries, LineSeries } = await import('lightweight-charts')
 
   if (execChart) { execChart.remove(); execChart = null }
 
@@ -777,7 +777,7 @@ async function renderExecChartForTicker(data, ticker) {
 
   if (priceData.length) {
     // 캔들스틱 차트
-    const cs = execChart.addCandlestickSeries({
+    const cs = execChart.addSeries(CandlestickSeries, {
       upColor: '#ef4444',
       downColor: '#10b981',
       borderUpColor: '#ef4444',
@@ -804,7 +804,7 @@ async function renderExecChartForTicker(data, ticker) {
       Object.fromEntries(lineData.map(d => [d.time, d]))
     ).sort((a, b) => a.time.localeCompare(b.time))
 
-    const ls = execChart.addLineSeries({
+    const ls = execChart.addSeries(LineSeries, {
       color: '#4f9eff',
       lineWidth: 2,
       priceFormat: { type: 'price', precision: 0, minMove: 1 },
