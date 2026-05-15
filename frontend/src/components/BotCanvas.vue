@@ -132,6 +132,63 @@
         </div>
       </div>
     </div>
+
+    <!-- 알림함: pending suggestions -->
+    <div class="lower-section">
+      <div class="summary-block">
+        <div class="block-title">
+          <span>🔔 튜닝 제안함</span>
+          <span class="block-count">{{ pendingSuggestions.length }}건 대기</span>
+        </div>
+        <div v-if="pendingSuggestions.length === 0" class="block-empty">
+          대기 중인 제안이 없습니다. 매일 08:30 자동 진단이 새 제안을 드롭합니다.
+        </div>
+        <div v-else class="suggestions-list">
+          <div v-for="s in pendingSuggestions" :key="s.id" class="suggestion-row">
+            <div class="sg-header">
+              <span class="sg-date">{{ fmtDate(s.created_at) }}</span>
+              <div class="sg-actions">
+                <button class="btn-apply-sm" @click="applySuggestion(s)" :disabled="applyingSugg === s.id">
+                  {{ applyingSugg === s.id ? '...' : '✓ 적용' }}
+                </button>
+                <button class="btn-dismiss-sm" @click="dismissSuggestion(s)">✗ 기각</button>
+              </div>
+            </div>
+            <div class="sg-diag">{{ s.diagnosis_text }}</div>
+            <div v-if="s.suggested_risk_params" class="sg-diff">
+              risk_params: {{ JSON.stringify(s.suggested_risk_params) }}
+            </div>
+            <div v-if="s.suggested_conditions" class="sg-diff">
+              conditions: {{ s.suggested_conditions.length }}건
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 변경 이력 -->
+      <div class="summary-block">
+        <div class="block-title">
+          <span>📜 변경 이력</span>
+          <span class="block-count">{{ history.length }}건</span>
+        </div>
+        <div v-if="history.length === 0" class="block-empty">
+          변경 이력이 없습니다.
+        </div>
+        <div v-else class="history-list">
+          <div v-for="h in history" :key="h.id" class="history-row">
+            <div class="hist-header">
+              <span class="hist-date">{{ fmtDate(h.applied_at) }}</span>
+              <span class="hist-source" :class="`src-${h.source}`">{{ h.source }}</span>
+            </div>
+            <div v-if="h.llm_reasoning" class="hist-reason">{{ h.llm_reasoning }}</div>
+            <div class="hist-diff">
+              <span v-if="h.before_risk_params && h.after_risk_params">risk_params 변경</span>
+              <span v-if="h.before_conditions !== null && h.after_conditions !== null">conditions 변경</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <div v-else class="loading">전략 정보 불러오는 중...</div>
 </template>
@@ -160,6 +217,9 @@ const applying = ref(false)
 const undoing = ref(false)
 const errorMessage = ref('')
 const chatHistoryEl = ref(null)
+const history = ref([])
+const pendingSuggestions = ref([])
+const applyingSugg = ref(null)
 
 function headers() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -180,11 +240,65 @@ async function fetchStrategy() {
   if (res.ok) strategy.value = await res.json()
 }
 
+async function fetchHistory() {
+  const res = await fetch(`${API}/trading/bots/${props.botId}/strategy/history?limit=20`, { headers: headers() })
+  if (res.ok) history.value = await res.json()
+}
+
+async function fetchSuggestions() {
+  const res = await fetch(`${API}/trading/bots/${props.botId}/suggestions?status_filter=pending&limit=20`, { headers: headers() })
+  if (res.ok) pendingSuggestions.value = await res.json()
+}
+
 async function load() {
   loading.value = true
   await fetchBot()
   await fetchStrategy()
+  await Promise.all([fetchHistory(), fetchSuggestions()])
   loading.value = false
+}
+
+async function applySuggestion(s) {
+  applyingSugg.value = s.id
+  errorMessage.value = ''
+  try {
+    const body = {
+      conditions: s.suggested_conditions,
+      risk_params: s.suggested_risk_params,
+      source: 'ai_suggestion',
+      llm_reasoning: s.diagnosis_text,
+      suggestion_id: s.id,
+    }
+    const res = await fetch(`${API}/trading/bots/${props.botId}/strategy/apply-diff`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify(body),
+    })
+    await handleResponse(res)
+    await load()
+  } catch (e) {
+    errorMessage.value = `제안 적용 실패: ${e.message}`
+  } finally {
+    applyingSugg.value = null
+  }
+}
+
+async function dismissSuggestion(s) {
+  try {
+    await fetch(`${API}/trading/bots/${props.botId}/suggestions/${s.id}/dismiss`, {
+      method: 'POST',
+      headers: headers(),
+    })
+    await fetchSuggestions()
+  } catch {
+    /* 백그라운드 동작 */
+  }
+}
+
+function fmtDate(s) {
+  if (!s) return ''
+  const d = new Date(s)
+  return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 async function scrollChatToBottom() {
@@ -627,4 +741,90 @@ onMounted(() => load())
   text-align: center;
   padding: 40px;
 }
+
+/* 하단 섹션 (suggestions + history) */
+.lower-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.suggestions-list, .history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.suggestion-row, .history-row {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.sg-header, .hist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.sg-date, .hist-date {
+  color: #9ca3af;
+  font-size: 11px;
+}
+
+.sg-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-apply-sm {
+  background: #16a34a;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.btn-apply-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-dismiss-sm {
+  background: rgba(255, 255, 255, 0.08);
+  color: #d1d5db;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sg-diag, .hist-reason {
+  color: #d1d5db;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+.sg-diff, .hist-diff {
+  color: #9ca3af;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.hist-source {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #9ca3af;
+}
+
+.hist-source.src-ai_chat { background: rgba(79, 158, 255, 0.15); color: #4f9eff; }
+.hist-source.src-ai_suggestion { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+.hist-source.src-manual { background: rgba(156, 163, 175, 0.15); color: #9ca3af; }
 </style>
