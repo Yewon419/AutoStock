@@ -4,7 +4,11 @@
 를 변경할 때마다 strategy_history에 before/after 기록 → undo 가능.
 
 08:30 자동 task가 만든 tuning_suggestions(=알림함) 조회·적용도 여기서 처리.
+LLM 대화·자동 진단 응답을 tuning_suggestion으로 저장 후 사용자가 [적용] 클릭.
 """
+from __future__ import annotations
+
+import json as _json
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Literal
@@ -13,10 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from core.config import settings
 from core.database import get_db
 from core.security import get_current_user
 from models.strategy import Strategy, StrategyHistory, TuningSuggestion
-from models.trading import TradingBot
+from models.trading import TradingBot, Execution
 
 
 router = APIRouter(tags=["bot-canvas"])
@@ -303,3 +308,161 @@ def dismiss_suggestion(
     db.commit()
     db.refresh(sugg)
     return sugg
+
+
+# ── LLM 튜닝 어시스턴트 ──────────────────────────────────────────
+
+_TUNING_SYSTEM_PROMPT = """당신은 AutoStock 자동매매 봇의 전략 튜닝 어시스턴트입니다.
+주어진 봇의 현재 strategy.conditions·risk_params·최근 거래 통계를 분석해 개선안을 제시합니다.
+
+응답은 반드시 다음 JSON 형식으로만 (다른 텍스트 없이):
+{
+  "reply": "사용자에게 한국어로 보여줄 친근한 응답",
+  "diagnosis": "봇 현재 상태 진단 (200자 이내)",
+  "proposed_conditions": [...] | null,
+  "proposed_risk_params": {...} | null
+}
+
+proposed_conditions 원소 형식:
+{"indicator": "rsi" | "macd_histogram" | "volume_ratio" | "bollinger_upper" | ...,
+ "condition": "above" | "below" | "between" | "golden_cross" | "dead_cross",
+ "value": 숫자, "value2": 숫자 | null}
+
+proposed_risk_params 키: stop_loss_pct, take_profit_pct, max_drawdown_pct,
+position_size_pct, max_positions, max_daily_trades, trailing_stop_pct, confirm_bars
+
+원칙:
+- 한 번에 1~2개 항목만 손대기. 무리한 큰 변경 금지.
+- SL × max_positions × position_size_pct 합산이 MDD 가드를 넘지 않게.
+- swing 봇 SL 2~7%, scalping SL 1~3% 범위 유지.
+- 단순 대화·진단만 요구되면 proposed_* 모두 null로 두기."""
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    diagnosis: Optional[str] = None
+    proposed_conditions: Optional[list] = None
+    proposed_risk_params: Optional[dict] = None
+    suggestion_id: Optional[int] = None
+
+
+def _build_tuning_context(db: Session, bot: TradingBot, strategy: Strategy) -> str:
+    sells = (
+        db.query(Execution)
+        .filter(Execution.bot_id == bot.id, Execution.execution_type == 'SELL')
+        .order_by(Execution.executed_at.desc())
+        .limit(50)
+        .all()
+    )
+    buy_count = (
+        db.query(Execution)
+        .filter(Execution.bot_id == bot.id, Execution.execution_type == 'BUY')
+        .count()
+    )
+    win = sum(1 for s in sells if s.profit_loss is not None and float(s.profit_loss) > 0)
+    lose = len(sells) - win
+    avg_pl_pct = (
+        sum(float(s.profit_loss_pct or 0) for s in sells) / len(sells)
+        if sells else 0.0
+    )
+
+    risk = _snapshot_risk_params(bot)
+    risk_text = ", ".join(f"{k}={v}" for k, v in risk.items()) or "(없음)"
+    cond_text = (
+        _json.dumps(strategy.conditions, ensure_ascii=False)
+        if strategy.conditions else "(없음)"
+    )
+
+    return (
+        f"봇 ID: {bot.id} ({bot.name})\n"
+        f"bot_type: {bot.bot_type}\n"
+        f"현재 strategy.conditions: {cond_text}\n"
+        f"현재 risk_params: {risk_text}\n"
+        f"최근 거래: BUY {buy_count}건, SELL {len(sells)}건 "
+        f"(승 {win} / 패 {lose}, SELL 평균 P&L {avg_pl_pct:.2f}%)"
+    )
+
+
+def _call_tuning_llm(context: str, user_message: str) -> dict:
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY 미설정")
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    user_content = f"{context}\n\n사용자 메시지: {user_message}"
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1500,
+        system=_TUNING_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
+    )
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) > 1 else raw
+        if raw.lstrip().startswith("json"):
+            raw = raw.lstrip()[4:]
+    try:
+        return _json.loads(raw.strip())
+    except _json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"LLM 응답 JSON 파싱 실패: {e}")
+
+
+def _process_tuning(db: Session, bot: TradingBot, strategy: Strategy, user_message: str) -> ChatResponse:
+    context = _build_tuning_context(db, bot, strategy)
+    result = _call_tuning_llm(context, user_message)
+
+    proposed_conditions = result.get('proposed_conditions')
+    proposed_risk_params = result.get('proposed_risk_params')
+    reply = result.get('reply', '')
+    diagnosis = result.get('diagnosis')
+
+    suggestion_id: Optional[int] = None
+    if proposed_conditions is not None or proposed_risk_params is not None:
+        sugg = TuningSuggestion(
+            bot_id=bot.id,
+            suggested_conditions=proposed_conditions,
+            suggested_risk_params=proposed_risk_params,
+            diagnosis_text=diagnosis or reply or "(no diagnosis)",
+        )
+        db.add(sugg)
+        db.commit()
+        db.refresh(sugg)
+        suggestion_id = sugg.id
+
+    return ChatResponse(
+        reply=reply,
+        diagnosis=diagnosis,
+        proposed_conditions=proposed_conditions,
+        proposed_risk_params=proposed_risk_params,
+        suggestion_id=suggestion_id,
+    )
+
+
+@router.post("/trading/bots/{bot_id}/strategy/chat", response_model=ChatResponse)
+def strategy_chat(
+    bot_id: int,
+    req: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """봇 단위 LLM 어시스턴트와 자연어 대화. 제안이 있으면 tuning_suggestion으로 저장."""
+    bot, strategy = _load_bot_and_strategy(db, bot_id, _user_id(current_user))
+    return _process_tuning(db, bot, strategy, req.message)
+
+
+@router.post("/trading/bots/{bot_id}/strategy/ai-generate", response_model=ChatResponse)
+def strategy_ai_generate(
+    bot_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """봇 현황을 자동 진단하고 개선안을 1건 제안."""
+    bot, strategy = _load_bot_and_strategy(db, bot_id, _user_id(current_user))
+    user_msg = "이 봇의 최근 성과를 분석해서 개선안(strategy.conditions 또는 risk_params)을 제시하세요."
+    return _process_tuning(db, bot, strategy, user_msg)
