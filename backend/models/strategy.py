@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.sql import func
 from core.database import Base
 
@@ -8,6 +8,7 @@ class Strategy(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    bot_id = Column(Integer, ForeignKey("trading_bots.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text)
     conditions = Column(JSON, nullable=False)
@@ -20,3 +21,32 @@ class Strategy(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class StrategyHistory(Base):
+    __tablename__ = "strategy_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("trading_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    strategy_id = Column(Integer, ForeignKey("strategies.id", ondelete="CASCADE"), nullable=False)
+    applied_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    before_conditions = Column(JSON)
+    after_conditions = Column(JSON)
+    before_risk_params = Column(JSON)
+    after_risk_params = Column(JSON)
+    source = Column(String(20), nullable=False)            # manual | ai_chat | ai_suggestion
+    llm_reasoning = Column(Text)
+
+
+class TuningSuggestion(Base):
+    __tablename__ = "tuning_suggestions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("trading_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    status = Column(String(20), nullable=False, default='pending')  # pending | applied | dismissed
+    suggested_conditions = Column(JSON)
+    suggested_risk_params = Column(JSON)
+    diagnosis_text = Column(Text, nullable=False)
+    applied_at = Column(DateTime(timezone=True))
+    applied_history_id = Column(Integer, ForeignKey("strategy_history.id", ondelete="SET NULL"))
