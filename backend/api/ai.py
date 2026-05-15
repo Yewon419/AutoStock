@@ -113,53 +113,8 @@ def get_optimize_result(task_id: str, _: dict = Depends(get_current_user)):
 
 # ── LLM 전략 생성 ────────────────────────────────────────────────────
 
-@router.post("/generate-strategy")
-def trigger_generate_strategy(
-    current_user: dict = Depends(get_current_user),
-):
-    """LLM 전략 생성 태스크 실행 (수동 트리거)"""
-    from tasks.llm_strategy import generate_strategy
-    task = generate_strategy.delay(user_id=int(current_user["sub"]))
-    return {"task_id": str(task.id), "status": "queued"}
-
-
-@router.get("/generate-strategy/{task_id}")
-def get_generate_strategy_result(
-    task_id: str,
-    _: dict = Depends(get_current_user),
-):
-    return _task_status(task_id)
-
-
-@router.get("/generated-strategies")
-def get_generated_strategies(
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """AI가 생성한 전략 목록 (최신 20개)"""
-    from models.strategy import Strategy
-    strategies = (
-        db.query(Strategy)
-        .filter(
-            Strategy.user_id == int(current_user["sub"]),
-            Strategy.source == "ai_generated",
-        )
-        .order_by(Strategy.created_at.desc())
-        .limit(20)
-        .all()
-    )
-    return [
-        {
-            "id": s.id,
-            "name": s.name,
-            "strategy_type": s.strategy_type,
-            "conditions": s.conditions,
-            "ai_analysis": s.ai_analysis,
-            "ai_confidence": s.ai_confidence,
-            "created_at": s.created_at,
-        }
-        for s in strategies
-    ]
+# 전역 /generate-strategy* 엔드포인트는 Phase 4B에서 폐기됨 — 봇 1:1 모델에서
+# 봇 페이지의 strategy/chat·strategy/ai-generate (bot_canvas.py)로 대체.
 
 
 # ── 캔버스 전용 엔드포인트 ────────────────────────────────────────────

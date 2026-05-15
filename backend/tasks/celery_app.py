@@ -20,7 +20,7 @@ celery_app = Celery(
         "tasks.bot_engine", "tasks.scanner", "tasks.ai_tasks",
         "tasks.kis_price_stream",
         "tasks.intraday_collector", "tasks.scalping_engine",
-        "tasks.llm_strategy", "tasks.bot_diagnostics",
+        "tasks.bot_diagnostics",
         "tasks.circuit_breaker_task",
         "tasks.mechanism_audit",
         "tasks.bot_tuning",
