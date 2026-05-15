@@ -44,10 +44,12 @@ class BotCreate(BaseModel):
     bot_type 프로필(SCALPING_PROFILE / SWING_PROFILE)을 적용. Canvas AI가 bot_type만
     전달해도 단타 봇은 SL 2% / TP 4% / intraday_close=true / trailing 1.5% 등
     단타 프로필이 자동 적용됨. 명시적으로 값을 넣으면 그 값이 우선.
+
+    봇 1:1 모델: strategy는 봇 생성 시 빈 상태로 동반 생성. 호출자가 strategy_id를
+    보내도 무시됨 (구 모델 호환). 이후 캔버스에서 conditions·risk_params 채움.
     """
     name: str
     mode: str = 'mock'            # mock | paper | real
-    strategy_id: Optional[int] = None
     account_id: Optional[int] = None
     tickers: List[str] = []
     initial_cash: float = 10_000_000

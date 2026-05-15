@@ -48,10 +48,11 @@ SWING_PROFILE: dict = {
 def _apply_profile_defaults(data: dict, db: Session = None) -> dict:
     """bot_type 프로필 기본값을 data에 병합. 우선순위:
     1) 호출자가 명시한 값 (None 아님) — 최우선
-    2) strategy.risk_params (AI 팔레트가 전략별 결정)
+    2) strategy.risk_params (캔버스 AI가 결정한 봇 단위 값)
     3) bot_type 프로필 디폴트 (SCALPING_PROFILE / SWING_PROFILE) — 폴백
 
-    Canvas/API에서 strategy_id만 보내도 AI 팔레트가 정한 SL/TP/MDD 등이 자동 적용됨.
+    봇 1:1 모델: 봇 생성 직후엔 strategy.risk_params가 비어있어 (3)으로 폴백.
+    이후 캔버스에서 AI 생성·튜닝 시 (2)로 끌어올려짐.
     """
     from models.strategy import Strategy
 
@@ -143,15 +144,20 @@ def get_bot(db: Session, bot_id: int, user_id: int):
 
 
 def create_bot(db: Session, user_id: int, data: dict):
-    # bot_type 프로필 + strategy.risk_params로 미지정 필드 자동 채움.
-    # Canvas/API에서 strategy_id만 보내도 AI 팔레트가 결정한 SL/TP/MDD 등이 자동 적용됨.
+    # 봇 1:1 모델: 봇 생성 시 빈 strategy 동반 생성. strategy_id 인자는 무시.
+    # bot_type 프로필 디폴트 적용 (생성 직후 strategy.risk_params는 비어있음).
+    from models.strategy import Strategy
+
+    data.pop('strategy_id', None)
     merged = _apply_profile_defaults(data, db=db)
     initial_cash = merged.get('initial_cash', 10_000_000)
+    bot_type = merged.get('bot_type', 'swing')
+
     bot = TradingBot(
         user_id=user_id,
         name=merged['name'],
         mode=merged.get('mode', 'mock'),
-        strategy_id=merged.get('strategy_id'),
+        strategy_id=None,  # flush 후 동반 strategy 생성한 뒤 채움
         account_id=merged.get('account_id'),
         tickers=merged.get('tickers', []),
         initial_cash=initial_cash,
@@ -165,7 +171,7 @@ def create_bot(db: Session, user_id: int, data: dict):
         max_order_amount=merged.get('max_order_amount'),
         trading_start_time=merged.get('trading_start_time'),
         trading_end_time=merged.get('trading_end_time'),
-        bot_type=merged.get('bot_type', 'swing'),
+        bot_type=bot_type,
         candle_interval=merged.get('candle_interval'),
         intraday_close=merged.get('intraday_close'),
         intraday_close_time=merged.get('intraday_close_time'),
@@ -173,6 +179,20 @@ def create_bot(db: Session, user_id: int, data: dict):
         confirm_bars=merged.get('confirm_bars'),
     )
     db.add(bot)
+    db.flush()  # bot.id 확보 (commit 아님)
+
+    strategy = Strategy(
+        user_id=user_id,
+        bot_id=bot.id,
+        name=f"{bot.name} 전략",
+        conditions=[],
+        strategy_type=bot_type,
+        source='manual',
+    )
+    db.add(strategy)
+    db.flush()
+
+    bot.strategy_id = strategy.id
     db.commit()
     db.refresh(bot)
     return bot
