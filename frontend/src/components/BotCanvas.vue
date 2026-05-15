@@ -189,6 +189,22 @@
         </div>
       </div>
     </div>
+
+    <!-- 노드 편집기 (기존 CanvasView 임베드) -->
+    <div class="flow-section">
+      <div class="flow-header">
+        <span>🎨 노드 편집기</span>
+        <button class="btn-small" @click="showFlow = !showFlow">
+          {{ showFlow ? '접기 ▲' : '펼치기 ▼' }}
+        </button>
+      </div>
+      <div v-show="showFlow" class="flow-container">
+        <CanvasView />
+        <div class="flow-note">
+          ⚠ 현재 노드 편집기는 user 단위 캔버스를 공유합니다. 봇 단위 캔버스 격리는 Phase 4에서 도입.
+        </div>
+      </div>
+    </div>
   </div>
   <div v-else class="loading">전략 정보 불러오는 중...</div>
 </template>
@@ -196,6 +212,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import CanvasView from '@/views/CanvasView.vue'
 
 const props = defineProps({
   botId: { type: Number, required: true },
@@ -220,6 +237,7 @@ const chatHistoryEl = ref(null)
 const history = ref([])
 const pendingSuggestions = ref([])
 const applyingSugg = ref(null)
+const showFlow = ref(false)  // 노드 편집기 펼침 (기본 접힘)
 
 function headers() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -827,4 +845,39 @@ onMounted(() => load())
 .hist-source.src-ai_chat { background: rgba(79, 158, 255, 0.15); color: #4f9eff; }
 .hist-source.src-ai_suggestion { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
 .hist-source.src-manual { background: rgba(156, 163, 175, 0.15); color: #9ca3af; }
+
+/* 노드 편집기 섹션 */
+.flow-section {
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.flow-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #e5e7eb;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.flow-container {
+  position: relative;
+  min-height: 600px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.flow-note {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(248, 187, 113, 0.08);
+  border-left: 2px solid rgba(248, 187, 113, 0.6);
+  color: #fcd34d;
+  font-size: 11px;
+}
 </style>
