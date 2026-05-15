@@ -6,8 +6,8 @@
       <div class="toolbar-left">
         <span class="toolbar-brand">✦ AI 캔버스</span>
 
-        <!-- 캔버스 선택 -->
-        <div class="canvas-selector" :class="{ open: showCanvasMenu }" @click.stop>
+        <!-- 캔버스 선택 (전역 모드에서만. 봇 모드면 봇 1:1 캔버스라 list 불필요) -->
+        <div v-if="!props.botId" class="canvas-selector" :class="{ open: showCanvasMenu }" @click.stop>
           <button class="canvas-sel-btn" @click="showCanvasMenu = !showCanvasMenu">
             <span class="canvas-sel-name">{{ currentCanvasName }}</span>
             <span class="pd-arrow">▾</span>
@@ -535,6 +535,10 @@ const edges = ref([])
 let nodeCounter = 0
 
 // ── 다중 캔버스 ────────────────────────────────────────────────────
+const props = defineProps({
+  botId: { type: Number, required: false, default: null },
+})
+
 const canvasList      = ref([])
 const currentCanvasId = ref('default')
 const showCanvasMenu  = ref(false)
@@ -1487,10 +1491,16 @@ function onClickOutside() { showCanvasMenu.value = false; openPalette.value = nu
 
 onMounted(async () => {
   document.addEventListener('click', onClickOutside)
-  await fetchCanvasList()
-  const lastId = localStorage.getItem('autostock-last-canvas')
-  const validId = canvasList.value.find(c => c.id === lastId)?.id
-  currentCanvasId.value = validId || (canvasList.value[0]?.id ?? 'default')
+  if (props.botId !== null) {
+    // 봇 모드: 봇 단위 캔버스 ID 강제. 목록 fetch / localStorage 미사용.
+    currentCanvasId.value = `bot-${props.botId}`
+    canvasList.value = [{ id: currentCanvasId.value, name: '캔버스' }]
+  } else {
+    await fetchCanvasList()
+    const lastId = localStorage.getItem('autostock-last-canvas')
+    const validId = canvasList.value.find(c => c.id === lastId)?.id
+    currentCanvasId.value = validId || (canvasList.value[0]?.id ?? 'default')
+  }
   _loadChatMessages(currentCanvasId.value)
   loadLayout()
   await fetchBotList()

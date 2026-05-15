@@ -199,10 +199,7 @@
         </button>
       </div>
       <div v-show="showFlow" class="flow-container">
-        <CanvasView />
-        <div class="flow-note">
-          ⚠ 현재 노드 편집기는 user 단위 캔버스를 공유합니다. 봇 단위 캔버스 격리는 Phase 4에서 도입.
-        </div>
+        <CanvasView :bot-id="botId" />
       </div>
     </div>
   </div>
