@@ -116,12 +116,17 @@
     <!-- 탭 -->
     <div class="tabs">
       <button
-        v-for="tab in ['positions', 'orders', 'executions', 'reports']"
+        v-for="tab in ['canvas', 'positions', 'orders', 'executions', 'reports']"
         :key="tab"
         class="tab-btn"
         :class="{ active: activeTab === tab }"
         @click="switchTab(tab)"
       >{{ tabLabel(tab) }}</button>
+    </div>
+
+    <!-- 캔버스 탭 -->
+    <div v-if="activeTab === 'canvas'">
+      <BotCanvas :bot-id="Number(botId)" />
     </div>
 
     <!-- 포지션 탭 -->
@@ -495,6 +500,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import BotCanvas from '@/components/BotCanvas.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -510,7 +516,7 @@ const reports = ref([])
 const reportScore = ref(null)
 const reportScoreInsufficient = ref(null)
 const strategies = ref([])
-const activeTab = ref('positions')
+const activeTab = ref('canvas')
 const lineChartEl = ref(null)
 const barChartEl = ref(null)
 let lineChart = null
@@ -822,6 +828,7 @@ async function switchTab(tab) {
   else if (tab === 'orders') await fetchOrders()
   else if (tab === 'executions') await fetchExecutions()
   else if (tab === 'reports') await fetchReports()
+  // canvas는 BotCanvas 컴포넌트가 자체 fetch
 }
 
 async function startBot() {
@@ -843,6 +850,7 @@ function statusClass(s) {
 
 function tabLabel(tab) {
   return {
+    canvas: '캔버스',
     positions: '보유 포지션',
     orders: '주문 내역',
     executions: '체결 내역',
