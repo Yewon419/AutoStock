@@ -23,10 +23,10 @@
 ### 모니터링 대상 봇 (5/4 15:10 KST 처음 RUNNING 전환)
 | bot_id | 이름 | 타입 | 모드 | strategy_id | 핵심 risk_params |
 |---|---|---|---|---|---|
-| 19 | 포폴_눌림목 | swing | paper | 47 | SL 3.5 / TP 8.0 / MDD 10 / pos 15% / max_pos 4 / max_daily 10 / candle 5 |
-| 20 | 포폴_변동성압축 | swing | paper | 48 | 동일 |
-| 21 | 포폴_과매도단타 | scalping | paper | 49 | SL 1.5 / TP 3.0 / MDD 5 / pos 10% / max_pos 3 / max_daily 30 / candle 3 / **intraday_close 15:10** |
-| 22 | 포폴_돌파단타 | scalping | paper | 50 | SL 1.5 / TP 3.0 / MDD 5 / pos 10% / max_pos 2 / max_daily 30 / candle 3 / **intraday_close 15:10** |
+| 19 | 포폴_눌림목 | swing | mock | 47 | SL 3.5 / TP 8.0 / MDD 10 / pos **20%** / max_pos **5** / max_daily 10 / candle 5 *(2026-05-15 비중↑ — 포폴 흑자축, [개발일지 5/15](개발일지.md) 참조)* |
+| 20 | 포폴_변동성압축 | swing | mock | 48 | SL **5.0** / TP **12.0** / MDD **12** / pos 15% / max_pos 4 / max_daily 10 / candle 5 *(2026-05-15 보유기간 완화 — 회전과다 보정, [개발일지 5/15](개발일지.md) 참조)* |
+| 21 | 포폴_과매도단타 | scalping | mock | 49 | SL 1.5 / TP 3.0 / MDD 5 / pos 10% / max_pos 3 / max_daily 30 / candle 3 / **intraday_close 15:10** |
+| 22 | 포폴_돌파단타 | scalping | mock | 50 | SL 1.5 / TP 3.0 / MDD 5 / pos 10% / max_pos 2 / max_daily 30 / candle 3 / **intraday_close 15:10** |
 | 16 | 실전투자 테스트봇 | swing | real | — | STOPPED (모니터링 제외) |
 
 ### 핵심 코드 진입점
