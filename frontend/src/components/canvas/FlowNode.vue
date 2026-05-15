@@ -175,27 +175,29 @@ const previewResult = computed(() => {
 
 <style scoped>
 .flow-node {
-  width: 220px;
-  border-radius: 10px;
-  border: 1.5px solid #2a2d3e;
-  background: #1a1d27;
+  width: 240px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 33, 45, 0.85);
+  backdrop-filter: blur(4px);
   font-size: 12px;
   user-select: none;
   transition: border-color 0.15s, box-shadow 0.15s;
   position: relative;
+  overflow: hidden;
 }
 
 .flow-node.selected {
-  box-shadow: 0 0 0 2px rgba(79, 158, 255, 0.5);
-  border-color: #4f9eff;
+  box-shadow: 0 0 0 2px rgba(79, 158, 255, 0.45);
+  border-color: rgba(79, 158, 255, 0.6);
 }
 
-/* Category top border */
-.flow-node.cat-source     { border-top: 3px solid #0891b2; }
-.flow-node.cat-strategy   { border-top: 3px solid #d97706; }
-.flow-node.cat-processing { border-top: 3px solid #7c3aed; }
-.flow-node.cat-output     { border-top: 3px solid #059669; }
-.flow-node.cat-config     { border-top: 3px solid #b45309; }
+/* Category accent — top 1px line (top border 두껍게 두면 BotCanvas 톤 안 맞음) */
+.flow-node.cat-source     { border-top: 2px solid rgba(8, 145, 178, 0.7); }
+.flow-node.cat-strategy   { border-top: 2px solid rgba(217, 119, 6, 0.7); }
+.flow-node.cat-processing { border-top: 2px solid rgba(124, 58, 237, 0.7); }
+.flow-node.cat-output     { border-top: 2px solid rgba(5, 150, 105, 0.7); }
+.flow-node.cat-config     { border-top: 2px solid rgba(180, 83, 9, 0.7); }
 
 /* Status glow */
 .flow-node.st-running { box-shadow: 0 0 14px rgba(79, 158, 255, 0.35); }
@@ -208,7 +210,7 @@ const previewResult = computed(() => {
   align-items: center;
   gap: 7px;
   padding: 10px 14px 8px;
-  border-bottom: 1px solid #2a2d3e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 .node-icon  { font-size: 15px; flex-shrink: 0; }
 .node-title { flex: 1; font-weight: 600; color: #e5e7eb; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -263,47 +265,47 @@ const previewResult = computed(() => {
 /* ── Footer ── */
 .node-footer {
   padding: 6px 10px 9px;
-  border-top: 1px solid #2a2d3e;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .run-btn {
   width: 100%;
   padding: 5px 0;
-  border: 1px solid #2a2d3e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 5px;
-  background: #0f1117;
+  background: rgba(255, 255, 255, 0.03);
   color: #9ca3af;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
 }
-.run-btn:hover:not(:disabled) { border-color: #4f9eff; color: #4f9eff; background: rgba(79,158,255,.08); }
+.run-btn:hover:not(:disabled) { border-color: rgba(79, 158, 255, 0.5); color: #4f9eff; background: rgba(79, 158, 255, 0.08); }
 .run-btn.running, .run-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── Handles ── */
 .flow-handle {
-  width: 11px !important;
-  height: 11px !important;
+  width: 10px !important;
+  height: 10px !important;
   border-radius: 50% !important;
-  border: 2px solid #1a1d27 !important;
+  border: 2px solid rgba(30, 33, 45, 0.95) !important;
 }
-.handle-in  { background: #0891b2 !important; left: -6px !important; }
-.handle-out { background: #7c3aed !important; right: -6px !important; }
-.cat-output .handle-in { background: #059669 !important; }
+.handle-in  { background: rgba(8, 145, 178, 0.8) !important; left: -5px !important; }
+.handle-out { background: rgba(124, 58, 237, 0.8) !important; right: -5px !important; }
+.cat-output .handle-in { background: rgba(5, 150, 105, 0.8) !important; }
 
 /* handle label — 기본 숨김, hover 시 노드 바깥쪽에 표시 */
 .handle-label {
   position: absolute;
   font-size: 9px;
-  color: #6b7280;
+  color: #9ca3af;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s;
-  background: #1a1d27;
-  padding: 1px 4px;
-  border-radius: 3px;
-  border: 1px solid #2a2d3e;
+  background: rgba(30, 33, 45, 0.95);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .flow-handle:hover .handle-label { opacity: 1; }
 .handle-label-in  { left: 16px;  top: 50%; transform: translateY(-50%); }
