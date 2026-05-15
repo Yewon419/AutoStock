@@ -994,6 +994,49 @@ async function runNode(nodeId) {
       }
     }
 
+    // ── botApply (봇 모드: 연결된 strategyBuilder·riskParams를 그 봇에 직접 적용) ──
+    else if (node.type === 'botApply' && props.botId !== null) {
+      const stratEdge = edges.value.find(e => e.target === nodeId && e.targetHandle === 'strategy')
+      const riskEdge  = edges.value.find(e => e.target === nodeId && e.targetHandle === 'risk_params')
+      const stratSrc = stratEdge ? nodes.value.find(n => n.id === stratEdge.source) : null
+      const riskSrc  = riskEdge ? nodes.value.find(n => n.id === riskEdge.source) : null
+
+      const conditions = Array.isArray(stratSrc?.data?.config?.conditions)
+        ? stratSrc.data.config.conditions
+        : null
+      const riskParams = (riskSrc?.data?.config && typeof riskSrc.data.config === 'object')
+        ? { ...riskSrc.data.config }
+        : null
+
+      if (!conditions && !riskParams) {
+        throw new Error('전략 빌더 또는 리스크 파라미터 노드를 [봇 적용]에 연결하세요')
+      }
+
+      const res = await fetch(`${API}/trading/bots/${props.botId}/strategy/apply-diff`, {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify({
+          conditions,
+          risk_params: riskParams,
+          source: 'manual',
+          llm_reasoning: '캔버스 노드 편집 적용',
+        }),
+      })
+      _checkAuth(res)
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        throw new Error(b.detail || `봇 적용 실패 (${res.status})`)
+      }
+      await res.json()
+      result = {
+        bot_name: `봇 #${props.botId}`,
+        applied: true,
+        num_trades: conditions ? conditions.length : 0,
+      }
+      // 봇·전략 상태 갱신
+      await fetchBotList()
+    }
+
     // ── botApply ──────────────────────────────────────────────────
     else if (node.type === 'botApply') {
       let strategyResult = getInputResult(nodeId, 'strategy')
