@@ -34,16 +34,6 @@ const router = createRouter({
           component: () => import('@/views/StockDetailView.vue'),
         },
         {
-          path: 'strategies',
-          name: 'strategies',
-          component: () => import('@/views/StrategyView.vue'),
-        },
-        {
-          path: 'strategies/:id',
-          name: 'strategy-detail',
-          component: () => import('@/views/StrategyDetailView.vue'),
-        },
-        {
           path: 'bots',
           name: 'bots',
           component: () => import('@/views/BotView.vue'),
@@ -63,11 +53,8 @@ const router = createRouter({
           name: 'ai',
           component: () => import('@/views/AiView.vue'),
         },
-        {
-          path: 'canvas',
-          name: 'canvas',
-          component: () => import('@/views/CanvasView.vue'),
-        },
+        // 전역 /strategies, /canvas 라우트 폐기 (봇 1:1 모델 — 봇 페이지 캔버스 탭으로 통합)
+        // CanvasView·StrategyView 컴포넌트 자체는 BotCanvas가 임베드로 사용
       ],
     },
   ],
