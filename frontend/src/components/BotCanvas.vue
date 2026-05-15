@@ -234,7 +234,7 @@ const chatHistoryEl = ref(null)
 const history = ref([])
 const pendingSuggestions = ref([])
 const applyingSugg = ref(null)
-const showFlow = ref(false)  // 노드 편집기 펼침 (기본 접힘)
+const showFlow = ref(true)  // 노드 편집기 펼침 (기본 펼침)
 
 function headers() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -863,7 +863,8 @@ onMounted(() => load())
 
 .flow-container {
   position: relative;
-  min-height: 720px;
+  /* CanvasView가 height:100%이라 부모는 명시적 height 필요 (auto/min-height만으론 자식이 0으로 collapse) */
+  height: 800px;
   border-radius: 6px;
   /* overflow visible — palette 드롭다운 메뉴가 toolbar 위로 펼쳐질 때 잘리지 않게 */
   overflow: visible;
