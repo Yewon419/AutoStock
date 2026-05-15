@@ -405,6 +405,7 @@ const nodeTypes = {
   techIndicators:   markRaw(FlowNode),
   mlScores:         markRaw(FlowNode),
   accountConfig:    markRaw(FlowNode),
+  riskParams:       markRaw(FlowNode),
   strategy:         markRaw(FlowNode),
   strategyBuilder:  markRaw(FlowNode),
   mlModel:          markRaw(FlowNode),
