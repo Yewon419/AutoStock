@@ -1489,17 +1489,37 @@ watch(chatMessages, () => _saveChatMessages(currentCanvasId.value), { deep: true
 
 function onClickOutside() { showCanvasMenu.value = false; openPalette.value = null }
 
-function autoSeedFromBot(bot) {
-  // strategy → botApply 두 노드 + 연결. strategy 노드의 strategyId, botApply의 botId 자동 채움.
-  addNode('strategy', 80, 200)
-  addNode('botApply', 480, 200)
-  const stratNode = nodes.value.find(n => n.type === 'strategy')
+async function autoSeedFromBot(bot) {
+  // strategyBuilder → botApply 두 노드 + 연결.
+  // strategyBuilder에 봇의 strategy.conditions를 통째로 채워 각 조건이 사이드 패널에서
+  // 개별 row로 시각화·편집 가능하게.
+  let strategy = null
+  if (bot.strategy_id) {
+    try {
+      const res = await fetch(`${API}/strategies/${bot.strategy_id}`, { headers: headers() })
+      if (res.ok) strategy = await res.json()
+    } catch { /* fetch 실패 시 빈 strategy로 시드 */ }
+  }
+
+  addNode('strategyBuilder', 80, 200)
+  addNode('botApply', 520, 200)
+  const stratNode = nodes.value.find(n => n.type === 'strategyBuilder')
   const applyNode = nodes.value.find(n => n.type === 'botApply')
-  if (stratNode && bot.strategy_id) {
-    stratNode.data.config = { ...stratNode.data.config, strategyId: bot.strategy_id }
+
+  if (stratNode) {
+    const existingConditions = Array.isArray(strategy?.conditions) ? strategy.conditions : []
+    stratNode.data.config = {
+      ...stratNode.data.config,
+      name: strategy?.name || `${bot.name} 전략`,
+      strategy_type: strategy?.strategy_type || bot.bot_type || 'swing',
+      conditions: existingConditions.length > 0
+        ? existingConditions
+        : [{ indicator: 'rsi', condition: 'below', value: 30, value2: null }],
+      saved_id: bot.strategy_id ?? null,
+    }
   }
   if (applyNode) {
-    applyNode.data.config = { ...applyNode.data.config, botId: bot.id }
+    applyNode.data.config = { ...applyNode.data.config, bot_id: bot.id, auto_start: false }
   }
   if (stratNode && applyNode) {
     edges.value = [
@@ -1537,7 +1557,7 @@ onMounted(async () => {
   if (props.botId !== null && nodes.value.length === 0) {
     const bot = botList.value.find(b => b.id === props.botId)
     if (bot?.strategy_id) {
-      autoSeedFromBot(bot)
+      await autoSeedFromBot(bot)
       saveLayout(true)  // 시드 결과 영속화 → 다음 진입 시 재현
     }
   }
