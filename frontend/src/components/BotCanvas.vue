@@ -863,9 +863,10 @@ onMounted(() => load())
 
 .flow-container {
   position: relative;
-  min-height: 600px;
+  min-height: 720px;
   border-radius: 6px;
-  overflow: hidden;
+  /* overflow visible — palette 드롭다운 메뉴가 toolbar 위로 펼쳐질 때 잘리지 않게 */
+  overflow: visible;
   background: rgba(0, 0, 0, 0.2);
 }
 

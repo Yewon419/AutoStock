@@ -1489,6 +1489,32 @@ watch(chatMessages, () => _saveChatMessages(currentCanvasId.value), { deep: true
 
 function onClickOutside() { showCanvasMenu.value = false; openPalette.value = null }
 
+function autoSeedFromBot(bot) {
+  // strategy → botApply 두 노드 + 연결. strategy 노드의 strategyId, botApply의 botId 자동 채움.
+  addNode('strategy', 80, 200)
+  addNode('botApply', 480, 200)
+  const stratNode = nodes.value.find(n => n.type === 'strategy')
+  const applyNode = nodes.value.find(n => n.type === 'botApply')
+  if (stratNode && bot.strategy_id) {
+    stratNode.data.config = { ...stratNode.data.config, strategyId: bot.strategy_id }
+  }
+  if (applyNode) {
+    applyNode.data.config = { ...applyNode.data.config, botId: bot.id }
+  }
+  if (stratNode && applyNode) {
+    edges.value = [
+      ...edges.value,
+      {
+        id: `edge-seed-${Date.now()}`,
+        source: stratNode.id,
+        sourceHandle: 'strategy',
+        target: applyNode.id,
+        targetHandle: 'strategy',
+      },
+    ]
+  }
+}
+
 onMounted(async () => {
   document.addEventListener('click', onClickOutside)
   if (props.botId !== null) {
@@ -1502,10 +1528,19 @@ onMounted(async () => {
     currentCanvasId.value = validId || (canvasList.value[0]?.id ?? 'default')
   }
   _loadChatMessages(currentCanvasId.value)
-  loadLayout()
+  await loadLayout()
   await fetchBotList()
   fetchStrategies()
   fetchAccounts()
+
+  // 봇 모드 + 빈 캔버스 + 봇에 strategy 있으면 자동 시드
+  if (props.botId !== null && nodes.value.length === 0) {
+    const bot = botList.value.find(b => b.id === props.botId)
+    if (bot?.strategy_id) {
+      autoSeedFromBot(bot)
+      saveLayout(true)  // 시드 결과 영속화 → 다음 진입 시 재현
+    }
+  }
 })
 
 onUnmounted(() => {
