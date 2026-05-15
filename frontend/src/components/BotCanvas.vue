@@ -1,59 +1,143 @@
 <template>
   <div class="bot-canvas" v-if="!loading">
-    <!-- 현재 전략 요약 -->
-    <div class="canvas-summary">
-      <div class="summary-block">
-        <div class="block-title">
-          <span>📋 strategy.conditions</span>
-          <span class="block-count">{{ conditionsCount }}건</span>
+    <div class="canvas-layout">
+      <!-- 좌측: 현재 전략 + risk_params -->
+      <div class="left-area">
+        <div class="summary-block">
+          <div class="block-title">
+            <span>📋 strategy.conditions</span>
+            <span class="block-count">{{ conditionsCount }}건</span>
+          </div>
+          <div v-if="conditionsCount === 0" class="block-empty">
+            조건이 없습니다. 우측 AI 어시스턴트에게 도움을 요청하세요.
+          </div>
+          <table v-else class="conditions-table">
+            <thead>
+              <tr><th>지표</th><th>조건</th><th>값</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(c, i) in strategy.conditions" :key="i">
+                <td class="indicator">{{ c.indicator }}</td>
+                <td>{{ c.condition }}</td>
+                <td>{{ formatValue(c) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div v-if="conditionsCount === 0" class="block-empty">
-          조건이 없습니다. AI 어시스턴트에게 도움을 요청하거나 노드 편집기를 사용하세요.
+
+        <div class="summary-block">
+          <div class="block-title">
+            <span>⚙️ risk_params</span>
+            <button class="btn-small" @click="undoLast" :disabled="undoing">
+              {{ undoing ? '복원 중...' : '↶ 되돌리기' }}
+            </button>
+          </div>
+          <table class="risk-table">
+            <tbody>
+              <tr v-for="(v, k) in riskParams" :key="k">
+                <td class="rk-key">{{ riskLabel(k) }}</td>
+                <td class="rk-val">{{ v }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <table v-else class="conditions-table">
-          <thead>
-            <tr><th>지표</th><th>조건</th><th>값</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(c, i) in strategy.conditions" :key="i">
-              <td class="indicator">{{ c.indicator }}</td>
-              <td>{{ c.condition }}</td>
-              <td>{{ formatValue(c) }}</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
 
-      <div class="summary-block">
-        <div class="block-title">
-          <span>⚙️ risk_params</span>
-        </div>
-        <table class="risk-table">
-          <tbody>
-            <tr v-for="(v, k) in riskParams" :key="k">
-              <td class="rk-key">{{ riskLabel(k) }}</td>
-              <td class="rk-val">{{ v }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+      <!-- 우측: AI 어시스턴트 -->
+      <div class="right-area">
+        <div class="assistant-block">
+          <div class="block-title">
+            <span>🤖 AI 튜닝 어시스턴트</span>
+            <button class="btn-small" @click="autoGenerate" :disabled="generating">
+              {{ generating ? '진단 중...' : '🔍 자동 진단' }}
+            </button>
+          </div>
 
-    <!-- 다음 단계 안내 -->
-    <div class="placeholder-area">
-      <p class="ph-title">🚧 Phase 2A 스켈레톤</p>
-      <ul>
-        <li>Phase 2B — AI 대화 패널 + diff 미리보기 + [적용]/[되돌리기]</li>
-        <li>Phase 2C — 변경 이력 + 알림함 (제안 자동 표시)</li>
-        <li>후속 — 노드 편집 UI 임베드 (기존 CanvasView에서)</li>
-      </ul>
+          <!-- 대화 히스토리 -->
+          <div class="chat-history" ref="chatHistoryEl">
+            <div v-if="chatLog.length === 0" class="chat-empty">
+              메시지를 보내거나 [자동 진단] 버튼을 눌러보세요.
+            </div>
+            <div v-for="(msg, i) in chatLog" :key="i" class="chat-msg" :class="`msg-${msg.role}`">
+              <div class="msg-label">{{ msg.role === 'user' ? '나' : 'AI' }}</div>
+              <div class="msg-body">{{ msg.content }}</div>
+            </div>
+          </div>
+
+          <!-- 입력창 -->
+          <div class="chat-input">
+            <input
+              v-model="userMessage"
+              type="text"
+              placeholder="이 봇을 어떻게 손볼지 물어보세요 (예: RSI 좀 더 보수적으로)"
+              @keydown.enter="sendChat"
+              :disabled="chatting"
+            />
+            <button @click="sendChat" :disabled="chatting || !userMessage.trim()">
+              {{ chatting ? '...' : '보내기' }}
+            </button>
+          </div>
+
+          <!-- 현재 제안 (diff) -->
+          <div v-if="currentProposal" class="proposal">
+            <div class="proposal-title">📝 변경 제안</div>
+            <div v-if="currentProposal.diagnosis" class="proposal-diag">
+              <strong>진단:</strong> {{ currentProposal.diagnosis }}
+            </div>
+
+            <div v-if="proposedRiskDiff.length" class="diff-block">
+              <div class="diff-label">risk_params 변경 ({{ proposedRiskDiff.length }}건)</div>
+              <table class="diff-table">
+                <thead>
+                  <tr><th>항목</th><th>현재</th><th>→</th><th>제안</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="d in proposedRiskDiff" :key="d.key">
+                    <td>{{ riskLabel(d.key) }}</td>
+                    <td class="v-before">{{ d.before }}</td>
+                    <td class="arrow">→</td>
+                    <td class="v-after">{{ d.after }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-if="currentProposal.proposed_conditions !== null && currentProposal.proposed_conditions !== undefined" class="diff-block">
+              <div class="diff-label">strategy.conditions 변경 ({{ currentProposal.proposed_conditions.length }}건 전체 교체)</div>
+              <table class="diff-table">
+                <thead>
+                  <tr><th>지표</th><th>조건</th><th>값</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(c, i) in currentProposal.proposed_conditions" :key="i">
+                    <td class="indicator">{{ c.indicator }}</td>
+                    <td>{{ c.condition }}</td>
+                    <td>{{ formatValue(c) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="proposal-actions">
+              <button class="btn-apply" @click="applyProposal" :disabled="applying">
+                {{ applying ? '적용 중...' : '✓ 적용' }}
+              </button>
+              <button class="btn-dismiss" @click="dismissProposal" :disabled="applying">
+                ✗ 기각
+              </button>
+            </div>
+          </div>
+
+          <div v-if="errorMessage" class="error-banner">⚠ {{ errorMessage }}</div>
+        </div>
+      </div>
     </div>
   </div>
   <div v-else class="loading">전략 정보 불러오는 중...</div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
 const props = defineProps({
@@ -67,8 +151,22 @@ const loading = ref(true)
 const strategy = ref({ conditions: [], risk_params: {} })
 const bot = ref(null)
 
+const userMessage = ref('')
+const chatLog = ref([])  // [{role: 'user'|'assistant', content: str}]
+const currentProposal = ref(null)  // 마지막 LLM 응답
+const chatting = ref(false)
+const generating = ref(false)
+const applying = ref(false)
+const undoing = ref(false)
+const errorMessage = ref('')
+const chatHistoryEl = ref(null)
+
 function headers() {
   return { Authorization: `Bearer ${auth.token}` }
+}
+
+function jsonHeaders() {
+  return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
 
 async function fetchBot() {
@@ -77,7 +175,6 @@ async function fetchBot() {
 }
 
 async function fetchStrategy() {
-  // 봇의 strategy_id로 strategy 단건 조회. 봇 1:1 모델이라 그 봇 전용.
   if (!bot.value?.strategy_id) return
   const res = await fetch(`${API}/strategies/${bot.value.strategy_id}`, { headers: headers() })
   if (res.ok) strategy.value = await res.json()
@@ -88,6 +185,124 @@ async function load() {
   await fetchBot()
   await fetchStrategy()
   loading.value = false
+}
+
+async function scrollChatToBottom() {
+  await nextTick()
+  if (chatHistoryEl.value) chatHistoryEl.value.scrollTop = chatHistoryEl.value.scrollHeight
+}
+
+async function handleResponse(res) {
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+async function callTuning(endpoint, body) {
+  errorMessage.value = ''
+  const res = await fetch(`${API}/trading/bots/${props.botId}/strategy/${endpoint}`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: body ? JSON.stringify(body) : '{}',
+  })
+  return handleResponse(res)
+}
+
+async function sendChat() {
+  if (!userMessage.value.trim() || chatting.value) return
+  const msg = userMessage.value.trim()
+  chatLog.value.push({ role: 'user', content: msg })
+  userMessage.value = ''
+  await scrollChatToBottom()
+
+  chatting.value = true
+  try {
+    const result = await callTuning('chat', { message: msg })
+    chatLog.value.push({ role: 'assistant', content: result.reply })
+    currentProposal.value = result
+    await scrollChatToBottom()
+  } catch (e) {
+    errorMessage.value = `대화 실패: ${e.message}`
+  } finally {
+    chatting.value = false
+  }
+}
+
+async function autoGenerate() {
+  if (generating.value) return
+  generating.value = true
+  errorMessage.value = ''
+  try {
+    const result = await callTuning('ai-generate', null)
+    chatLog.value.push({ role: 'user', content: '[자동 진단 요청]' })
+    chatLog.value.push({ role: 'assistant', content: result.reply })
+    currentProposal.value = result
+    await scrollChatToBottom()
+  } catch (e) {
+    errorMessage.value = `자동 진단 실패: ${e.message}`
+  } finally {
+    generating.value = false
+  }
+}
+
+async function applyProposal() {
+  if (!currentProposal.value || applying.value) return
+  applying.value = true
+  errorMessage.value = ''
+  try {
+    const body = {
+      conditions: currentProposal.value.proposed_conditions,
+      risk_params: currentProposal.value.proposed_risk_params,
+      source: 'ai_chat',
+      llm_reasoning: currentProposal.value.diagnosis || currentProposal.value.reply,
+      suggestion_id: currentProposal.value.suggestion_id,
+    }
+    const res = await fetch(`${API}/trading/bots/${props.botId}/strategy/apply-diff`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify(body),
+    })
+    await handleResponse(res)
+    currentProposal.value = null
+    chatLog.value.push({ role: 'assistant', content: '✓ 적용 완료. 다음 사이클부터 새 설정 반영.' })
+    await load()  // 새 상태 다시 로드
+  } catch (e) {
+    errorMessage.value = `적용 실패: ${e.message}`
+  } finally {
+    applying.value = false
+  }
+}
+
+function dismissProposal() {
+  if (currentProposal.value?.suggestion_id) {
+    // suggestion 기각 API 호출 (백그라운드, 실패해도 무시)
+    fetch(`${API}/trading/bots/${props.botId}/suggestions/${currentProposal.value.suggestion_id}/dismiss`, {
+      method: 'POST',
+      headers: headers(),
+    }).catch(() => {})
+  }
+  currentProposal.value = null
+}
+
+async function undoLast() {
+  if (undoing.value) return
+  undoing.value = true
+  errorMessage.value = ''
+  try {
+    const res = await fetch(`${API}/trading/bots/${props.botId}/strategy/undo`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+    })
+    await handleResponse(res)
+    chatLog.value.push({ role: 'assistant', content: '↶ 마지막 변경 복원 완료.' })
+    await load()
+  } catch (e) {
+    errorMessage.value = `복원 실패: ${e.message}`
+  } finally {
+    undoing.value = false
+  }
 }
 
 const conditionsCount = computed(() => strategy.value?.conditions?.length || 0)
@@ -106,6 +321,21 @@ const riskParams = computed(() => {
     if (v !== null && v !== undefined) r[k] = v
   }
   return r
+})
+
+const proposedRiskDiff = computed(() => {
+  const prop = currentProposal.value?.proposed_risk_params
+  if (!prop) return []
+  const current = riskParams.value
+  const diff = []
+  for (const k of Object.keys(prop)) {
+    const before = current[k]
+    const after = prop[k]
+    if (before === undefined || Number(before) !== Number(after)) {
+      diff.push({ key: k, before: before ?? '(미설정)', after })
+    }
+  }
+  return diff
 })
 
 function riskLabel(k) {
@@ -132,19 +362,22 @@ onMounted(() => load())
 
 <style scoped>
 .bot-canvas {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   padding: 16px 0;
 }
 
-.canvas-summary {
+.canvas-layout {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
 
-.summary-block {
+.left-area, .right-area {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.summary-block, .assistant-block {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
@@ -166,33 +399,35 @@ onMounted(() => load())
   font-size: 13px;
 }
 
-.block-empty {
+.block-empty, .chat-empty {
   color: #6b7280;
   font-size: 13px;
   padding: 8px 0;
 }
 
-.conditions-table, .risk-table {
+.conditions-table, .risk-table, .diff-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
 .conditions-table th,
-.conditions-table td {
+.conditions-table td,
+.diff-table th,
+.diff-table td {
   text-align: left;
   padding: 6px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   color: #d1d5db;
 }
 
-.conditions-table th {
+.conditions-table th, .diff-table th {
   color: #9ca3af;
   font-weight: normal;
   font-size: 12px;
 }
 
-.conditions-table .indicator {
+.indicator {
   color: #4f9eff;
   font-family: monospace;
 }
@@ -213,26 +448,178 @@ onMounted(() => load())
   color: #e5e7eb;
 }
 
-.placeholder-area {
+/* AI 어시스턴트 패널 */
+.chat-history {
+  max-height: 260px;
+  min-height: 120px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.msg-label {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.msg-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #d1d5db;
+  white-space: pre-wrap;
+}
+
+.msg-user .msg-body {
+  color: #93c5fd;
+}
+
+.chat-input {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-input input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #e5e7eb;
+  font-size: 13px;
+}
+
+.chat-input input:focus {
+  outline: none;
+  border-color: #4f9eff;
+}
+
+.chat-input button, .btn-small {
+  background: #4f9eff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chat-input button:disabled, .btn-small:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-small {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #d1d5db;
+}
+
+.btn-small:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* 제안 영역 */
+.proposal {
+  margin-top: 12px;
   background: rgba(79, 158, 255, 0.05);
-  border: 1px dashed rgba(79, 158, 255, 0.3);
-  border-radius: 8px;
-  padding: 16px;
-  color: #9ca3af;
+  border: 1px solid rgba(79, 158, 255, 0.3);
+  border-radius: 6px;
+  padding: 12px;
 }
 
-.ph-title {
-  margin: 0 0 8px 0;
+.proposal-title {
   color: #4f9eff;
-  font-size: 13px;
   font-weight: 600;
+  margin-bottom: 8px;
+  font-size: 13px;
 }
 
-.placeholder-area ul {
-  margin: 0;
-  padding-left: 20px;
+.proposal-diag {
+  color: #d1d5db;
+  font-size: 12px;
+  line-height: 1.55;
+  margin-bottom: 8px;
+}
+
+.diff-block {
+  margin-top: 8px;
+}
+
+.diff-label {
+  color: #9ca3af;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.v-before {
+  color: #f87171;
+  text-decoration: line-through;
+  font-family: monospace;
+}
+
+.v-after {
+  color: #34d399;
+  font-family: monospace;
+}
+
+.arrow {
+  color: #6b7280;
+  text-align: center;
+  width: 20px;
+}
+
+.proposal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn-apply {
+  flex: 1;
+  background: #16a34a;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
   font-size: 13px;
-  line-height: 1.7;
+}
+
+.btn-apply:hover:not(:disabled) { background: #15803d; }
+.btn-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-dismiss {
+  background: rgba(255, 255, 255, 0.08);
+  color: #d1d5db;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btn-dismiss:hover:not(:disabled) { background: rgba(255, 255, 255, 0.15); }
+
+.error-banner {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 12px;
 }
 
 .loading {
