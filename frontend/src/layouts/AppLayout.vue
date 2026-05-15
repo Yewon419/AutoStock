@@ -6,6 +6,27 @@
         <span class="logo">AutoStock</span>
       </div>
       <div class="header-right">
+        <div class="suggestions-bell" v-if="auth.token">
+          <button class="bell-btn" @click="toggleDropdown" :class="{ 'has-pending': pendingSummary.total > 0 }">
+            🔔
+            <span v-if="pendingSummary.total > 0" class="bell-badge">{{ pendingSummary.total }}</span>
+          </button>
+          <div v-if="showDropdown" class="bell-dropdown">
+            <div class="dd-title">튜닝 제안 {{ pendingSummary.total }}건</div>
+            <div v-if="pendingSummary.by_bot.length === 0" class="dd-empty">대기 중인 제안이 없습니다</div>
+            <div v-else>
+              <div
+                v-for="b in pendingSummary.by_bot"
+                :key="b.bot_id"
+                class="dd-row"
+                @click="goBot(b.bot_id)"
+              >
+                <span class="dd-bot-name">{{ b.bot_name }}</span>
+                <span class="dd-count">{{ b.count }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <span class="username">{{ auth.user?.username }}</span>
         <button class="logout-btn" @click="logout">로그아웃</button>
       </div>
@@ -53,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -62,10 +83,44 @@ const route  = useRoute()
 const auth   = useAuthStore()
 const isCanvas = computed(() => route.name === 'canvas')
 
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
+const pendingSummary = ref({ total: 0, by_bot: [] })
+const showDropdown = ref(false)
+let pollTimer = null
+
+async function fetchPendingSummary() {
+  if (!auth.token) return
+  try {
+    const res = await fetch(`${API}/trading/bots/suggestions/pending-summary`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+    if (res.ok) pendingSummary.value = await res.json()
+  } catch { /* 헤더 배지 실패는 무시 */ }
+}
+
+function toggleDropdown() {
+  showDropdown.value = !showDropdown.value
+  if (showDropdown.value) fetchPendingSummary()
+}
+
+function goBot(botId) {
+  showDropdown.value = false
+  router.push(`/bots/${botId}`)
+}
+
 function logout() {
   auth.logout()
   router.push('/login')
 }
+
+onMounted(() => {
+  fetchPendingSummary()
+  pollTimer = setInterval(fetchPendingSummary, 30000)  // 30s 폴링
+})
+
+onBeforeUnmount(() => {
+  if (pollTimer) clearInterval(pollTimer)
+})
 </script>
 
 <style scoped>
@@ -179,5 +234,96 @@ function logout() {
 .content-canvas {
   padding: 0;
   overflow: hidden;
+}
+
+/* 알림함 배지 */
+.suggestions-bell {
+  position: relative;
+}
+
+.bell-btn {
+  background: none;
+  border: 1px solid #2a2d3e;
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 14px;
+  position: relative;
+}
+
+.bell-btn:hover { border-color: #4f9eff; color: #4f9eff; }
+
+.bell-btn.has-pending { color: #fcd34d; border-color: rgba(252, 211, 77, 0.4); }
+
+.bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #ef4444;
+  color: white;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.bell-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  min-width: 240px;
+  background: #1a1d27;
+  border: 1px solid #2a2d3e;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.dd-title {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e5e7eb;
+  border-bottom: 1px solid #2a2d3e;
+}
+
+.dd-empty {
+  padding: 16px 12px;
+  color: #6b7280;
+  font-size: 13px;
+  text-align: center;
+}
+
+.dd-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #d1d5db;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.dd-row:hover { background: #2a2d3e; }
+.dd-row:last-child { border-bottom: none; }
+
+.dd-bot-name { color: #e5e7eb; }
+
+.dd-count {
+  background: rgba(252, 211, 77, 0.15);
+  color: #fcd34d;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
 }
 </style>

@@ -354,8 +354,9 @@ async function submitCreate() {
       body: JSON.stringify(payload),
     })
     if (!res.ok) { error.value = '생성 실패'; return }
+    const newBot = await res.json()
     closeModal()
-    fetchBots()
+    router.push(`/bots/${newBot.id}`)  // 캔버스 탭이 기본 활성 → 빈 strategy에서 시작
   } finally {
     submitting.value = false
   }

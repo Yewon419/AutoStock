@@ -267,6 +267,39 @@ def get_history(
     return rows
 
 
+class PendingCountBot(BaseModel):
+    bot_id: int
+    bot_name: str
+    count: int
+
+
+class PendingCountSummary(BaseModel):
+    total: int
+    by_bot: list[PendingCountBot]
+
+
+@router.get("/trading/bots/suggestions/pending-summary", response_model=PendingCountSummary)
+def pending_summary(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """전 봇 합산 pending suggestions 개수 (헤더 배지용). 봇별 분포도 포함."""
+    user_id = _user_id(current_user)
+    rows = (
+        db.query(TradingBot.id, TradingBot.name, TuningSuggestion.id)
+        .join(TuningSuggestion, TuningSuggestion.bot_id == TradingBot.id)
+        .filter(TradingBot.user_id == user_id, TuningSuggestion.status == 'pending')
+        .all()
+    )
+    by_bot_map: dict[int, dict] = {}
+    for bot_id, bot_name, _sugg_id in rows:
+        if bot_id not in by_bot_map:
+            by_bot_map[bot_id] = {'bot_id': bot_id, 'bot_name': bot_name, 'count': 0}
+        by_bot_map[bot_id]['count'] += 1
+    by_bot = [PendingCountBot(**v) for v in by_bot_map.values()]
+    return PendingCountSummary(total=sum(b.count for b in by_bot), by_bot=by_bot)
+
+
 @router.get("/trading/bots/{bot_id}/suggestions", response_model=list[SuggestionItem])
 def get_suggestions(
     bot_id: int,
