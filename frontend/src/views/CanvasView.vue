@@ -66,6 +66,7 @@
           <span v-else-if="saveStatus === 'saving'">저장중...</span>
           <span v-else-if="saveStatus === 'saved'">✓ 저장됨</span>
         </span>
+        <button @click="fitToNodes" class="btn-toolbar" title="모든 노드가 보이게 화면 맞춤">⊡ 노드 맞춤</button>
         <button @click="runAll" class="btn-run-all">▶ 전체 실행</button>
         <button @click="saveLayout(true)" class="btn-toolbar">💾 저장</button>
         <button @click="clearCanvas" class="btn-toolbar btn-danger-soft">🗑 초기화</button>
@@ -711,7 +712,11 @@ const editableConfig = computed(() => {
 })
 
 // ── VueFlow 훅 ────────────────────────────────────────────────────
-const { updateNode, findNode, removeNodes, removeEdges } = useVueFlow()
+const { updateNode, findNode, removeNodes, removeEdges, fitView } = useVueFlow()
+
+function fitToNodes() {
+  if (nodes.value.length) fitView({ padding: 0.2, duration: 300 })
+}
 
 // ── 노드 데이터 업데이트 ──────────────────────────────────────────
 function updateNodeData(nodeId, patch) {
@@ -1604,6 +1609,10 @@ onMounted(async () => {
       saveLayout(true)  // 시드 결과 영속화 → 다음 진입 시 재현
     }
   }
+
+  // 시드·로드 완료 후 모든 노드가 보이게 화면 맞춤 (임베드 환경에서 fit-view-on-init 타이밍 보강)
+  await nextTick()
+  setTimeout(fitToNodes, 100)
 })
 
 onUnmounted(() => {
