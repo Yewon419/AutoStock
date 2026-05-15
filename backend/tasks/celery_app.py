@@ -23,6 +23,7 @@ celery_app = Celery(
         "tasks.llm_strategy", "tasks.bot_diagnostics",
         "tasks.circuit_breaker_task",
         "tasks.mechanism_audit",
+        "tasks.bot_tuning",
     ],
 )
 
@@ -75,17 +76,11 @@ celery_app.conf.beat_schedule = {
         "task": "tasks.ai_tasks.train_and_score",
         "schedule": crontab(hour=17, minute=30, day_of_week="1-5"),
     },
-    # 평일 08:30 - 장 시작 전 LLM 전략 자동 생성
-    "llm-generate-strategy": {
-        "task": "tasks.llm_strategy.generate_strategy",
+    # 평일 08:30 - RUNNING 봇별 LLM 튜닝 제안 (tuning_suggestions 알림함에 드롭)
+    # 봇 1:1 모델 전환으로 전역 generate_strategy / reopen_pending_patterns는 폐기.
+    "propose-tuning-for-running-bots": {
+        "task": "tasks.bot_tuning.propose_tuning_for_running_bots",
         "schedule": crontab(hour=8, minute=30, day_of_week="1-5"),
-        "kwargs": {"user_id": 1},
-    },
-    # 평일 09:30 - 거부된 패턴 재시도 (시장 변화 시 자동 통과 → PATTERN_REOPENED 알림)
-    "reopen-pending-patterns": {
-        "task": "tasks.llm_strategy.reopen_pending_patterns",
-        "schedule": crontab(hour=9, minute=30, day_of_week="1-5"),
-        "kwargs": {"user_id": 1},
     },
     # 평일 08:55 - 장 시작 전 KIS WebSocket 실시간 시세 스트림 시작
     "start-price-stream": {
