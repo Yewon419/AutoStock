@@ -416,7 +416,7 @@ const nodeTypes = {
 
 // ── 노드 정의 ─────────────────────────────────────────────────────
 const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores']
-const CONFIG_TYPES     = ['accountConfig']
+const CONFIG_TYPES     = ['accountConfig', 'riskParams']
 const STRATEGY_TYPES   = ['strategy', 'strategyBuilder']
 const PROCESSING_TYPES = ['mlModel', 'llmGenerator', 'backtest', 'strategyOptimize']
 const OUTPUT_TYPES     = ['botApply']
@@ -473,6 +473,21 @@ const NODE_DEFS = {
       saved_id: null,
     }, apiPath: null,
   },
+  riskParams: {
+    label: '리스크 파라미터', icon: '🛡️', category: 'config',
+    description: 'SL/TP/MDD/포지션 크기 등 봇 리스크 설정',
+    inputs: [], outputs: [{ id: 'risk_params', label: '리스크 파라미터' }],
+    config: {
+      stop_loss_pct: 5.0,
+      take_profit_pct: 10.0,
+      max_drawdown_pct: 10.0,
+      position_size_pct: 10.0,
+      max_positions: 4,
+      max_daily_trades: 10,
+      trailing_stop_pct: null,
+      confirm_bars: 1,
+    }, apiPath: null,
+  },
   mlModel: {
     label: 'ML 모델', icon: '🤖', category: 'processing',
     description: 'RandomForest 학습 및 종목 스코어링',
@@ -512,7 +527,12 @@ const NODE_DEFS = {
   botApply: {
     label: '봇 적용', icon: '🎮', category: 'output',
     description: '생성된 전략을 봇에 적용',
-    inputs:  [{ id: 'strategy', label: '전략' }, { id: 'tickers', label: '매매 종목' }, { id: 'account_config', label: '계좌 설정' }],
+    inputs:  [
+      { id: 'strategy', label: '전략' },
+      { id: 'tickers', label: '매매 종목' },
+      { id: 'account_config', label: '계좌 설정' },
+      { id: 'risk_params', label: '리스크 파라미터' },
+    ],
     outputs: [],
     config: { bot_id: null, auto_start: true }, apiPath: '/bots', apiMethod: 'PUT',
   },
@@ -745,6 +765,7 @@ const VALID_CONNECTIONS = {
   'backtest:backtest_result':        ['strategyOptimize:backtest_result', 'botApply:tickers'],
   'strategyOptimize:strategy':       ['botApply:strategy', 'botApply:tickers'],
   'accountConfig:account_config':    ['botApply:account_config'],
+  'riskParams:risk_params':          ['botApply:risk_params'],
 }
 
 const connectionError = ref(null)
@@ -1490,9 +1511,9 @@ watch(chatMessages, () => _saveChatMessages(currentCanvasId.value), { deep: true
 function onClickOutside() { showCanvasMenu.value = false; openPalette.value = null }
 
 async function autoSeedFromBot(bot) {
-  // strategyBuilder → botApply 두 노드 + 연결.
-  // strategyBuilder에 봇의 strategy.conditions를 통째로 채워 각 조건이 사이드 패널에서
-  // 개별 row로 시각화·편집 가능하게.
+  // 자동 시드: strategyBuilder + riskParams → botApply (둘 다 연결).
+  // strategyBuilder: 매수 조건 row별 시각화·편집
+  // riskParams: SL/TP/MDD 등 봇 리스크 파라미터 시각화·편집
   let strategy = null
   if (bot.strategy_id) {
     try {
@@ -1501,9 +1522,11 @@ async function autoSeedFromBot(bot) {
     } catch { /* fetch 실패 시 빈 strategy로 시드 */ }
   }
 
-  addNode('strategyBuilder', 80, 200)
-  addNode('botApply', 520, 200)
+  addNode('strategyBuilder', 80, 120)
+  addNode('riskParams', 80, 360)
+  addNode('botApply', 540, 240)
   const stratNode = nodes.value.find(n => n.type === 'strategyBuilder')
+  const riskNode  = nodes.value.find(n => n.type === 'riskParams')
   const applyNode = nodes.value.find(n => n.type === 'botApply')
 
   if (stratNode) {
@@ -1518,21 +1541,40 @@ async function autoSeedFromBot(bot) {
       saved_id: bot.strategy_id ?? null,
     }
   }
+  if (riskNode) {
+    // 봇 컬럼에서 risk_params 추출 (NUMERIC → number 변환)
+    const num = v => (v === null || v === undefined ? null : Number(v))
+    riskNode.data.config = {
+      stop_loss_pct: num(bot.stop_loss_pct) ?? riskNode.data.config.stop_loss_pct,
+      take_profit_pct: num(bot.take_profit_pct) ?? riskNode.data.config.take_profit_pct,
+      max_drawdown_pct: num(bot.max_drawdown_pct) ?? riskNode.data.config.max_drawdown_pct,
+      position_size_pct: num(bot.position_size_pct) ?? riskNode.data.config.position_size_pct,
+      max_positions: bot.max_positions ?? riskNode.data.config.max_positions,
+      max_daily_trades: bot.max_daily_trades ?? riskNode.data.config.max_daily_trades,
+      trailing_stop_pct: num(bot.trailing_stop_pct),
+      confirm_bars: bot.confirm_bars ?? riskNode.data.config.confirm_bars,
+    }
+  }
   if (applyNode) {
     applyNode.data.config = { ...applyNode.data.config, bot_id: bot.id, auto_start: false }
   }
+
+  const newEdges = []
   if (stratNode && applyNode) {
-    edges.value = [
-      ...edges.value,
-      {
-        id: `edge-seed-${Date.now()}`,
-        source: stratNode.id,
-        sourceHandle: 'strategy',
-        target: applyNode.id,
-        targetHandle: 'strategy',
-      },
-    ]
+    newEdges.push({
+      id: `edge-seed-strat-${Date.now()}`,
+      source: stratNode.id, sourceHandle: 'strategy',
+      target: applyNode.id, targetHandle: 'strategy',
+    })
   }
+  if (riskNode && applyNode) {
+    newEdges.push({
+      id: `edge-seed-risk-${Date.now()}`,
+      source: riskNode.id, sourceHandle: 'risk_params',
+      target: applyNode.id, targetHandle: 'risk_params',
+    })
+  }
+  if (newEdges.length) edges.value = [...edges.value, ...newEdges]
 }
 
 onMounted(async () => {
