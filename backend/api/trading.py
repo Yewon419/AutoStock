@@ -196,7 +196,7 @@ def get_bot(
     bot = trading_service.get_bot(db, bot_id, _user_id(current_user))
     if not bot:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="봇을 찾을 수 없습니다")
-    return bot
+    return trading_service.enrich_bot_assets(db, bot)
 
 
 @router.put("/bots/{bot_id}", response_model=BotResponse)
