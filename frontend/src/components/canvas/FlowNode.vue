@@ -39,6 +39,19 @@
           <span class="rv">{{ val }}</span>
         </div>
       </div>
+      <!-- idle 상태에서도 config 인라인 표시 (클릭 안 해도 보임) -->
+      <div v-else-if="conditionRows.length" class="body-config">
+        <div v-for="(c, i) in conditionRows" :key="i" class="cfg-row">
+          <span class="cfg-key">{{ c.indicator }}</span>
+          <span class="cfg-val">{{ c.summary }}</span>
+        </div>
+      </div>
+      <div v-else-if="configRows.length" class="body-config">
+        <div v-for="r in configRows" :key="r.key" class="cfg-row">
+          <span class="cfg-key">{{ r.label }}</span>
+          <span class="cfg-val">{{ r.value }}</span>
+        </div>
+      </div>
       <div v-else class="body-idle">{{ data.description }}</div>
     </div>
 
@@ -91,6 +104,52 @@ const PREVIEW_MAP = {
   total_return_pct: '수익률', win_rate: '승률', num_trades: '거래수',
   bot_name: '봇', account_label: '계좌',
 }
+
+// strategyBuilder의 conditions: 인라인 표시용
+const conditionRows = computed(() => {
+  const conds = props.data?.config?.conditions
+  if (!Array.isArray(conds)) return []
+  return conds.map(c => ({
+    indicator: c.indicator,
+    summary: c.condition === 'between'
+      ? `${c.value} ~ ${c.value2}`
+      : `${c.condition} ${c.value ?? ''}`.trim(),
+  }))
+})
+
+// 일반 config(riskParams·botApply·accountConfig 등)를 key-value 표로
+const _CFG_LABELS = {
+  stop_loss_pct: '손절',
+  take_profit_pct: '익절',
+  max_drawdown_pct: 'MDD',
+  position_size_pct: '포지션',
+  max_positions: '최대 종목',
+  max_daily_trades: '일 거래',
+  trailing_stop_pct: '트레일링',
+  confirm_bars: '확인봉',
+  bot_id: '봇 ID',
+  auto_start: '자동시작',
+  account_id: '계좌',
+  mode: '모드',
+  name: '이름',
+  strategy_type: '타입',
+  saved_id: '전략 ID',
+  tickers_source: '종목소스',
+}
+
+const configRows = computed(() => {
+  const cfg = props.data?.config
+  if (!cfg || typeof cfg !== 'object') return []
+  // conditions 배열을 가진 노드는 위에서 따로 처리. 여기선 conditions 키 제외.
+  return Object.entries(cfg)
+    .filter(([k, v]) => k !== 'conditions' && v !== null && v !== undefined && v !== '')
+    .slice(0, 8)
+    .map(([k, v]) => ({
+      key: k,
+      label: _CFG_LABELS[k] || k,
+      value: typeof v === 'boolean' ? (v ? '예' : '아니오') : String(v),
+    }))
+})
 
 const previewResult = computed(() => {
   const r = props.data?.result
@@ -195,10 +254,11 @@ const previewResult = computed(() => {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.body-result { width: 100%; display: flex; flex-direction: column; gap: 4px; }
-.result-row  { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.rk { color: #6b7280; font-size: 10px; flex-shrink: 0; }
-.rv { color: #e5e7eb; font-size: 11px; font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.body-result, .body-config { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.result-row, .cfg-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.rk, .cfg-key { color: #6b7280; font-size: 10px; flex-shrink: 0; }
+.rv, .cfg-val { color: #e5e7eb; font-size: 11px; font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
+.cfg-key { font-family: monospace; max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Footer ── */
 .node-footer {
