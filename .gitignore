@@ -41,3 +41,6 @@ ops/audit_logs/
 
 # DB 마이그레이션 백업
 backups/
+
+# Claude Code 세션·설정
+.claude/
