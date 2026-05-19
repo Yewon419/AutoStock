@@ -84,161 +84,29 @@
       </div>
     </div>
 
-    <!-- 생성 모달 -->
+    <!-- 생성 모달 (타입만 선택 → 즉시 생성) -->
     <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
-      <div class="modal">
+      <div class="modal modal-compact">
         <div class="modal-header">
-          <h2>봇 생성</h2>
+          <h2>어떤 봇을 만들까요?</h2>
           <button class="close-btn" @click="closeModal">✕</button>
         </div>
-
-        <!-- 봇 타입 탭 -->
-        <div class="bot-type-tabs">
-          <button
-            class="type-tab"
-            :class="{ active: form.bot_type === 'swing' }"
-            @click="setBotType('swing')"
-          >
-            📈 스윙 (Swing)
-            <span class="tab-desc">일봉 기반 · 5분 주기</span>
-          </button>
-          <button
-            class="type-tab"
-            :class="{ active: form.bot_type === 'scalping' }"
-            @click="setBotType('scalping')"
-          >
-            ⚡ 단타 (Scalping)
-            <span class="tab-desc">분봉 기반 · 1분 주기</span>
-          </button>
-        </div>
-
         <div class="modal-body">
-          <!-- 단타 설정 섹션 -->
-          <div v-if="form.bot_type === 'scalping'" class="scalping-section">
-            <div class="section-title">⚡ 단타 설정</div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>분봉 단위</label>
-                <select v-model.number="form.candle_interval">
-                  <option :value="1">1분봉</option>
-                  <option :value="3">3분봉</option>
-                  <option :value="5">5분봉</option>
-                  <option :value="10">10분봉</option>
-                  <option :value="15">15분봉</option>
-                </select>
-              </div>
-              <div class="form-group intraday-close-group">
-                <label>당일 강제 청산</label>
-                <div class="toggle-row">
-                  <label class="toggle-switch">
-                    <input type="checkbox" v-model="form.intraday_close" />
-                    <span class="toggle-slider"></span>
-                  </label>
-                  <input
-                    v-if="form.intraday_close"
-                    v-model="form.intraday_close_time"
-                    type="time"
-                    class="time-inline"
-                  />
-                  <span v-else class="toggle-off-label">OFF</span>
-                </div>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>트레일링 스탑 (%) <span class="label-hint">고가 대비 하락 시 청산. 비워두면 비활성화</span></label>
-                <input v-model.number="form.trailing_stop_pct" type="number" min="0.1" max="10" step="0.1" placeholder="예: 2.0 (비활성화=빈칸)" />
-              </div>
-              <div class="form-group">
-                <label>연속 신호 확인 봉 수 <span class="label-hint">1=즉시 진입, 2=2봉 연속 확인</span></label>
-                <input v-model.number="form.confirm_bars" type="number" min="1" max="5" step="1" />
-              </div>
-            </div>
+          <p class="create-hint">타입만 고르면 바로 생성됩니다. 전략·리스크는 봇 페이지에서 설정해요.</p>
+          <div class="type-choice">
+            <button class="type-choice-btn" :disabled="submitting" @click="createBot('swing')">
+              <span class="tc-emoji">📈</span>
+              <span class="tc-title">스윙</span>
+              <span class="tc-desc">일봉 기반 · 5분 주기</span>
+            </button>
+            <button class="type-choice-btn" :disabled="submitting" @click="createBot('scalping')">
+              <span class="tc-emoji">⚡</span>
+              <span class="tc-title">단타</span>
+              <span class="tc-desc">분봉 기반 · 1분 주기</span>
+            </button>
           </div>
-
-          <div class="form-group">
-            <label>봇 이름 *</label>
-            <input v-model="form.name" type="text" placeholder="예: RSI 전략 봇" />
-          </div>
-          <div class="form-group">
-            <label>거래 모드</label>
-            <select v-model="form.mode">
-              <option value="mock">Mock (가상 자금)</option>
-              <option value="paper">Paper (키움 모의투자)</option>
-              <option value="real">Real (키움 실계좌)</option>
-            </select>
-          </div>
-          <div v-if="form.mode === 'real'" class="warning-box">
-            ⚠️ 실계좌 모드입니다. 실제 주문이 체결됩니다.
-          </div>
-          <div class="form-group">
-            <label>전략</label>
-            <select v-model="form.strategy_id">
-              <option :value="null">전략 선택 (선택사항)</option>
-              <option v-for="s in strategies" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>종목 (쉼표로 구분)</label>
-            <input v-model="tickersInput" type="text" placeholder="예: 005930,000660,035720" />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>초기 자금 (원)</label>
-              <input v-model.number="form.initial_cash" type="number" min="100000" />
-            </div>
-            <div class="form-group">
-              <label>포지션 크기 (%)</label>
-              <input v-model.number="form.position_size_pct" type="number" min="1" max="100" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>손절 (%)</label>
-              <input v-model.number="form.stop_loss_pct" type="number" min="0" step="0.5" />
-            </div>
-            <div class="form-group">
-              <label>익절 (%)</label>
-              <input v-model.number="form.take_profit_pct" type="number" min="0" step="0.5" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>최대 낙폭 (%)</label>
-              <input v-model.number="form.max_drawdown_pct" type="number" min="0" step="0.5" />
-            </div>
-            <div class="form-group">
-              <label>최대 동시 포지션</label>
-              <input v-model.number="form.max_positions" type="number" min="1" max="20" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>일일 최대 거래 수</label>
-              <input v-model.number="form.max_daily_trades" type="number" min="1" />
-            </div>
-            <div class="form-group">
-              <label>단일 주문 최대 금액 (원)</label>
-              <input v-model.number="form.max_order_amount" type="number" min="0" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>거래 시작 시간</label>
-              <input v-model="form.trading_start_time" type="time" />
-            </div>
-            <div class="form-group">
-              <label>거래 종료 시간</label>
-              <input v-model="form.trading_end_time" type="time" />
-            </div>
-          </div>
+          <p v-if="submitting" class="creating-msg">생성 중…</p>
           <p v-if="error" class="error-msg">{{ error }}</p>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-secondary" @click="closeModal">취소</button>
-          <button class="btn-primary" @click="submitCreate" :disabled="submitting">
-            {{ submitting ? '생성 중...' : '생성' }}
-          </button>
         </div>
       </div>
     </div>
@@ -247,21 +115,18 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
-const route = useRoute()
 const auth = useAuthStore()
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
 
 const bots = ref([])
-const strategies = ref([])
 const loading = ref(false)
 const showModal = ref(false)
 const submitting = ref(false)
 const error = ref('')
-const tickersInput = ref('')
 
 const SWING_DEFAULTS = {
   stop_loss_pct: 5.0,
@@ -301,7 +166,6 @@ const defaultForm = () => ({
   trailing_stop_pct: null,
   confirm_bars: 1,
 })
-const form = ref(defaultForm())
 
 function headers() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
@@ -317,36 +181,34 @@ async function fetchBots() {
   }
 }
 
-async function fetchStrategies() {
-  const res = await fetch(`${API}/strategies`, { headers: headers() })
-  strategies.value = await res.json()
-}
-
 function openCreate() {
-  form.value = defaultForm()
-  tickersInput.value = ''
   error.value = ''
   showModal.value = true
 }
 
-function setBotType(type) {
-  form.value.bot_type = type
-  const defaults = type === 'scalping' ? SCALPING_DEFAULTS : SWING_DEFAULTS
-  Object.assign(form.value, defaults)
-}
-
 function closeModal() {
+  if (submitting.value) return
   showModal.value = false
 }
 
-async function submitCreate() {
-  if (!form.value.name.trim()) { error.value = '봇 이름을 입력하세요'; return }
+function autoBotName(type) {
+  const n = new Date()
+  const p = (x) => String(x).padStart(2, '0')
+  const stamp = `${p(n.getMonth() + 1)}/${p(n.getDate())} ${p(n.getHours())}:${p(n.getMinutes())}`
+  return `${type === 'scalping' ? '단타' : '스윙'} 봇 ${stamp}`
+}
+
+async function createBot(type) {
+  if (submitting.value) return
   error.value = ''
   submitting.value = true
   try {
     const payload = {
-      ...form.value,
-      tickers: tickersInput.value.split(',').map(t => t.trim()).filter(Boolean),
+      ...defaultForm(),
+      ...(type === 'scalping' ? SCALPING_DEFAULTS : SWING_DEFAULTS),
+      bot_type: type,
+      name: autoBotName(type),
+      tickers: [],
     }
     const res = await fetch(`${API}/bots`, {
       method: 'POST',
@@ -355,8 +217,8 @@ async function submitCreate() {
     })
     if (!res.ok) { error.value = '생성 실패'; return }
     const newBot = await res.json()
-    closeModal()
-    router.push(`/bots/${newBot.id}`)  // 캔버스 탭이 기본 활성 → 빈 strategy에서 시작
+    showModal.value = false
+    router.push(`/bots/${newBot.id}`)  // 캔버스 탭에서 전략·리스크 설정
   } finally {
     submitting.value = false
   }
@@ -430,16 +292,7 @@ function totalAssetsPnl(bot) {
 let pollTimer = null
 
 onMounted(async () => {
-  await Promise.all([fetchBots(), fetchStrategies()])
-  // AI 탭에서 전략 적용 후 새 봇 생성으로 진입 시 자동으로 모달 열기
-  const strategyId = route.query.strategy_id
-  if (strategyId) {
-    form.value = defaultForm()
-    form.value.strategy_id = Number(strategyId)
-    tickersInput.value = ''
-    error.value = ''
-    showModal.value = true
-  }
+  await fetchBots()
   // 5초마다 봇 상태 갱신 (다른 탭에서 시작/정지 반영)
   pollTimer = setInterval(fetchBots, 5000)
 })
@@ -816,6 +669,40 @@ onUnmounted(() => {
 }
 
 .error-msg { color: #ef4444; font-size: 13px; }
+
+.modal-compact { width: 420px; }
+
+.create-hint { margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.5; }
+
+.type-choice { display: flex; gap: 12px; }
+
+.type-choice-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 12px;
+  background: #0f1117;
+  border: 1px solid #2a2d3e;
+  border-radius: 10px;
+  color: #e5e7eb;
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+
+.type-choice-btn:hover:not(:disabled) {
+  border-color: #4f9eff;
+  background: rgba(79,158,255,.08);
+}
+
+.type-choice-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.tc-emoji { font-size: 26px; }
+.tc-title { font-size: 15px; font-weight: 700; }
+.tc-desc { font-size: 11px; color: #6b7280; }
+
+.creating-msg { margin: 0; font-size: 13px; color: #9ca3af; text-align: center; }
 
 .btn-primary {
   background: #4f9eff;
