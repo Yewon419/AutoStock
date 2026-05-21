@@ -7,9 +7,9 @@
       </div>
       <div class="header-right">
         <div class="suggestions-bell" v-if="auth.token">
-          <button class="bell-btn" @click="toggleDropdown" :class="{ 'has-pending': pendingSummary.total > 0 }">
+          <button class="bell-btn" @click="toggleDropdown" :class="{ 'has-pending': unseenCount > 0 }">
             🔔
-            <span v-if="pendingSummary.total > 0" class="bell-badge">{{ pendingSummary.total }}</span>
+            <span v-if="unseenCount > 0" class="bell-badge">{{ unseenCount }}</span>
           </button>
           <div v-if="showDropdown" class="bell-dropdown">
             <div class="dd-title">튜닝 제안 {{ pendingSummary.total }}건</div>
@@ -59,7 +59,7 @@
 
       <!-- 메인 콘텐츠 -->
       <main class="content" :class="{ 'content-canvas': isCanvas }">
-        <RouterView />
+        <RouterView :key="route.path" />
       </main>
     </div>
   </div>
@@ -76,9 +76,29 @@ const auth   = useAuthStore()
 const isCanvas = computed(() => route.name === 'canvas')
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
+const LAST_SEEN_KEY = 'as:lastSeenSuggestionByBot'  // { [botId]: lastSeenId }
 const pendingSummary = ref({ total: 0, by_bot: [] })
+const lastSeenMap = ref(loadLastSeen())
 const showDropdown = ref(false)
 let pollTimer = null
+
+function loadLastSeen() {
+  try {
+    const raw = localStorage.getItem(LAST_SEEN_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function isUnseen(b) {
+  return (b.max_id || 0) > (lastSeenMap.value[b.bot_id] || 0)
+}
+
+// 미확인 봇의 카운트만 합산. 행을 클릭해 그 봇 페이지로 이동하면 그 봇의 카운트만 사라짐.
+const unseenCount = computed(() =>
+  pendingSummary.value.by_bot.reduce((sum, b) => sum + (isUnseen(b) ? b.count : 0), 0)
+)
 
 async function fetchPendingSummary() {
   if (!auth.token) return
@@ -92,10 +112,17 @@ async function fetchPendingSummary() {
 
 function toggleDropdown() {
   showDropdown.value = !showDropdown.value
-  if (showDropdown.value) fetchPendingSummary()
+  if (showDropdown.value) fetchPendingSummary()  // 열 때 fresh, 단 last-seen은 갱신하지 않음
 }
 
 function goBot(botId) {
+  // 이 봇 행을 클릭해 페이지로 이동 → 이 봇의 max_id를 마지막 본 id로 저장
+  const bot = pendingSummary.value.by_bot.find(b => b.bot_id === botId)
+  if (bot) {
+    const newMap = { ...lastSeenMap.value, [botId]: bot.max_id || 0 }
+    lastSeenMap.value = newMap
+    localStorage.setItem(LAST_SEEN_KEY, JSON.stringify(newMap))
+  }
   showDropdown.value = false
   router.push(`/bots/${botId}`)
 }

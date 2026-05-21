@@ -50,3 +50,13 @@ class TuningSuggestion(Base):
     diagnosis_text = Column(Text, nullable=False)
     applied_at = Column(DateTime(timezone=True))
     applied_history_id = Column(Integer, ForeignKey("strategy_history.id", ondelete="SET NULL"))
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("trading_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)          # 'user' | 'assistant'
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

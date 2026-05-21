@@ -20,8 +20,11 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from core.database import get_db
 from core.security import get_current_user
-from models.strategy import Strategy, StrategyHistory, TuningSuggestion
+from models.strategy import Strategy, StrategyHistory, TuningSuggestion, ChatMessage
 from models.trading import TradingBot, Execution
+
+
+CHAT_HISTORY_LLM_TURNS = 10  # LLM에 같이 보내는 직전 대화 턴 수 (user+assistant 합산 메시지)
 
 
 router = APIRouter(tags=["bot-canvas"])
@@ -271,6 +274,7 @@ class PendingCountBot(BaseModel):
     bot_id: int
     bot_name: str
     count: int
+    max_id: int = 0  # 이 봇의 가장 최근 pending suggestion id (unread 추적용)
 
 
 class PendingCountSummary(BaseModel):
@@ -283,7 +287,7 @@ def pending_summary(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """전 봇 합산 pending suggestions 개수 (헤더 배지용). 봇별 분포도 포함."""
+    """전 봇 합산 pending suggestions 개수 (헤더 배지용). 봇별 분포도 + 봇별 최대 id."""
     user_id = _user_id(current_user)
     rows = (
         db.query(TradingBot.id, TradingBot.name, TuningSuggestion.id)
@@ -292,10 +296,12 @@ def pending_summary(
         .all()
     )
     by_bot_map: dict[int, dict] = {}
-    for bot_id, bot_name, _sugg_id in rows:
+    for bot_id, bot_name, sugg_id in rows:
         if bot_id not in by_bot_map:
-            by_bot_map[bot_id] = {'bot_id': bot_id, 'bot_name': bot_name, 'count': 0}
+            by_bot_map[bot_id] = {'bot_id': bot_id, 'bot_name': bot_name, 'count': 0, 'max_id': 0}
         by_bot_map[bot_id]['count'] += 1
+        if sugg_id > by_bot_map[bot_id]['max_id']:
+            by_bot_map[bot_id]['max_id'] = sugg_id
     by_bot = [PendingCountBot(**v) for v in by_bot_map.values()]
     return PendingCountSummary(total=sum(b.count for b in by_bot), by_bot=by_bot)
 
@@ -420,19 +426,37 @@ def _build_tuning_context(db: Session, bot: TradingBot, strategy: Strategy) -> s
     )
 
 
-def _call_tuning_llm(context: str, user_message: str) -> dict:
+def _load_recent_chat(db: Session, bot_id: int, limit: int) -> list[ChatMessage]:
+    """최근 N개 메시지를 시간 오름차순(오래된 → 최신)으로 반환."""
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.bot_id == bot_id)
+        .order_by(ChatMessage.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return list(reversed(rows))
+
+
+def _call_tuning_llm(context: str, user_message: str, prior: list[ChatMessage]) -> dict:
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY 미설정")
 
     import anthropic
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    user_content = f"{context}\n\n사용자 메시지: {user_message}"
+
+    # 다중턴: 직전 대화 + 이번 turn(현황 컨텍스트 + 사용자 메시지)
+    msgs: list[dict] = [{"role": m.role, "content": m.content} for m in prior]
+    msgs.append({
+        "role": "user",
+        "content": f"{context}\n\n사용자 메시지: {user_message}",
+    })
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1500,
         system=_TUNING_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
+        messages=msgs,
     )
     raw = response.content[0].text.strip()
     if raw.startswith("```"):
@@ -448,7 +472,8 @@ def _call_tuning_llm(context: str, user_message: str) -> dict:
 
 def _process_tuning(db: Session, bot: TradingBot, strategy: Strategy, user_message: str) -> ChatResponse:
     context = _build_tuning_context(db, bot, strategy)
-    result = _call_tuning_llm(context, user_message)
+    prior = _load_recent_chat(db, bot.id, CHAT_HISTORY_LLM_TURNS)
+    result = _call_tuning_llm(context, user_message, prior)
 
     proposed_conditions = result.get('proposed_conditions')
     proposed_risk_params = result.get('proposed_risk_params')
@@ -467,6 +492,12 @@ def _process_tuning(db: Session, bot: TradingBot, strategy: Strategy, user_messa
         db.commit()
         db.refresh(sugg)
         suggestion_id = sugg.id
+
+    # 대화 기록 영속화 (LLM 호출 성공 후에만)
+    db.add(ChatMessage(bot_id=bot.id, role='user', content=user_message))
+    if reply:
+        db.add(ChatMessage(bot_id=bot.id, role='assistant', content=reply))
+    db.commit()
 
     return ChatResponse(
         reply=reply,
@@ -499,3 +530,32 @@ def strategy_ai_generate(
     bot, strategy = _load_bot_and_strategy(db, bot_id, _user_id(current_user))
     user_msg = "이 봇의 최근 성과를 분석해서 개선안(strategy.conditions 또는 risk_params)을 제시하세요."
     return _process_tuning(db, bot, strategy, user_msg)
+
+
+class ChatMessageItem(BaseModel):
+    id: int
+    role: str
+    content: str
+    created_at: datetime
+
+
+@router.get("/trading/bots/{bot_id}/strategy/chat-history", response_model=list[ChatMessageItem])
+def chat_history(
+    bot_id: int,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """봇 단위 LLM 어시스턴트 대화 기록 (오래된 → 최신 순으로 limit 만큼 반환)."""
+    _load_bot_and_strategy(db, bot_id, _user_id(current_user))  # 소유자 검증
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.bot_id == bot_id)
+        .order_by(ChatMessage.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        ChatMessageItem(id=r.id, role=r.role, content=r.content, created_at=r.created_at)
+        for r in reversed(rows)
+    ]

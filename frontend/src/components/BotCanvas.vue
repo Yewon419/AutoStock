@@ -265,11 +265,19 @@ async function fetchSuggestions() {
   if (res.ok) pendingSuggestions.value = await res.json()
 }
 
+async function fetchChatHistory() {
+  const res = await fetch(`${API}/trading/bots/${props.botId}/strategy/chat-history?limit=200`, { headers: headers() })
+  if (res.ok) {
+    const rows = await res.json()
+    chatLog.value = rows.map(r => ({ role: r.role, content: r.content }))
+  }
+}
+
 async function load() {
   loading.value = true
   await fetchBot()
   await fetchStrategy()
-  await Promise.all([fetchHistory(), fetchSuggestions()])
+  await Promise.all([fetchHistory(), fetchSuggestions(), fetchChatHistory()])
   loading.value = false
 }
 
