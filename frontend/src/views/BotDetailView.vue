@@ -37,6 +37,14 @@
         <span class="s-value">{{ fmtMoney(bot.cash) }}</span>
       </div>
       <div class="summary-card">
+        <span class="s-label">보유 평가</span>
+        <span class="s-value">{{ fmtMoney(bot.holdings_value || 0) }}</span>
+      </div>
+      <div class="summary-card s-total">
+        <span class="s-label">총자산</span>
+        <span class="s-value">{{ fmtMoney(bot.total_assets || 0) }}</span>
+      </div>
+      <div class="summary-card">
         <span class="s-label">손절 / 익절</span>
         <span class="s-value">{{ bot.stop_loss_pct }}% / {{ bot.take_profit_pct }}%</span>
       </div>
@@ -984,6 +992,12 @@ h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
 
 .s-label { font-size: 11px; color: #6b7280; }
 .s-value { font-size: 14px; color: #e5e7eb; font-weight: 600; }
+
+.summary-card.s-total {
+  background: rgba(79, 158, 255, 0.08);
+  border-color: rgba(79, 158, 255, 0.35);
+}
+.summary-card.s-total .s-value { color: #4f9eff; }
 
 /* 종합 성과 카드 */
 .perf-section {

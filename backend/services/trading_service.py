@@ -116,9 +116,14 @@ def get_bots(db: Session, user_id: int):
 
 
 def enrich_bot_assets(db: Session, bot: TradingBot) -> dict:
-    """봇 ORM 객체 + 포지션 평가금액(total_assets, holdings_value) 계산 후 dict 반환"""
+    """봇 ORM 객체 + 포지션 평가금액(total_assets, holdings_value) 계산 후 dict 반환.
+
+    평가 fallback: rt:price(실시간) → StockPrice 최신 close(휴장·오프타임) → avg_price.
+    StockPrice fallback이 없으면 휴장 시 book value만 보여 평가손익이 항상 0으로 표시되던 버그가 있었음.
+    """
     import redis as _redis
     from core.config import settings
+    from models.market import StockPrice
 
     cash = float(bot.cash or 0)
     positions = db.query(Position).filter(Position.bot_id == bot.id).all()
@@ -128,7 +133,19 @@ def enrich_bot_assets(db: Session, bot: TradingBot) -> dict:
         r = _redis.from_url(settings.REDIS_URL)
         for p in positions:
             price_raw = r.get(f'rt:price:{p.ticker}')
-            price = float(price_raw) if price_raw else float(p.avg_price or 0)
+            if price_raw:
+                price = float(price_raw)
+            else:
+                lp = (
+                    db.query(StockPrice)
+                    .filter(StockPrice.ticker == p.ticker)
+                    .order_by(StockPrice.date.desc())
+                    .first()
+                )
+                if lp and lp.close_price is not None:
+                    price = float(lp.close_price)
+                else:
+                    price = float(p.avg_price or 0)
             holdings_value += price * p.quantity
 
     total_assets = cash + holdings_value
