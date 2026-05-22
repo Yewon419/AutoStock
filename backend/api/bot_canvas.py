@@ -480,8 +480,14 @@ def _process_tuning(db: Session, bot: TradingBot, strategy: Strategy, user_messa
     reply = result.get('reply', '')
     diagnosis = result.get('diagnosis')
 
+    has_changes = proposed_conditions is not None or proposed_risk_params is not None
+
+    # 변경안이 없으면 진단을 reply에 병합 → 패널은 안 뜨고 분석 내용은 채팅 기록에 남는다
+    if not has_changes and diagnosis:
+        reply = f"{reply}\n\n진단: {diagnosis}".strip() if reply else f"진단: {diagnosis}"
+
     suggestion_id: Optional[int] = None
-    if proposed_conditions is not None or proposed_risk_params is not None:
+    if has_changes:
         sugg = TuningSuggestion(
             bot_id=bot.id,
             suggested_conditions=proposed_conditions,

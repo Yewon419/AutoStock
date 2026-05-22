@@ -368,13 +368,18 @@ async function sendChat() {
   try {
     const result = await callTuning('chat', { message: msg })
     chatLog.value.push({ role: 'assistant', content: result.reply })
-    currentProposal.value = result
+    currentProposal.value = hasProposalChanges(result) ? result : null
     await scrollChatToBottom()
   } catch (e) {
     errorMessage.value = `대화 실패: ${e.message}`
   } finally {
     chatting.value = false
   }
+}
+
+function hasProposalChanges(result) {
+  // 진단·답변만 있고 실제 변경안이 없으면 [적용]/[기각] 패널을 띄우지 않는다
+  return result && (result.proposed_conditions != null || result.proposed_risk_params != null)
 }
 
 async function autoGenerate() {
@@ -386,7 +391,7 @@ async function autoGenerate() {
     const result = await callTuning('ai-generate', null)
     chatLog.value.push({ role: 'user', content: '[자동 진단 요청]' })
     chatLog.value.push({ role: 'assistant', content: result.reply })
-    currentProposal.value = result
+    currentProposal.value = hasProposalChanges(result) ? result : null
     await scrollChatToBottom()
   } catch (e) {
     errorMessage.value = `자동 진단 실패: ${e.message}`
