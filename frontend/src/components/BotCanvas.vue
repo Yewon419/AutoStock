@@ -62,6 +62,15 @@
               <div class="msg-label">{{ msg.role === 'user' ? '나' : 'AI' }}</div>
               <div class="msg-body">{{ msg.content }}</div>
             </div>
+            <div v-if="chatting || generating" class="chat-msg msg-assistant chat-thinking">
+              <div class="msg-label">AI</div>
+              <div class="msg-body">
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+                <span class="thinking-label">{{ generating ? '자동 진단 중…' : '응답 생성 중…' }}</span>
+              </div>
+            </div>
           </div>
 
           <!-- 입력창 -->
@@ -355,6 +364,7 @@ async function sendChat() {
   await scrollChatToBottom()
 
   chatting.value = true
+  await scrollChatToBottom()  // 'AI 응답 생성 중…' 인디케이터가 보이도록
   try {
     const result = await callTuning('chat', { message: msg })
     chatLog.value.push({ role: 'assistant', content: result.reply })
@@ -371,6 +381,7 @@ async function autoGenerate() {
   if (generating.value) return
   generating.value = true
   errorMessage.value = ''
+  await scrollChatToBottom()  // '자동 진단 중…' 인디케이터가 보이도록
   try {
     const result = await callTuning('ai-generate', null)
     chatLog.value.push({ role: 'user', content: '[자동 진단 요청]' })
@@ -619,6 +630,36 @@ onMounted(() => load())
 
 .msg-user .msg-body {
   color: #93c5fd;
+}
+
+.chat-thinking .msg-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9ca3af;
+}
+
+.thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4f9eff;
+  display: inline-block;
+  animation: thinking-bounce 1.2s infinite ease-in-out;
+}
+
+.thinking-dot:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.30s; }
+
+.thinking-label {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
 }
 
 .chat-input {
