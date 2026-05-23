@@ -1,281 +1,398 @@
 <template>
-  <div class="bot-detail" v-if="bot">
+  <div v-if="bot" class="bot-detail">
     <!-- 헤더 -->
-    <div class="detail-header">
+    <header class="detail-header">
       <div class="header-left">
-        <button class="back-btn" @click="router.push('/bots')">← 목록</button>
-        <h1>{{ bot.name }}</h1>
-        <span class="badge" :class="statusClass(bot.status)">{{ bot.status }}</span>
+        <button class="back-btn" type="button" @click="router.push('/bots')">
+          <span aria-hidden="true">←</span>
+          <span>목록</span>
+        </button>
+        <h1 class="bot-title">{{ bot.name }}</h1>
+        <span class="badge" :class="statusClass(bot.status)">
+          <span class="badge-dot"></span>
+          {{ bot.status }}
+        </span>
       </div>
       <div class="header-actions">
         <button
           v-if="bot.status !== 'RUNNING'"
-          class="btn-edit"
+          class="btn-ghost"
+          type="button"
           @click="openEdit"
-        >✏️ 수정</button>
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+          <span>수정</span>
+        </button>
         <button
           v-if="bot.status !== 'RUNNING'"
           class="btn-start"
+          type="button"
           @click="startBot"
-        >▶ 시작</button>
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <polygon points="6 4 20 12 6 20 6 4" />
+          </svg>
+          <span>START</span>
+        </button>
         <button
           v-if="bot.status === 'RUNNING'"
           class="btn-stop"
+          type="button"
           @click="stopBot"
-        >⏹ 정지</button>
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="1.5" />
+          </svg>
+          <span>STOP</span>
+        </button>
       </div>
-    </div>
+    </header>
 
     <!-- 설정 요약 카드 -->
-    <div class="summary-grid">
+    <section class="summary-grid">
       <div class="summary-card">
         <span class="s-label">초기 자금</span>
-        <span class="s-value">{{ fmtMoney(bot.initial_cash) }}</span>
+        <span class="s-value mono">{{ fmtMoney(bot.initial_cash) }}</span>
       </div>
       <div class="summary-card">
         <span class="s-label">현재 캐시</span>
-        <span class="s-value">{{ fmtMoney(bot.cash) }}</span>
+        <span class="s-value mono">{{ fmtMoney(bot.cash) }}</span>
       </div>
       <div class="summary-card">
         <span class="s-label">보유 평가</span>
-        <span class="s-value">{{ fmtMoney(bot.holdings_value || 0) }}</span>
+        <span class="s-value mono">{{ fmtMoney(bot.holdings_value || 0) }}</span>
       </div>
       <div class="summary-card s-total">
         <span class="s-label">총자산</span>
-        <span class="s-value">{{ fmtMoney(bot.total_assets || 0) }}</span>
+        <span class="s-value mono accent">{{ fmtMoney(bot.total_assets || 0) }}</span>
       </div>
       <div class="summary-card">
         <span class="s-label">손절 / 익절</span>
-        <span class="s-value">{{ bot.stop_loss_pct }}% / {{ bot.take_profit_pct }}%</span>
+        <span class="s-value mono">
+          {{ bot.stop_loss_pct }}% / {{ bot.take_profit_pct }}%
+        </span>
       </div>
       <div class="summary-card">
         <span class="s-label">최대 낙폭</span>
-        <span class="s-value">{{ bot.max_drawdown_pct }}%</span>
+        <span class="s-value mono">{{ bot.max_drawdown_pct }}%</span>
       </div>
       <div class="summary-card">
         <span class="s-label">포지션 크기</span>
-        <span class="s-value">{{ bot.position_size_pct }}%</span>
+        <span class="s-value mono">{{ bot.position_size_pct }}%</span>
       </div>
       <div class="summary-card">
         <span class="s-label">거래 시간</span>
-        <span class="s-value">{{ fmtTime(bot.trading_start_time) }} ~ {{ fmtTime(bot.trading_end_time) }}</span>
+        <span class="s-value mono">
+          {{ fmtTime(bot.trading_start_time) }} – {{ fmtTime(bot.trading_end_time) }}
+        </span>
       </div>
       <template v-if="bot.bot_type === 'scalping'">
         <div class="summary-card">
           <span class="s-label">트레일링 스탑</span>
-          <span class="s-value">{{ bot.trailing_stop_pct != null ? bot.trailing_stop_pct + '%' : 'OFF' }}</span>
+          <span class="s-value mono">
+            {{ bot.trailing_stop_pct != null ? bot.trailing_stop_pct + '%' : 'OFF' }}
+          </span>
         </div>
         <div class="summary-card">
           <span class="s-label">연속 확인 봉</span>
-          <span class="s-value">{{ bot.confirm_bars ?? 1 }}봉</span>
+          <span class="s-value mono">{{ bot.confirm_bars ?? 1 }}봉</span>
         </div>
       </template>
-    </div>
+    </section>
 
     <!-- 종합 성과 카드 -->
-    <div class="perf-section" v-if="perf">
+    <section v-if="perf" class="perf-section">
       <div class="perf-card" :class="perf.total_pnl >= 0 ? 'perf-pos' : 'perf-neg'">
         <span class="p-label">누적 손익</span>
-        <span class="p-main">{{ fmtPnl(perf.total_pnl) }}</span>
-        <span class="p-sub" :class="pnlClass(perf.total_return_pct)">
+        <span class="p-main mono">{{ fmtPnl(perf.total_pnl) }}</span>
+        <span class="p-sub mono" :class="pnlClass(perf.total_return_pct)">
           {{ perf.total_return_pct >= 0 ? '+' : '' }}{{ perf.total_return_pct.toFixed(2) }}%
         </span>
       </div>
       <div class="perf-card">
         <span class="p-label">승률</span>
-        <span class="p-main">{{ perf.win_rate.toFixed(1) }}%</span>
-        <span class="p-sub">{{ perf.winning_trades }}승 {{ perf.losing_trades }}패 ({{ perf.total_trades }}건)</span>
+        <span class="p-main mono">{{ perf.win_rate.toFixed(1) }}%</span>
+        <span class="p-sub mono">
+          {{ perf.winning_trades }}승 {{ perf.losing_trades }}패 · {{ perf.total_trades }}건
+        </span>
       </div>
       <div class="perf-card">
         <span class="p-label">손익비</span>
-        <span class="p-main" :class="perf.profit_factor >= 1 ? 'val-good' : 'val-bad'">
+        <span class="p-main mono" :class="perf.profit_factor >= 1 ? 'profit' : 'loss'">
           {{ perf.profit_factor > 0 ? perf.profit_factor.toFixed(2) : '-' }}
         </span>
-        <span class="p-sub">평균수익 {{ fmtPnl(perf.avg_win) }}</span>
+        <span class="p-sub mono">평균수익 {{ fmtPnl(perf.avg_win) }}</span>
       </div>
       <div class="perf-card">
         <span class="p-label">샤프 비율</span>
-        <span class="p-main" :class="perf.sharpe_ratio >= 1 ? 'val-good' : perf.sharpe_ratio >= 0 ? '' : 'val-bad'">
+        <span
+          class="p-main mono"
+          :class="perf.sharpe_ratio >= 1 ? 'profit' : perf.sharpe_ratio >= 0 ? '' : 'loss'"
+        >
           {{ perf.sharpe_ratio !== 0 ? perf.sharpe_ratio.toFixed(2) : '-' }}
         </span>
         <span class="p-sub">위험 대비 수익</span>
       </div>
       <div class="perf-card">
         <span class="p-label">최대 낙폭</span>
-        <span class="p-main val-bad">{{ perf.max_drawdown > 0 ? '-' + perf.max_drawdown.toFixed(2) + '%' : '-' }}</span>
+        <span class="p-main mono loss">
+          {{ perf.max_drawdown > 0 ? '-' + perf.max_drawdown.toFixed(2) + '%' : '-' }}
+        </span>
         <span class="p-sub">최고점 대비</span>
       </div>
       <div class="perf-card">
         <span class="p-label">총 수수료+세금</span>
-        <span class="p-main">{{ fmtMoney(perf.total_fee) }}</span>
-        <span class="p-sub">최대손실 {{ fmtPnl(perf.worst_trade) }}</span>
+        <span class="p-main mono">{{ fmtMoney(perf.total_fee) }}</span>
+        <span class="p-sub mono">최대손실 {{ fmtPnl(perf.worst_trade) }}</span>
       </div>
-    </div>
+    </section>
 
     <!-- 종목 태그 -->
-    <div class="tickers-row">
-      <span class="tickers-label">대상 종목</span>
+    <section class="tickers-row">
+      <span class="tickers-label">TICKERS · 대상 종목</span>
       <div class="ticker-tags">
-        <span v-for="t in (bot.tickers || [])" :key="t" class="ticker-tag">{{ t }}</span>
+        <span v-for="t in bot.tickers || []" :key="t" class="ticker-tag">{{ t }}</span>
         <span v-if="!(bot.tickers || []).length" class="no-tickers">종목 없음</span>
       </div>
-    </div>
+    </section>
 
     <!-- 탭 -->
-    <div class="tabs">
+    <nav class="tabs" role="tablist">
       <button
-        v-for="tab in ['canvas', 'positions', 'orders', 'executions', 'reports']"
+        v-for="tab in tabKeys"
         :key="tab"
         class="tab-btn"
+        type="button"
         :class="{ active: activeTab === tab }"
+        role="tab"
+        :aria-selected="activeTab === tab"
         @click="switchTab(tab)"
       >{{ tabLabel(tab) }}</button>
-    </div>
+    </nav>
 
     <!-- 캔버스 탭 -->
-    <div v-if="activeTab === 'canvas'">
+    <div v-if="activeTab === 'canvas'" class="tab-pane">
       <BotCanvas :bot-id="Number(botId)" />
     </div>
 
     <!-- 포지션 탭 -->
-    <div v-if="activeTab === 'positions'">
-      <div v-if="positions.length === 0" class="empty-tab">보유 포지션이 없습니다.</div>
-      <table v-else class="data-table">
-        <thead>
-          <tr>
-            <th>종목</th>
-            <th>수량</th>
-            <th>평균단가</th>
-            <th>현재가</th>
-            <th>평가금액</th>
-            <th>미실현손익</th>
-            <th>수익률</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="pos in positions" :key="pos.id">
-            <td class="ticker-cell">{{ pos.ticker }}</td>
-            <td>{{ pos.quantity.toLocaleString() }}</td>
-            <td>{{ fmtPrice(pos.avg_price) }}</td>
-            <td>{{ fmtPrice(pos.current_price) }}</td>
-            <td>{{ fmtPrice(pos.market_value) }}</td>
-            <td :class="pnlClass(pos.unrealized_pnl)">{{ fmtPnl(pos.unrealized_pnl) }}</td>
-            <td :class="pnlClass(pos.unrealized_pct)">{{ pos.unrealized_pct > 0 ? '+' : '' }}{{ pos.unrealized_pct.toFixed(2) }}%</td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-if="activeTab === 'positions'" class="tab-pane">
+      <div v-if="positions.length === 0" class="empty-tab">보유 포지션이 없습니다</div>
+      <div v-else class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>종목</th>
+              <th class="th-num">수량</th>
+              <th class="th-num">평균단가</th>
+              <th class="th-num">현재가</th>
+              <th class="th-num">평가금액</th>
+              <th class="th-num">미실현손익</th>
+              <th class="th-num">수익률</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="pos in positions" :key="pos.id">
+              <td class="ticker-cell">{{ pos.ticker }}</td>
+              <td class="td-num">{{ pos.quantity.toLocaleString() }}</td>
+              <td class="td-num">{{ fmtPrice(pos.avg_price) }}</td>
+              <td class="td-num">{{ fmtPrice(pos.current_price) }}</td>
+              <td class="td-num">{{ fmtPrice(pos.market_value) }}</td>
+              <td class="td-num" :class="pnlClass(pos.unrealized_pnl)">
+                {{ fmtPnl(pos.unrealized_pnl) }}
+              </td>
+              <td class="td-num" :class="pnlClass(pos.unrealized_pct)">
+                {{ pos.unrealized_pct > 0 ? '+' : '' }}{{ pos.unrealized_pct.toFixed(2) }}%
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- 주문 탭 -->
-    <div v-if="activeTab === 'orders'">
-      <div v-if="orders.length === 0" class="empty-tab">주문 내역이 없습니다.</div>
-      <table v-else class="data-table">
-        <thead>
-          <tr>
-            <th>시각</th>
-            <th>종목</th>
-            <th>구분</th>
-            <th>수량</th>
-            <th>체결가</th>
-            <th>상태</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="o in orders" :key="o.id">
-            <td class="time-cell">{{ fmtDatetime(o.created_at) }}</td>
-            <td>{{ o.ticker }}</td>
-            <td :class="o.order_type === 'BUY' ? 'buy-cell' : 'sell-cell'">{{ o.order_type }}</td>
-            <td>{{ o.quantity.toLocaleString() }}</td>
-            <td>{{ fmtPrice(o.price) }}</td>
-            <td><span class="badge badge-gray">{{ o.status }}</span></td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-if="activeTab === 'orders'" class="tab-pane">
+      <div v-if="orders.length === 0" class="empty-tab">주문 내역이 없습니다</div>
+      <div v-else class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>시각</th>
+              <th>종목</th>
+              <th>구분</th>
+              <th class="th-num">수량</th>
+              <th class="th-num">체결가</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="o in orders" :key="o.id">
+              <td class="time-cell">{{ fmtDatetime(o.created_at) }}</td>
+              <td class="ticker-cell">{{ o.ticker }}</td>
+              <td>
+                <span class="type-badge" :class="o.order_type === 'BUY' ? 'type-buy' : 'type-sell'">
+                  {{ o.order_type }}
+                </span>
+              </td>
+              <td class="td-num">{{ o.quantity.toLocaleString() }}</td>
+              <td class="td-num">{{ fmtPrice(o.price) }}</td>
+              <td>
+                <span class="status-pill">{{ o.status }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <!-- 체결 내역 탭 (매도 손익 중심) -->
-    <div v-if="activeTab === 'executions'">
-      <div v-if="executions.length === 0" class="empty-tab">체결 내역이 없습니다.</div>
+    <!-- 체결 탭 -->
+    <div v-if="activeTab === 'executions'" class="tab-pane">
+      <div v-if="executions.length === 0" class="empty-tab">체결 내역이 없습니다</div>
       <template v-else>
-        <!-- 주가 차트 + 체결 포인트 -->
-        <div class="chart-container" style="margin-bottom: 16px;">
-          <div class="chart-title-row">
-            <div style="display:flex;align-items:center;gap:10px;">
-              <span class="chart-title">주가 & 체결 포인트</span>
-              <select v-if="execTickers.length > 1" v-model="selectedExecTicker"
-                @change="onExecTickerChange" class="ticker-select">
-                <option v-for="t in execTickers" :key="t" :value="t">{{ tickerName(t) }}</option>
+        <div class="chart-block">
+          <div class="chart-head">
+            <div class="chart-head-left">
+              <span class="chart-label">CANDLE · 체결 포인트</span>
+              <select
+                v-if="execTickers.length > 1"
+                v-model="selectedExecTicker"
+                class="ticker-select"
+                @change="onExecTickerChange"
+              >
+                <option v-for="t in execTickers" :key="t" :value="t">
+                  {{ tickerName(t) }}
+                </option>
               </select>
               <span v-else class="chart-ticker-label">{{ tickerName(selectedExecTicker) }}</span>
             </div>
             <div class="exec-chart-legend">
-              <span class="legend-item"><span class="legend-dot" style="background:#60a5fa;"></span>매수</span>
-              <span class="legend-item"><span class="legend-dot" style="background:#ef4444;"></span>매도(수익)</span>
-              <span class="legend-item"><span class="legend-dot" style="background:#10b981;"></span>매도(손실)</span>
+              <span class="legend-item">
+                <span class="legend-dot" style="background: #60a5fa"></span>
+                매수
+              </span>
+              <span class="legend-item">
+                <span class="legend-dot" style="background: #ef4444"></span>
+                매도 · 수익
+              </span>
+              <span class="legend-item">
+                <span class="legend-dot" style="background: #10b981"></span>
+                매도 · 손실
+              </span>
             </div>
           </div>
           <div v-if="execChartLoading" class="chart-loading">차트 불러오는 중...</div>
-          <div ref="execChartEl" style="height: 260px;"></div>
+          <div ref="execChartEl" class="exec-chart"></div>
         </div>
-        <!-- 체결 내역 테이블 -->
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>체결 시각</th>
-              <th>종목</th>
-              <th>구분</th>
-              <th>수량</th>
-              <th>체결가</th>
-              <th>손익</th>
-              <th>수익률</th>
-              <th>수수료+세금</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="e in executions" :key="e.id"
-              :class="e.profit_loss != null && e.profit_loss > 0 ? 'exec-profit' : e.profit_loss != null && e.profit_loss < 0 ? 'exec-loss' : ''">
-              <td class="time-cell">{{ fmtDatetime(e.executed_at) }}</td>
-              <td class="ticker-cell">{{ tickerName(e.ticker) }}</td>
-              <td :class="e.execution_type === 'BUY' ? 'buy-cell' : 'sell-cell'">{{ e.execution_type }}</td>
-              <td>{{ e.quantity.toLocaleString() }}</td>
-              <td>{{ fmtPrice(e.price) }}</td>
-              <td :class="pnlClass(e.profit_loss)">
-                {{ e.profit_loss != null ? fmtPnl(e.profit_loss) : '-' }}
-              </td>
-              <td :class="pnlClass(e.profit_loss_pct)">
-                {{ e.profit_loss_pct != null ? (e.profit_loss_pct >= 0 ? '+' : '') + e.profit_loss_pct.toFixed(2) + '%' : '-' }}
-              </td>
-              <td class="fee-cell">{{ fmtPrice((e.fee || 0) + (e.tax || 0)) }}</td>
-            </tr>
-          </tbody>
-        </table>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>체결 시각</th>
+                <th>종목</th>
+                <th>구분</th>
+                <th class="th-num">수량</th>
+                <th class="th-num">체결가</th>
+                <th class="th-num">손익</th>
+                <th class="th-num">수익률</th>
+                <th class="th-num">수수료+세금</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="e in executions"
+                :key="e.id"
+                :class="
+                  e.profit_loss != null && e.profit_loss > 0
+                    ? 'exec-profit'
+                    : e.profit_loss != null && e.profit_loss < 0
+                      ? 'exec-loss'
+                      : ''
+                "
+              >
+                <td class="time-cell">{{ fmtDatetime(e.executed_at) }}</td>
+                <td class="ticker-cell">{{ tickerName(e.ticker) }}</td>
+                <td>
+                  <span
+                    class="type-badge"
+                    :class="e.execution_type === 'BUY' ? 'type-buy' : 'type-sell'"
+                  >{{ e.execution_type }}</span>
+                </td>
+                <td class="td-num">{{ e.quantity.toLocaleString() }}</td>
+                <td class="td-num">{{ fmtPrice(e.price) }}</td>
+                <td class="td-num" :class="pnlClass(e.profit_loss)">
+                  {{ e.profit_loss != null ? fmtPnl(e.profit_loss) : '-' }}
+                </td>
+                <td class="td-num" :class="pnlClass(e.profit_loss_pct)">
+                  {{
+                    e.profit_loss_pct != null
+                      ? (e.profit_loss_pct >= 0 ? '+' : '') + e.profit_loss_pct.toFixed(2) + '%'
+                      : '-'
+                  }}
+                </td>
+                <td class="td-num fee-cell">
+                  {{ fmtPrice((e.fee || 0) + (e.tax || 0)) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </template>
     </div>
 
     <!-- 보고서 탭 -->
-    <div v-if="activeTab === 'reports'">
-      <div v-if="reports.length === 0 && !reportScore && !reportScoreInsufficient" class="empty-tab">일별 보고서가 없습니다.</div>
-      <div v-else>
+    <div v-if="activeTab === 'reports'" class="tab-pane">
+      <div
+        v-if="reports.length === 0 && !reportScore && !reportScoreInsufficient"
+        class="empty-tab"
+      >일별 보고서가 없습니다</div>
 
+      <div v-else>
         <!-- 데이터 부족 안내 -->
         <div v-if="reportScoreInsufficient" class="insufficient-notice">
-          📊 성과 평가를 위한 데이터가 아직 부족합니다.<br>
-          <span class="insufficient-reason">{{ reportScoreInsufficient }}</span>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
+          </svg>
+          <div class="insufficient-text">
+            <strong>성과 평가 데이터 부족</strong>
+            <span class="insufficient-reason">{{ reportScoreInsufficient }}</span>
+          </div>
         </div>
 
         <!-- ① 종합 점수 카드 -->
         <div v-if="reportScore" class="score-section">
-          <!-- 점수 원형 + 등급 -->
           <div class="score-main">
             <div class="score-circle" :class="gradeClass(reportScore.grade)">
               <div class="score-num">{{ reportScore.total_score }}</div>
               <div class="score-denom">/ 100</div>
             </div>
-            <div class="score-grade-badge" :class="gradeClass(reportScore.grade)">{{ reportScore.grade }}</div>
+            <div class="score-grade-badge" :class="gradeClass(reportScore.grade)">
+              {{ reportScore.grade }}
+            </div>
             <div class="score-summary">{{ reportScore.summary }}</div>
           </div>
 
-          <!-- 카테고리 바 -->
           <div class="score-categories">
             <div
               v-for="(val, key) in reportScore.categories"
@@ -286,222 +403,351 @@
               <div class="cat-bar-wrap">
                 <div class="cat-bar" :style="{ width: val + '%' }" :class="barColor(val)"></div>
               </div>
-              <div class="cat-val" :class="barColor(val)">{{ val }}</div>
+              <div class="cat-val mono" :class="barColor(val)">{{ val }}</div>
             </div>
           </div>
 
-          <!-- 강점 / 약점 / 권장사항 -->
           <div class="score-insights">
             <div class="insight-block insight-strength">
-              <div class="insight-title">💪 강점</div>
-              <ul><li v-for="s in reportScore.strengths" :key="s">{{ s }}</li></ul>
+              <div class="insight-title">
+                <span class="insight-icon">+</span>
+                강점
+              </div>
+              <ul>
+                <li v-for="s in reportScore.strengths" :key="s">{{ s }}</li>
+              </ul>
             </div>
             <div class="insight-block insight-weakness">
-              <div class="insight-title">⚠️ 약점</div>
-              <ul><li v-for="w in reportScore.weaknesses" :key="w">{{ w }}</li></ul>
+              <div class="insight-title">
+                <span class="insight-icon">!</span>
+                약점
+              </div>
+              <ul>
+                <li v-for="w in reportScore.weaknesses" :key="w">{{ w }}</li>
+              </ul>
             </div>
             <div class="insight-block insight-rec">
-              <div class="insight-title">💡 권장사항</div>
-              <ul><li v-for="r in reportScore.recommendations" :key="r">{{ r }}</li></ul>
+              <div class="insight-title">
+                <span class="insight-icon">→</span>
+                권장사항
+              </div>
+              <ul>
+                <li v-for="r in reportScore.recommendations" :key="r">{{ r }}</li>
+              </ul>
             </div>
           </div>
 
-          <!-- 보조 지표 요약 -->
           <div class="meta-row">
-            <div class="meta-item"><span class="mi-label">수익률</span><span class="mi-val" :class="reportScore.meta.total_return_pct >= 0 ? 'profit' : 'loss'">{{ reportScore.meta.total_return_pct >= 0 ? '+' : '' }}{{ reportScore.meta.total_return_pct }}%</span></div>
-            <div class="meta-item"><span class="mi-label">샤프비율</span><span class="mi-val">{{ reportScore.meta.sharpe_ratio }}</span></div>
-            <div class="meta-item"><span class="mi-label">최대낙폭</span><span class="mi-val loss">-{{ reportScore.meta.max_drawdown }}%</span></div>
-            <div class="meta-item"><span class="mi-label">승률</span><span class="mi-val">{{ reportScore.meta.win_rate }}%</span></div>
-            <div class="meta-item"><span class="mi-label">손익비</span><span class="mi-val">{{ reportScore.meta.profit_factor }}</span></div>
-            <div class="meta-item"><span class="mi-label">수익일 비율</span><span class="mi-val">{{ reportScore.meta.winning_days_pct }}%</span></div>
-            <div class="meta-item"><span class="mi-label">최대연속손실</span><span class="mi-val" :class="reportScore.meta.max_consecutive_losses > 5 ? 'loss' : ''">{{ reportScore.meta.max_consecutive_losses }}일</span></div>
+            <div class="meta-item">
+              <span class="mi-label">수익률</span>
+              <span
+                class="mi-val mono"
+                :class="reportScore.meta.total_return_pct >= 0 ? 'profit' : 'loss'"
+              >
+                {{ reportScore.meta.total_return_pct >= 0 ? '+' : ''
+                }}{{ reportScore.meta.total_return_pct }}%
+              </span>
+            </div>
+            <div class="meta-item">
+              <span class="mi-label">샤프</span>
+              <span class="mi-val mono">{{ reportScore.meta.sharpe_ratio }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="mi-label">최대 낙폭</span>
+              <span class="mi-val mono loss">-{{ reportScore.meta.max_drawdown }}%</span>
+            </div>
+            <div class="meta-item">
+              <span class="mi-label">승률</span>
+              <span class="mi-val mono">{{ reportScore.meta.win_rate }}%</span>
+            </div>
+            <div class="meta-item">
+              <span class="mi-label">손익비</span>
+              <span class="mi-val mono">{{ reportScore.meta.profit_factor }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="mi-label">수익일 비율</span>
+              <span class="mi-val mono">{{ reportScore.meta.winning_days_pct }}%</span>
+            </div>
+            <div class="meta-item">
+              <span class="mi-label">최대연속손실</span>
+              <span
+                class="mi-val mono"
+                :class="reportScore.meta.max_consecutive_losses > 5 ? 'loss' : ''"
+              >{{ reportScore.meta.max_consecutive_losses }}일</span>
+            </div>
           </div>
         </div>
 
         <!-- ② 차트 영역 -->
-        <div v-if="reports.length" class="charts-row" style="margin-top: 20px;">
-          <div class="chart-container chart-half">
-            <div class="chart-title">누적 손익</div>
-            <div ref="lineChartEl" style="height: 180px;"></div>
+        <div v-if="reports.length" class="charts-row">
+          <div class="chart-block">
+            <div class="chart-head">
+              <span class="chart-label">누적 손익</span>
+            </div>
+            <div ref="lineChartEl" class="report-chart"></div>
           </div>
-          <div class="chart-container chart-half">
-            <div class="chart-title">일일 손익</div>
-            <div ref="barChartEl" style="height: 180px;"></div>
+          <div class="chart-block">
+            <div class="chart-head">
+              <span class="chart-label">일일 손익</span>
+            </div>
+            <div ref="barChartEl" class="report-chart"></div>
           </div>
         </div>
 
         <!-- ③ 보고서 테이블 -->
-        <table v-if="reports.length" class="data-table" style="margin-top: 16px;">
-          <thead>
-            <tr>
-              <th>날짜</th>
-              <th>총 자산</th>
-              <th>캐시</th>
-              <th>보유 평가</th>
-              <th>일일 손익</th>
-              <th>누적 손익</th>
-              <th>승률</th>
-              <th>거래 수</th>
-              <th>MDD</th>
-              <th>샤프</th>
-              <th>손익비</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in reports" :key="r.id">
-              <td>{{ r.date }}</td>
-              <td>{{ fmtPrice(r.total_assets) }}</td>
-              <td>{{ fmtPrice(r.cash) }}</td>
-              <td>{{ fmtPrice(r.holdings_value) }}</td>
-              <td :class="pnlClass(r.daily_pnl)">{{ fmtPnl(r.daily_pnl) }}</td>
-              <td :class="pnlClass(r.total_pnl)">{{ fmtPnl(r.total_pnl) }}</td>
-              <td>{{ r.win_rate.toFixed(1) }}%</td>
-              <td>{{ r.total_trades }}</td>
-              <td class="mdd-cell">{{ r.max_drawdown > 0 ? '-' + r.max_drawdown.toFixed(2) + '%' : '-' }}</td>
-              <td :class="r.sharpe_ratio >= 1 ? 'val-good' : r.sharpe_ratio < 0 ? 'val-bad' : ''">
-                {{ r.sharpe_ratio !== 0 ? r.sharpe_ratio.toFixed(2) : '-' }}
-              </td>
-              <td :class="r.profit_factor >= 1 ? 'val-good' : r.profit_factor > 0 ? 'val-bad' : ''">
-                {{ r.profit_factor > 0 ? r.profit_factor.toFixed(2) : '-' }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
+        <div v-if="reports.length" class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th class="th-num">총 자산</th>
+                <th class="th-num">캐시</th>
+                <th class="th-num">보유 평가</th>
+                <th class="th-num">일일 손익</th>
+                <th class="th-num">누적 손익</th>
+                <th class="th-num">승률</th>
+                <th class="th-num">거래수</th>
+                <th class="th-num">MDD</th>
+                <th class="th-num">샤프</th>
+                <th class="th-num">손익비</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in reports" :key="r.id">
+                <td class="mono">{{ r.date }}</td>
+                <td class="td-num">{{ fmtPrice(r.total_assets) }}</td>
+                <td class="td-num">{{ fmtPrice(r.cash) }}</td>
+                <td class="td-num">{{ fmtPrice(r.holdings_value) }}</td>
+                <td class="td-num" :class="pnlClass(r.daily_pnl)">
+                  {{ fmtPnl(r.daily_pnl) }}
+                </td>
+                <td class="td-num" :class="pnlClass(r.total_pnl)">
+                  {{ fmtPnl(r.total_pnl) }}
+                </td>
+                <td class="td-num">{{ r.win_rate.toFixed(1) }}%</td>
+                <td class="td-num">{{ r.total_trades }}</td>
+                <td class="td-num loss">
+                  {{ r.max_drawdown > 0 ? '-' + r.max_drawdown.toFixed(2) + '%' : '-' }}
+                </td>
+                <td
+                  class="td-num"
+                  :class="r.sharpe_ratio >= 1 ? 'profit' : r.sharpe_ratio < 0 ? 'loss' : ''"
+                >
+                  {{ r.sharpe_ratio !== 0 ? r.sharpe_ratio.toFixed(2) : '-' }}
+                </td>
+                <td
+                  class="td-num"
+                  :class="r.profit_factor >= 1 ? 'profit' : r.profit_factor > 0 ? 'loss' : ''"
+                >
+                  {{ r.profit_factor > 0 ? r.profit_factor.toFixed(2) : '-' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
+
     <!-- 수정 모달 -->
-    <div v-if="showEdit" class="modal-overlay" @click.self="closeEdit">
-      <div class="modal">
-        <div class="modal-header">
-          <h2>봇 설정 수정</h2>
-          <button class="close-btn" @click="closeEdit">✕</button>
-        </div>
+    <Teleport to="body">
+      <div v-if="showEdit" class="modal-overlay" @click.self="closeEdit">
+        <div class="modal" role="dialog" aria-modal="true">
+          <div class="modal-header">
+            <div class="modal-head-text">
+              <span class="modal-eyebrow">EDIT · 봇 설정</span>
+              <h2 class="modal-title">{{ bot.name }}</h2>
+            </div>
+            <button class="close-btn" type="button" aria-label="닫기" @click="closeEdit">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
 
-        <!-- 봇 타입 탭 -->
-        <div class="bot-type-tabs">
-          <button class="type-tab" :class="{ active: editForm.bot_type === 'swing' }" @click="setEditBotType('swing')">
-            📈 스윙 (Swing)
-            <span class="tab-desc">일봉 기반 · 5분 주기</span>
-          </button>
-          <button class="type-tab" :class="{ active: editForm.bot_type === 'scalping' }" @click="setEditBotType('scalping')">
-            ⚡ 단타 (Scalping)
-            <span class="tab-desc">분봉 기반 · 1분 주기</span>
-          </button>
-        </div>
+          <div class="bot-type-tabs" role="tablist">
+            <button
+              class="type-tab"
+              type="button"
+              :class="{ active: editForm.bot_type === 'swing' }"
+              @click="setEditBotType('swing')"
+            >
+              <span class="type-tab-name">스윙</span>
+              <span class="type-tab-desc">SWING · 일봉 · 5분 주기</span>
+            </button>
+            <button
+              class="type-tab type-tab-scalp"
+              type="button"
+              :class="{ active: editForm.bot_type === 'scalping' }"
+              @click="setEditBotType('scalping')"
+            >
+              <span class="type-tab-name">단타</span>
+              <span class="type-tab-desc">SCALPING · 분봉 · 1분 주기</span>
+            </button>
+          </div>
 
-        <div class="modal-body">
-          <!-- 단타 설정 -->
-          <div v-if="editForm.bot_type === 'scalping'" class="scalping-section">
-            <div class="section-title">⚡ 단타 설정</div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>분봉 단위</label>
-                <select v-model.number="editForm.candle_interval">
-                  <option :value="1">1분봉</option>
-                  <option :value="3">3분봉</option>
-                  <option :value="5">5분봉</option>
-                  <option :value="10">10분봉</option>
-                  <option :value="15">15분봉</option>
-                </select>
+          <div class="modal-body">
+            <div v-if="editForm.bot_type === 'scalping'" class="scalping-section">
+              <div class="section-head">
+                <span class="section-tag">SCALPING</span>
+                <span>단타 전용 설정</span>
               </div>
-              <div class="form-group">
-                <label>당일 강제 청산</label>
-                <div class="toggle-row">
-                  <label class="toggle-switch">
-                    <input type="checkbox" v-model="editForm.intraday_close" />
-                    <span class="toggle-slider"></span>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="ef-interval">분봉 단위</label>
+                  <select id="ef-interval" v-model.number="editForm.candle_interval">
+                    <option :value="1">1분봉</option>
+                    <option :value="3">3분봉</option>
+                    <option :value="5">5분봉</option>
+                    <option :value="10">10분봉</option>
+                    <option :value="15">15분봉</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">당일 강제 청산</label>
+                  <div class="toggle-row">
+                    <label class="toggle-switch">
+                      <input v-model="editForm.intraday_close" type="checkbox" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <input
+                      v-if="editForm.intraday_close"
+                      v-model="editForm.intraday_close_time"
+                      type="time"
+                      class="time-inline"
+                    />
+                    <span v-else class="toggle-off-label">OFF</span>
+                  </div>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="ef-trail">
+                    트레일링 스탑
+                    <span class="label-hint">고가 대비 하락 시 청산 (비우면 OFF)</span>
                   </label>
-                  <input v-if="editForm.intraday_close" v-model="editForm.intraday_close_time" type="time" class="time-inline" />
-                  <span v-else class="toggle-off-label">OFF</span>
+                  <input
+                    id="ef-trail"
+                    v-model.number="editForm.trailing_stop_pct"
+                    type="number"
+                    min="0.1"
+                    max="10"
+                    step="0.1"
+                    placeholder="0.1 ~ 10"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="ef-conf">
+                    연속 확인 봉
+                    <span class="label-hint">1 = 즉시 진입</span>
+                  </label>
+                  <input
+                    id="ef-conf"
+                    v-model.number="editForm.confirm_bars"
+                    type="number"
+                    min="1"
+                    max="5"
+                    step="1"
+                  />
                 </div>
               </div>
             </div>
+
+            <div class="form-group">
+              <label class="form-label" for="ef-name">봇 이름 *</label>
+              <input id="ef-name" v-model="editForm.name" type="text" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ef-strat">전략</label>
+              <select id="ef-strat" v-model="editForm.strategy_id">
+                <option :value="null">전략 없음</option>
+                <option v-for="s in strategies" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ef-tickers">종목 (쉼표 구분)</label>
+              <input
+                id="ef-tickers"
+                v-model="editTickersInput"
+                type="text"
+                placeholder="005930, 000660"
+              />
+            </div>
             <div class="form-row">
               <div class="form-group">
-                <label>트레일링 스탑 (%) <span class="label-hint">고가 대비 하락 시 청산. 비워두면 비활성화</span></label>
-                <input v-model.number="editForm.trailing_stop_pct" type="number" min="0.1" max="10" step="0.1" placeholder="비활성화=빈칸" />
+                <label class="form-label">손절 (%)</label>
+                <input v-model.number="editForm.stop_loss_pct" type="number" min="0" step="0.5" />
               </div>
               <div class="form-group">
-                <label>연속 신호 확인 봉 수 <span class="label-hint">1=즉시 진입, 2=2봉 연속 확인</span></label>
-                <input v-model.number="editForm.confirm_bars" type="number" min="1" max="5" step="1" />
+                <label class="form-label">익절 (%)</label>
+                <input v-model.number="editForm.take_profit_pct" type="number" min="0" step="0.5" />
               </div>
             </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">최대 낙폭 (%)</label>
+                <input v-model.number="editForm.max_drawdown_pct" type="number" min="0" step="0.5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">포지션 크기 (%)</label>
+                <input v-model.number="editForm.position_size_pct" type="number" min="1" max="100" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">최대 동시 포지션</label>
+                <input v-model.number="editForm.max_positions" type="number" min="1" max="20" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">일일 최대 거래</label>
+                <input v-model.number="editForm.max_daily_trades" type="number" min="1" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">단일 주문 최대 (원)</label>
+              <input v-model.number="editForm.max_order_amount" type="number" min="0" />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">거래 시작 시간</label>
+                <input v-model="editForm.trading_start_time" type="time" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">거래 종료 시간</label>
+                <input v-model="editForm.trading_end_time" type="time" />
+              </div>
+            </div>
+            <p v-if="editError" class="msg msg-fail">
+              <span class="msg-tag">ERR</span>
+              <span>{{ editError }}</span>
+            </p>
           </div>
 
-          <div class="form-group">
-            <label>봇 이름 *</label>
-            <input v-model="editForm.name" type="text" />
+          <div class="modal-footer">
+            <button class="btn-ghost" type="button" @click="closeEdit">취소</button>
+            <button
+              class="btn-primary"
+              type="button"
+              :disabled="editSubmitting"
+              @click="submitEdit"
+            >
+              {{ editSubmitting ? 'SAVING' : '저장' }}
+            </button>
           </div>
-          <div class="form-group">
-            <label>전략</label>
-            <select v-model="editForm.strategy_id">
-              <option :value="null">전략 없음</option>
-              <option v-for="s in strategies" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>종목 (쉼표로 구분)</label>
-            <input v-model="editTickersInput" type="text" placeholder="예: 005930,000660" />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>손절 (%)</label>
-              <input v-model.number="editForm.stop_loss_pct" type="number" min="0" step="0.5" />
-            </div>
-            <div class="form-group">
-              <label>익절 (%)</label>
-              <input v-model.number="editForm.take_profit_pct" type="number" min="0" step="0.5" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>최대 낙폭 (%)</label>
-              <input v-model.number="editForm.max_drawdown_pct" type="number" min="0" step="0.5" />
-            </div>
-            <div class="form-group">
-              <label>포지션 크기 (%)</label>
-              <input v-model.number="editForm.position_size_pct" type="number" min="1" max="100" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>최대 동시 포지션</label>
-              <input v-model.number="editForm.max_positions" type="number" min="1" max="20" />
-            </div>
-            <div class="form-group">
-              <label>일일 최대 거래 수</label>
-              <input v-model.number="editForm.max_daily_trades" type="number" min="1" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>단일 주문 최대 금액 (원)</label>
-            <input v-model.number="editForm.max_order_amount" type="number" min="0" />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>거래 시작 시간</label>
-              <input v-model="editForm.trading_start_time" type="time" />
-            </div>
-            <div class="form-group">
-              <label>거래 종료 시간</label>
-              <input v-model="editForm.trading_end_time" type="time" />
-            </div>
-          </div>
-          <p v-if="editError" class="error-msg">{{ editError }}</p>
-        </div>
-
-        <div class="modal-footer">
-          <button class="btn-secondary" @click="closeEdit">취소</button>
-          <button class="btn-primary" @click="submitEdit" :disabled="editSubmitting">
-            {{ editSubmitting ? '저장 중...' : '저장' }}
-          </button>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 
-  <div v-else class="loading">불러오는 중...</div>
+  <div v-else class="loading">LOADING...</div>
 </template>
 
 <script setup>
@@ -536,7 +782,8 @@ const selectedExecTicker = ref('')
 const execChartLoading = ref(false)
 const stockNames = ref({})
 
-// 수정 모달
+const tabKeys = ['canvas', 'positions', 'orders', 'executions', 'reports']
+
 const showEdit = ref(false)
 const editSubmitting = ref(false)
 const editError = ref('')
@@ -598,13 +845,16 @@ function setEditBotType(type) {
 }
 
 async function submitEdit() {
-  if (!editForm.value.name?.trim()) { editError.value = '봇 이름을 입력하세요'; return }
+  if (!editForm.value.name?.trim()) {
+    editError.value = '봇 이름을 입력하세요'
+    return
+  }
   editError.value = ''
   editSubmitting.value = true
   try {
     const payload = {
       ...editForm.value,
-      tickers: editTickersInput.value.split(',').map(t => t.trim()).filter(Boolean),
+      tickers: editTickersInput.value.split(',').map((t) => t.trim()).filter(Boolean),
     }
     const res = await fetch(`${API}/bots/${botId}`, {
       method: 'PUT',
@@ -679,50 +929,63 @@ async function fetchReports() {
   }
 }
 
+// 차트 공통 옵션 (디자인 토큰 톤)
+const CHART_BG = '#0d1118'
+const CHART_TEXT = '#a1a1aa'
+const CHART_GRID = 'rgba(255,255,255,0.04)'
+const CHART_BORDER = 'rgba(255,255,255,0.08)'
+
+function commonChartOpts() {
+  return {
+    layout: { background: { color: CHART_BG }, textColor: CHART_TEXT },
+    grid: { vertLines: { color: CHART_GRID }, horzLines: { color: CHART_GRID } },
+    rightPriceScale: { borderColor: CHART_BORDER },
+    timeScale: { borderColor: CHART_BORDER, timeVisible: false },
+  }
+}
+
 async function renderCharts(data) {
   if (!data.length) return
   const { createChart, LineSeries, HistogramSeries } = await import('lightweight-charts')
 
-  const commonOpts = {
-    layout: { background: { color: '#1a1d27' }, textColor: '#9ca3af' },
-    grid: { vertLines: { color: '#2a2d3e' }, horzLines: { color: '#2a2d3e' } },
-    rightPriceScale: { borderColor: '#2a2d3e' },
-    timeScale: { borderColor: '#2a2d3e', timeVisible: false },
-  }
-
-  // 누적 손익 라인 차트
   if (lineChartEl.value) {
-    if (lineChart) { lineChart.remove(); lineChart = null }
-    lineChart = createChart(lineChartEl.value, { ...commonOpts, height: 180 })
+    if (lineChart) {
+      lineChart.remove()
+      lineChart = null
+    }
+    lineChart = createChart(lineChartEl.value, { ...commonChartOpts(), height: 180 })
     const ls = lineChart.addSeries(LineSeries, {
-      color: '#4f9eff',
+      color: '#60a5fa',
       lineWidth: 2,
       priceFormat: { type: 'price', precision: 0, minMove: 1 },
     })
-    ls.setData(data.map(r => ({ time: r.date, value: r.total_pnl })))
+    ls.setData(data.map((r) => ({ time: r.date, value: r.total_pnl })))
     lineChart.timeScale().fitContent()
   }
 
-  // 일일 손익 히스토그램 차트
   if (barChartEl.value) {
-    if (barChart) { barChart.remove(); barChart = null }
-    barChart = createChart(barChartEl.value, { ...commonOpts, height: 180 })
+    if (barChart) {
+      barChart.remove()
+      barChart = null
+    }
+    barChart = createChart(barChartEl.value, { ...commonChartOpts(), height: 180 })
     const hs = barChart.addSeries(HistogramSeries, {
       priceFormat: { type: 'price', precision: 0, minMove: 1 },
     })
-    hs.setData(data.map(r => ({
-      time: r.date,
-      value: r.daily_pnl,
-      color: r.daily_pnl >= 0 ? 'rgba(239,68,68,0.7)' : 'rgba(16,185,129,0.7)',
-    })))
+    hs.setData(
+      data.map((r) => ({
+        time: r.date,
+        value: r.daily_pnl,
+        color: r.daily_pnl >= 0 ? 'rgba(239,68,68,0.75)' : 'rgba(96,165,250,0.75)',
+      })),
+    )
     barChart.timeScale().fitContent()
   }
 }
 
 async function renderExecChart(data) {
   if (!data.length) return
-  // 종목 목록 추출
-  const tickers = [...new Set(data.map(e => e.ticker))]
+  const tickers = [...new Set(data.map((e) => e.ticker))]
   execTickers.value = tickers
   if (!selectedExecTicker.value || !tickers.includes(selectedExecTicker.value)) {
     selectedExecTicker.value = tickers[0]
@@ -739,23 +1002,24 @@ async function renderExecChartForTicker(data, ticker) {
   if (!execChartEl.value) return
   const { createChart, CandlestickSeries, LineSeries } = await import('lightweight-charts')
 
-  if (execChart) { execChart.remove(); execChart = null }
+  if (execChart) {
+    execChart.remove()
+    execChart = null
+  }
 
-  const tickerExecs = data.filter(e => e.ticker === ticker)
+  const tickerExecs = data.filter((e) => e.ticker === ticker)
   if (!tickerExecs.length) return
 
-  // 날짜 범위 계산
-  const dates = tickerExecs.map(e => e.executed_at.slice(0, 10)).sort()
+  const dates = tickerExecs.map((e) => e.executed_at.slice(0, 10)).sort()
   const startDate = dates[0]
   const endDate = dates[dates.length - 1]
 
-  // 주가 데이터 조회
   execChartLoading.value = true
   let priceData = []
   try {
     const res = await fetch(
       `${API}/market/stocks/${ticker}/prices?start_date=${startDate}&end_date=${endDate}`,
-      { headers: headers() }
+      { headers: headers() },
     )
     if (res.ok) priceData = await res.json()
   } finally {
@@ -763,26 +1027,25 @@ async function renderExecChartForTicker(data, ticker) {
   }
 
   execChart = createChart(execChartEl.value, {
-    layout: { background: { color: '#1a1d27' }, textColor: '#9ca3af' },
-    grid: { vertLines: { color: '#2a2d3e' }, horzLines: { color: '#2a2d3e' } },
-    rightPriceScale: { borderColor: '#2a2d3e' },
-    timeScale: { borderColor: '#2a2d3e', timeVisible: false },
+    ...commonChartOpts(),
     crosshair: { mode: 1 },
     height: 260,
   })
 
-  // 마커 생성 (날짜 기준, 중복은 첫 번째만 text 표시)
-  const sorted = [...tickerExecs].sort((a, b) => new Date(a.executed_at) - new Date(b.executed_at))
-  const markers = sorted.map(e => {
+  const sorted = [...tickerExecs].sort(
+    (a, b) => new Date(a.executed_at) - new Date(b.executed_at),
+  )
+  const markers = sorted.map((e) => {
     const isBuy = e.execution_type === 'BUY'
     const isProfit = e.profit_loss != null && e.profit_loss >= 0
-    const pctText = e.profit_loss_pct != null
-      ? (e.profit_loss_pct >= 0 ? '+' : '') + e.profit_loss_pct.toFixed(1) + '%'
-      : ''
+    const pctText =
+      e.profit_loss_pct != null
+        ? (e.profit_loss_pct >= 0 ? '+' : '') + e.profit_loss_pct.toFixed(1) + '%'
+        : ''
     return {
       time: e.executed_at.slice(0, 10),
       position: isBuy ? 'belowBar' : 'aboveBar',
-      color: isBuy ? '#60a5fa' : (isProfit ? '#ef4444' : '#10b981'),
+      color: isBuy ? '#60a5fa' : isProfit ? '#ef4444' : '#10b981',
       shape: isBuy ? 'arrowUp' : 'arrowDown',
       text: isBuy ? '매수' : `매도 ${pctText}`,
       size: 1,
@@ -790,36 +1053,35 @@ async function renderExecChartForTicker(data, ticker) {
   })
 
   if (priceData.length) {
-    // 캔들스틱 차트
     const cs = execChart.addSeries(CandlestickSeries, {
       upColor: '#ef4444',
-      downColor: '#10b981',
+      downColor: '#60a5fa',
       borderUpColor: '#ef4444',
-      borderDownColor: '#10b981',
+      borderDownColor: '#60a5fa',
       wickUpColor: '#ef4444',
-      wickDownColor: '#10b981',
+      wickDownColor: '#60a5fa',
     })
-    cs.setData(priceData.map(p => ({
-      time: String(p.date),
-      open: p.open_price ?? p.close_price,
-      high: p.high_price ?? p.close_price,
-      low: p.low_price ?? p.close_price,
-      close: p.close_price,
-    })))
+    cs.setData(
+      priceData.map((p) => ({
+        time: String(p.date),
+        open: p.open_price ?? p.close_price,
+        high: p.high_price ?? p.close_price,
+        low: p.low_price ?? p.close_price,
+        close: p.close_price,
+      })),
+    )
     execChart.createSeriesMarkers(cs, markers)
   } else {
-    // 가격 데이터 없음 — 체결가 기준 라인 차트 대체
-    const lineData = sorted.map(e => ({
+    const lineData = sorted.map((e) => ({
       time: e.executed_at.slice(0, 10),
       value: e.price,
     }))
-    // 날짜 중복 제거 (같은 날 여러 체결 시 마지막 값)
     const dedupedLine = Object.values(
-      Object.fromEntries(lineData.map(d => [d.time, d]))
+      Object.fromEntries(lineData.map((d) => [d.time, d])),
     ).sort((a, b) => a.time.localeCompare(b.time))
 
     const ls = execChart.addSeries(LineSeries, {
-      color: '#4f9eff',
+      color: '#60a5fa',
       lineWidth: 2,
       priceFormat: { type: 'price', precision: 0, minMove: 1 },
     })
@@ -836,7 +1098,6 @@ async function switchTab(tab) {
   else if (tab === 'orders') await fetchOrders()
   else if (tab === 'executions') await fetchExecutions()
   else if (tab === 'reports') await fetchReports()
-  // canvas는 BotCanvas 컴포넌트가 자체 fetch
 }
 
 async function startBot() {
@@ -851,9 +1112,9 @@ async function stopBot() {
 }
 
 function statusClass(s) {
-  if (s === 'RUNNING') return 'badge-green'
-  if (s === 'ERROR') return 'badge-red'
-  return 'badge-gray'
+  if (s === 'RUNNING') return 'badge-running'
+  if (s === 'ERROR') return 'badge-error'
+  return 'badge-stopped'
 }
 
 function tabLabel(tab) {
@@ -901,7 +1162,9 @@ function pnlClass(v) {
 }
 
 function gradeClass(g) {
-  return { S: 'grade-s', A: 'grade-a', B: 'grade-b', C: 'grade-c', D: 'grade-d', F: 'grade-f' }[g] || ''
+  return (
+    { S: 'grade-s', A: 'grade-a', B: 'grade-b', C: 'grade-c', D: 'grade-d', F: 'grade-f' }[g] || ''
+  )
 }
 
 function barColor(v) {
@@ -917,483 +1180,1354 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.bot-detail { max-width: 1200px; }
+.bot-detail {
+  max-width: var(--content-max);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 
-.loading { text-align: center; color: #6b7280; padding: 80px 0; }
+.loading {
+  text-align: center;
+  color: var(--text-muted);
+  padding: var(--space-20) 0;
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-wider);
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
 
 .detail-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .back-btn {
-  background: none;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #9ca3af;
-  padding: 6px 12px;
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
-.back-btn:hover { color: #e5e7eb; border-color: #4b5563; }
 
-h1 { margin: 0; font-size: 20px; font-weight: 700; color: #e5e7eb; }
+.back-btn:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.bot-title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
 
 .badge {
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  padding: 4px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
 }
-.badge-green { background: rgba(16,185,129,.2); color: #10b981; }
-.badge-red { background: rgba(239,68,68,.2); color: #ef4444; }
-.badge-gray { background: rgba(107,114,128,.2); color: #9ca3af; }
 
-.header-actions { display: flex; gap: 8px; }
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+}
 
-.btn-start, .btn-stop {
-  padding: 8px 18px;
-  border-radius: 6px;
-  font-size: 14px;
-  border: none;
+.badge-running {
+  background: var(--up-bg);
+  color: var(--up-strong);
+}
+.badge-running .badge-dot {
+  background: var(--up-strong);
+  box-shadow: 0 0 6px var(--up-strong);
+  animation: dotPulse 2s ease-in-out infinite;
+}
+
+.badge-stopped {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.badge-stopped .badge-dot {
+  background: var(--text-muted);
+}
+
+.badge-error {
+  background: var(--profit-bg);
+  color: var(--profit);
+}
+.badge-error .badge-dot {
+  background: var(--profit);
+  box-shadow: 0 0 6px var(--profit);
+}
+
+@keyframes dotPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.header-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.btn-ghost,
+.btn-start,
+.btn-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px var(--space-3);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
-  font-weight: 600;
+  border: 1px solid;
+  background: transparent;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
-.btn-start { background: rgba(16,185,129,.2); color: #10b981; }
-.btn-start:hover { background: rgba(16,185,129,.3); }
-.btn-stop { background: rgba(239,68,68,.2); color: #ef4444; }
-.btn-stop:hover { background: rgba(239,68,68,.3); }
 
-/* 설정 요약 */
+.btn-ghost svg,
+.btn-start svg,
+.btn-stop svg {
+  width: 13px;
+  height: 13px;
+}
+
+.btn-ghost {
+  border-color: var(--border);
+  color: var(--text-tertiary);
+}
+.btn-ghost:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.btn-start {
+  border-color: rgba(34, 197, 94, 0.3);
+  color: var(--up-strong);
+}
+.btn-start:hover {
+  background: var(--up-bg);
+}
+
+.btn-stop {
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--profit);
+}
+.btn-stop:hover {
+  background: var(--profit-bg);
+}
+
+/* ==========================================================================
+   Summary
+   ========================================================================== */
+
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-2);
 }
 
 .summary-card {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
-  padding: 14px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
-
-.s-label { font-size: 11px; color: #6b7280; }
-.s-value { font-size: 14px; color: #e5e7eb; font-weight: 600; }
 
 .summary-card.s-total {
-  background: rgba(79, 158, 255, 0.08);
-  border-color: rgba(79, 158, 255, 0.35);
+  border-color: var(--accent-border);
+  background: linear-gradient(135deg, var(--surface-1), rgba(245, 158, 11, 0.06));
 }
-.summary-card.s-total .s-value { color: #4f9eff; }
 
-/* 종합 성과 카드 */
+.s-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.s-value {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.s-value.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-wide);
+}
+
+.s-value.accent {
+  color: var(--accent);
+}
+
+/* ==========================================================================
+   Perf cards
+   ========================================================================== */
+
 .perf-section {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-3);
 }
 
 .perf-card {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
-  padding: 16px 14px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.perf-pos { border-color: rgba(239,68,68,.3); }
-.perf-neg { border-color: rgba(16,185,129,.3); }
 
-.p-label { font-size: 11px; color: #6b7280; }
-.p-main { font-size: 18px; font-weight: 700; color: #e5e7eb; }
-.p-sub { font-size: 11px; color: #6b7280; }
+.perf-pos {
+  border-color: rgba(239, 68, 68, 0.3);
+}
 
-.val-good { color: #ef4444; }
-.val-bad  { color: #60a5fa; }
+.perf-neg {
+  border-color: rgba(96, 165, 250, 0.3);
+}
 
-/* 종목 태그 */
+.p-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.p-main {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.p-main.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.p-sub {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.p-sub.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.profit {
+  color: var(--profit);
+}
+
+.loss {
+  color: var(--loss);
+}
+
+/* ==========================================================================
+   Tickers row
+   ========================================================================== */
+
 .tickers-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-  padding: 12px 16px;
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 
-.tickers-label { font-size: 12px; color: #6b7280; white-space: nowrap; }
-.ticker-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tickers-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ticker-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .ticker-tag {
-  background: #2a2d3e;
-  color: #9ca3af;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  color: var(--text-tertiary);
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
 }
-.no-tickers { font-size: 12px; color: #4b5563; }
 
-/* 탭 */
+.no-tickers {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+
+/* ==========================================================================
+   Tabs
+   ========================================================================== */
+
 .tabs {
   display: flex;
-  gap: 4px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid #2a2d3e;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .tab-btn {
-  padding: 10px 20px;
+  padding: var(--space-3) var(--space-4);
   background: none;
   border: none;
-  color: #6b7280;
-  font-size: 14px;
-  cursor: pointer;
   border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
   margin-bottom: -1px;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
-.tab-btn:hover { color: #e5e7eb; }
-.tab-btn.active { color: #4f9eff; border-bottom-color: #4f9eff; }
+
+.tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 
 .empty-tab {
   text-align: center;
-  color: #4b5563;
-  padding: 60px 0;
-  font-size: 14px;
+  color: var(--text-faint);
+  padding: var(--space-16) 0;
+  font-size: var(--text-sm);
+  background: var(--surface-1);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
 }
 
-/* 차트 */
-.charts-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 20px;
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+.table-wrap {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
-.chart-container {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
-  padding: 16px;
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
 }
 
-.chart-title {
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 10px;
+.data-table th {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-faint);
+  white-space: nowrap;
 }
 
-.chart-title-row {
+.data-table th.th-num {
+  text-align: right;
+}
+
+.data-table td {
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.data-table td.td-num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.ticker-cell {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-wide);
+}
+
+.time-cell {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.fee-cell {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.type-badge {
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+}
+
+.type-buy {
+  background: var(--profit-bg);
+  color: var(--profit);
+}
+
+.type-sell {
+  background: var(--up-bg);
+  color: var(--up-strong);
+}
+
+.status-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.exec-profit {
+  background: rgba(239, 68, 68, 0.05);
+}
+.exec-loss {
+  background: rgba(96, 165, 250, 0.05);
+}
+.data-table tbody tr.exec-profit:hover td {
+  background: rgba(239, 68, 68, 0.1);
+}
+.data-table tbody tr.exec-loss:hover td {
+  background: rgba(96, 165, 250, 0.1);
+}
+
+/* ==========================================================================
+   Chart blocks
+   ========================================================================== */
+
+.chart-block {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--bg-elevated);
+}
+
+.chart-head-left {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
+  gap: var(--space-3);
+}
+
+.chart-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.chart-ticker-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+}
+
+.ticker-select {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 4px var(--space-2);
+  cursor: pointer;
+  letter-spacing: var(--tracking-wide);
+}
+
+.ticker-select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .exec-chart-legend {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .legend-item {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
-  color: #9ca3af;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
 }
 
 .legend-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
   display: inline-block;
 }
 
-.ticker-select {
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #e5e7eb;
-  font-size: 12px;
-  padding: 3px 8px;
-  cursor: pointer;
+.exec-chart {
+  height: 260px;
 }
 
-.chart-ticker-label {
-  font-size: 12px;
-  color: #e5e7eb;
-  font-weight: 600;
+.report-chart {
+  height: 180px;
 }
 
 .chart-loading {
   text-align: center;
-  color: #6b7280;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: var(--space-3) 0;
+  letter-spacing: var(--tracking-wide);
+}
+
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+/* ==========================================================================
+   Reports — Score section
+   ========================================================================== */
+
+.insufficient-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.insufficient-notice svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.insufficient-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.insufficient-text strong {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.insufficient-reason {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.score-section {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.score-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.score-circle {
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radius-full);
+  border: 4px solid var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.score-num {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-denom {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.score-grade-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.score-summary {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-loose);
+  min-width: 200px;
+}
+
+.grade-s {
+  border-color: var(--violet);
+  color: var(--violet);
+  background: var(--violet-bg);
+}
+.grade-a {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.grade-b {
+  border-color: var(--info);
+  color: var(--info);
+  background: rgba(96, 165, 250, 0.12);
+}
+.grade-c {
+  border-color: var(--up-strong);
+  color: var(--up-strong);
+  background: var(--up-bg);
+}
+.grade-d {
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+.grade-f {
+  border-color: var(--profit);
+  color: var(--profit);
+  background: var(--profit-bg);
+}
+
+.score-categories {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.score-cat-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cat-label {
+  width: 90px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  text-align: right;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.cat-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.cat-bar {
+  height: 100%;
+  border-radius: var(--radius-xs);
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+.cat-val {
+  width: 36px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-good {
+  background: var(--up-strong);
+  color: var(--up-strong);
+}
+.bar-mid {
+  background: var(--accent);
+  color: var(--accent);
+}
+.bar-bad {
+  background: var(--profit);
+  color: var(--profit);
+}
+
+.score-insights {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.insight-block {
+  background: var(--bg-base);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.insight-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+.insight-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-xs);
   font-size: 12px;
-  padding: 8px 0;
+  font-weight: 800;
 }
 
-/* 테이블 */
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+.insight-block ul {
+  margin: 0;
+  padding-left: var(--space-4);
 }
 
-.data-table th {
-  padding: 10px 12px;
-  text-align: right;
-  color: #6b7280;
-  font-weight: 500;
-  border-bottom: 1px solid #2a2d3e;
-  white-space: nowrap;
+.insight-block li {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: var(--leading-loose);
 }
-.data-table th:first-child { text-align: left; }
 
-.data-table td {
-  padding: 10px 12px;
-  text-align: right;
-  color: #e5e7eb;
-  border-bottom: 1px solid #1f2235;
+.insight-strength .insight-title {
+  color: var(--up-strong);
 }
-.data-table td:first-child { text-align: left; }
-
-.data-table tbody tr:hover { background: #1f2235; }
-
-.ticker-cell { font-weight: 600; color: #4f9eff; }
-.time-cell { color: #9ca3af; font-size: 12px; }
-.buy-cell { color: #ef4444; font-weight: 600; }
-.sell-cell { color: #10b981; font-weight: 600; }
-.fee-cell { color: #6b7280; font-size: 12px; }
-.mdd-cell { color: #ef4444; }
-
-.profit { color: #ef4444; }
-.loss { color: #60a5fa; }
-
-.exec-profit { background: rgba(239,68,68,.06); }
-.exec-loss   { background: rgba(96,165,250,.06); }
-.data-table tbody tr.exec-profit:hover { background: rgba(239,68,68,.12); }
-.data-table tbody tr.exec-loss:hover   { background: rgba(96,165,250,.12); }
-
-/* 수정 버튼 */
-.btn-edit {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 14px;
-  border: 1px solid #2a2d3e;
-  background: none;
-  color: #9ca3af;
-  cursor: pointer;
-  font-weight: 500;
+.insight-strength .insight-icon {
+  background: var(--up-bg);
 }
-.btn-edit:hover { border-color: #4b5563; color: #e5e7eb; }
 
-/* 모달 */
+.insight-weakness .insight-title {
+  color: var(--accent);
+}
+.insight-weakness .insight-icon {
+  background: var(--accent-bg);
+}
+
+.insight-rec .insight-title {
+  color: var(--info);
+}
+.insight-rec .insight-icon {
+  background: rgba(96, 165, 250, 0.14);
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-base);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 90px;
+}
+
+.mi-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.mi-val {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.mi-val.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Edit modal
+   ========================================================================== */
+
 .modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 1000;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  animation: overlayIn var(--dur-base) var(--ease-out);
+}
+
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .modal {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 12px;
-  width: 560px;
+  width: 600px;
+  max-width: 92vw;
   max-height: 88vh;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  animation: modalIn var(--dur-slow) var(--ease-out);
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid #2a2d3e;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--surface-1);
 }
-.modal-header h2 { margin: 0; font-size: 17px; color: #e5e7eb; }
 
-.close-btn { background: none; border: none; color: #6b7280; font-size: 18px; cursor: pointer; }
+.modal-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.modal-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: var(--tracking-hud);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.modal-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.close-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.close-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.close-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.bot-type-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.type-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: var(--text-md);
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.type-tab:hover {
+  color: var(--text-primary);
+}
+
+.type-tab.active {
+  color: var(--info);
+  border-bottom-color: var(--info);
+}
+
+.type-tab.type-tab-scalp.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.type-tab-name {
+  font-family: var(--font-sans);
+  font-weight: 700;
+}
+
+.type-tab-desc {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
 
 .modal-body {
-  padding: 20px 24px;
+  padding: var(--space-5);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 24px;
-  border-top: 1px solid #2a2d3e;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-faint);
+  background: var(--surface-1);
 }
-
-.form-group { display: flex; flex-direction: column; gap: 6px; flex: 1; }
-.form-group label { font-size: 12px; color: #9ca3af; }
-.form-group input,
-.form-group select {
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #e5e7eb;
-  padding: 8px 10px;
-  font-size: 14px;
-}
-.form-group input:focus,
-.form-group select:focus { outline: none; border-color: #4f9eff; }
-
-.form-row { display: flex; gap: 12px; }
-
-/* 봇 타입 탭 */
-.bot-type-tabs { display: flex; border-bottom: 1px solid #2a2d3e; }
-.type-tab {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 12px 16px; background: none; border: none;
-  border-bottom: 2px solid transparent; color: #6b7280;
-  font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; margin-bottom: -1px;
-}
-.type-tab:hover { color: #9ca3af; background: rgba(255,255,255,.03); }
-.type-tab.active { color: #e5e7eb; border-bottom-color: #4f9eff; }
-.type-tab.active:last-child { border-bottom-color: #fbbf24; color: #fbbf24; }
-.tab-desc { font-size: 11px; font-weight: 400; color: #4b5563; }
-.type-tab.active .tab-desc { color: #6b7280; }
-
-/* 단타 섹션 */
-.scalping-section {
-  background: rgba(251,191,36,.05);
-  border: 1px solid rgba(251,191,36,.2);
-  border-radius: 8px;
-  padding: 14px 16px;
-  display: flex; flex-direction: column; gap: 12px;
-}
-.section-title { font-size: 12px; font-weight: 700; color: #fbbf24; letter-spacing: 0.05em; }
-.toggle-row { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
-.toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-slider {
-  position: absolute; inset: 0;
-  background: #2a2d3e; border-radius: 999px; cursor: pointer; transition: background 0.2s;
-}
-.toggle-slider::before {
-  content: ''; position: absolute;
-  width: 14px; height: 14px; left: 3px; top: 3px;
-  background: #6b7280; border-radius: 50%; transition: transform 0.2s, background 0.2s;
-}
-.toggle-switch input:checked + .toggle-slider { background: rgba(251,191,36,.2); }
-.toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); background: #fbbf24; }
-.time-inline {
-  background: #0f1117; border: 1px solid #2a2d3e; border-radius: 6px;
-  color: #e5e7eb; padding: 5px 8px; font-size: 13px; width: 100px;
-}
-.time-inline:focus { outline: none; border-color: #fbbf24; }
-.toggle-off-label { font-size: 12px; color: #4b5563; }
-.label-hint { font-size: 10px; color: #4b5563; font-weight: 400; }
 
 .btn-primary {
-  background: #4f9eff; color: #fff; border: none;
-  border-radius: 6px; padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px var(--space-4);
+  background: var(--accent);
+  color: var(--bg-base);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: var(--shadow-gold);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
-.btn-primary:hover { background: #3b8ae8; }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn-secondary {
-  background: none; border: 1px solid #2a2d3e;
-  border-radius: 6px; color: #9ca3af; padding: 8px 18px; font-size: 14px; cursor: pointer;
-}
-.btn-secondary:hover { border-color: #4b5563; color: #e5e7eb; }
-
-.error-msg { color: #ef4444; font-size: 13px; }
-
-/* ── 종합 점수 섹션 ─────────────────────────────────── */
-.score-section {
-  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 14px;
-  padding: 24px; display: flex; flex-direction: column; gap: 20px;
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-gold-strong);
 }
 
-/* 원형 점수 + 등급 */
-.score-main {
-  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
-.score-circle {
-  width: 88px; height: 88px; border-radius: 50%;
-  border: 4px solid #2a2d3e;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.form-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.label-hint {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  font-weight: 400;
+  letter-spacing: var(--tracking-wide);
+  text-transform: none;
+  margin-left: var(--space-2);
+}
+
+.form-group input,
+.form-group select {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  padding: 8px var(--space-2);
+  font-size: var(--text-sm);
+  outline: none;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.form-row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.scalping-section {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.section-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  padding: 3px 7px;
+  background: var(--accent);
+  color: var(--bg-base);
+  border-radius: var(--radius-xs);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: 2px;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
   flex-shrink: 0;
 }
-.score-num { font-size: 26px; font-weight: 800; line-height: 1; }
-.score-denom { font-size: 11px; color: #6b7280; }
-.score-grade-badge {
-  width: 44px; height: 44px; border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; font-weight: 800; flex-shrink: 0;
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
-.score-summary { flex: 1; font-size: 13px; color: #d1d5db; line-height: 1.6; min-width: 200px; }
 
-.grade-s { border-color: #a78bfa; color: #a78bfa; background: rgba(167,139,250,.12); }
-.grade-a { border-color: #f59e0b; color: #f59e0b; background: rgba(245,158,11,.12); }
-.grade-b { border-color: #4f9eff; color: #4f9eff; background: rgba(79,158,255,.12); }
-.grade-c { border-color: #10b981; color: #10b981; background: rgba(16,185,129,.12); }
-.grade-d { border-color: #9ca3af; color: #9ca3af; background: rgba(156,163,175,.12); }
-.grade-f { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,.12); }
-
-/* 카테고리 바 */
-.score-categories { display: flex; flex-direction: column; gap: 8px; }
-.score-cat-row { display: flex; align-items: center; gap: 10px; }
-.cat-label { width: 72px; font-size: 11px; color: #9ca3af; flex-shrink: 0; text-align: right; }
-.cat-bar-wrap { flex: 1; height: 8px; background: #2a2d3e; border-radius: 4px; overflow: hidden; }
-.cat-bar { height: 100%; border-radius: 4px; transition: width .4s ease; }
-.cat-val { width: 34px; font-size: 12px; font-weight: 600; text-align: right; flex-shrink: 0; }
-.bar-good { background: #10b981; color: #10b981; }
-.bar-mid  { background: #f59e0b; color: #f59e0b; }
-.bar-bad  { background: #ef4444; color: #ef4444; }
-
-/* 인사이트 */
-.score-insights { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-.insight-block { background: #111318; border-radius: 10px; padding: 14px; }
-.insight-title { font-size: 12px; font-weight: 600; color: #e5e7eb; margin-bottom: 8px; }
-.insight-block ul { margin: 0; padding-left: 16px; }
-.insight-block li { font-size: 11px; color: #9ca3af; line-height: 1.6; }
-.insight-strength .insight-title { color: #10b981; }
-.insight-weakness .insight-title { color: #f59e0b; }
-.insight-rec .insight-title { color: #4f9eff; }
-
-/* 보조 지표 메타 */
-.meta-row {
-  display: flex; flex-wrap: wrap; gap: 10px;
-  padding: 14px; background: #111318; border-radius: 10px;
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-2);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.meta-item { display: flex; flex-direction: column; gap: 3px; min-width: 90px; }
-.mi-label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
-.mi-val { font-size: 13px; font-weight: 600; color: #e5e7eb; }
-.insufficient-notice {
-  background: #1e2030;
-  border: 1px solid #374151;
-  border-radius: 8px;
-  padding: 16px 20px;
-  color: #9ca3af;
-  font-size: 13px;
-  line-height: 1.6;
-  margin-bottom: 16px;
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  top: 3px;
+  background: var(--text-muted);
+  border-radius: var(--radius-full);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
-.insufficient-reason { color: #6b7280; font-size: 12px; }
+
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--accent-bg);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+  background: var(--accent);
+}
+
+.time-inline {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  padding: 5px var(--space-2);
+  font-size: var(--text-sm);
+  width: 110px;
+  outline: none;
+}
+
+.time-inline:focus {
+  border-color: var(--accent);
+}
+
+.toggle-off-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wider);
+}
+
+.msg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  border: 1px solid;
+  margin: 0;
+}
+
+.msg-fail {
+  background: var(--profit-bg);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--profit-soft);
+}
+
+.msg-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  .charts-row {
+    grid-template-columns: 1fr;
+  }
+  .score-insights {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .detail-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .header-actions {
+    justify-content: stretch;
+  }
+  .header-actions > * {
+    flex: 1;
+    justify-content: center;
+  }
+  .perf-section {
+    grid-template-columns: 1fr 1fr;
+  }
+}
 </style>
