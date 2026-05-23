@@ -1,12 +1,267 @@
+/* ==========================================================================
+   AutoStock — Design Tokens & Globals
+   트레이딩 터미널 톤. 단일 출처. 뷰는 스코프드 CSS에서 var(--*) 만 참조.
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ------------------------------------------------------------------------
+     Surface / Background
+     ------------------------------------------------------------------------ */
+  --bg-base: #050507;
+  --bg-elevated: #0a0c12;
+  --surface-1: #0d1118;
+  --surface-2: #14181f;
+  --surface-3: #1a1f28;
+  --glass-bg: rgba(20, 24, 34, 0.55);
+  --glass-bg-strong: rgba(20, 24, 34, 0.75);
+
+  /* ------------------------------------------------------------------------
+     Text
+     ------------------------------------------------------------------------ */
+  --text-primary: #fafafa;
+  --text-secondary: #d4d4d8;
+  --text-tertiary: #a1a1aa;
+  --text-muted: #71717a;
+  --text-dim: #52525b;
+  --text-faint: #3f3f46;
+
+  /* ------------------------------------------------------------------------
+     Brand accent (gold)
+     ------------------------------------------------------------------------ */
+  --accent: #f59e0b;
+  --accent-hover: #fbbf24;
+  --accent-dim: #d97706;
+  --accent-bg: rgba(245, 158, 11, 0.14);
+  --accent-border: rgba(245, 158, 11, 0.2);
+  --accent-glow: 0 0 12px rgba(245, 158, 11, 0.6);
+
+  /* ------------------------------------------------------------------------
+     Market semantics (up / down)
+     ------------------------------------------------------------------------ */
+  --up: #4ade80;
+  --up-strong: #22c55e;
+  --up-bg: rgba(74, 222, 128, 0.12);
+  --up-soft: #86efac;
+  --down: #f87171;
+  --down-strong: #ef4444;
+  --down-bg: rgba(248, 113, 113, 0.12);
+  --down-soft: #fca5a5;
+
+  /* ------------------------------------------------------------------------
+     Status
+     ------------------------------------------------------------------------ */
+  --success: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --info: #60a5fa;
+
+  /* ------------------------------------------------------------------------
+     Borders
+     ------------------------------------------------------------------------ */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --border-faint: rgba(255, 255, 255, 0.05);
+  --border-hairline: rgba(255, 255, 255, 0.06);
+
+  /* ------------------------------------------------------------------------
+     Typography
+     ------------------------------------------------------------------------ */
+  --font-sans:
+    'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont,
+    'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --text-xs: 10.5px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+  --text-3xl: 28px;
+  --text-4xl: 36px;
+  --text-hero: clamp(34px, 5.2vw, 62px);
+
+  --leading-tight: 1.1;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-loose: 1.7;
+
+  --tracking-tightest: -0.04em;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.05em;
+  --tracking-wider: 0.1em;
+  --tracking-widest: 0.14em;
+  --tracking-hud: 0.18em;
+
+  /* ------------------------------------------------------------------------
+     Spacing (4px grid)
+     ------------------------------------------------------------------------ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* ------------------------------------------------------------------------
+     Radii
+     ------------------------------------------------------------------------ */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  /* ------------------------------------------------------------------------
+     Shadows / glows
+     ------------------------------------------------------------------------ */
+  --shadow-sm: 0 2px 6px -2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 24px -8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 40px -12px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 24px 48px -12px rgba(0, 0, 0, 0.5);
+  --shadow-glass:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 18px 44px -10px rgba(0, 0, 0, 0.6);
+  --shadow-gold: 0 4px 24px -8px rgba(245, 158, 11, 0.5);
+  --shadow-gold-strong: 0 6px 32px -6px rgba(245, 158, 11, 0.65);
+
+  /* ------------------------------------------------------------------------
+     Motion
+     ------------------------------------------------------------------------ */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-linear: linear;
+
+  --dur-instant: 80ms;
+  --dur-fast: 150ms;
+  --dur-base: 250ms;
+  --dur-slow: 400ms;
+  --dur-slower: 600ms;
+  --dur-cinematic: 900ms;
+
+  /* ------------------------------------------------------------------------
+     Z-index scale
+     ------------------------------------------------------------------------ */
+  --z-base: 0;
+  --z-bg: 0;
+  --z-overlay: 1;
+  --z-content: 2;
+  --z-sticky: 5;
+  --z-hud: 10;
+  --z-dropdown: 50;
+  --z-modal: 100;
+  --z-toast: 200;
+
+  /* ------------------------------------------------------------------------
+     Layout
+     ------------------------------------------------------------------------ */
+  --header-h: 56px;
+  --sidebar-w: 220px;
+  --content-pad: 32px;
+  --content-max: 1280px;
+  --hud-h: 50px;
+
+  /* ------------------------------------------------------------------------
+     Blurs (backdrop-filter intensities)
+     ------------------------------------------------------------------------ */
+  --blur-sm: blur(8px) saturate(140%);
+  --blur-md: blur(18px) saturate(160%);
+  --blur-lg: blur(24px) saturate(180%);
+}
+
+/* ==========================================================================
+   Resets
+   ========================================================================== */
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+html,
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #0f1117;
-  color: #e5e7eb;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-base);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01';
+  letter-spacing: var(--tracking-normal);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* ==========================================================================
+   Scrollbar (subtle, monochrome — fits terminal tone)
+   ========================================================================== */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--bg-base);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* ==========================================================================
+   Selection
+   ========================================================================== */
+
+::selection {
+  background: var(--accent-bg);
+  color: var(--accent-hover);
+}
+
+/* ==========================================================================
+   Reduced motion
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
