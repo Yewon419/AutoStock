@@ -4,13 +4,24 @@
     <!-- ── 툴바 ── -->
     <div class="toolbar">
       <div class="toolbar-left">
-        <span class="toolbar-brand">✦ AI 캔버스</span>
+        <span class="toolbar-brand">
+          <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 4-1.5 4.5L6 10l4.5 1.5L12 16l1.5-4.5L18 10l-4.5-1.5z" />
+            <path d="M19 3v3" />
+            <path d="M17.5 4.5h3" />
+          </svg>
+          <span>AI CANVAS</span>
+        </span>
 
         <!-- 캔버스 선택 (전역 모드에서만. 봇 모드면 봇 1:1 캔버스라 list 불필요) -->
         <div v-if="!props.botId" class="canvas-selector" :class="{ open: showCanvasMenu }" @click.stop>
           <button class="canvas-sel-btn" @click="showCanvasMenu = !showCanvasMenu">
             <span class="canvas-sel-name">{{ currentCanvasName }}</span>
-            <span class="pd-arrow">▾</span>
+            <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
           <div class="canvas-menu">
             <div
@@ -32,22 +43,45 @@
                 ref="renameInputEl"
               />
               <span class="canvas-item-actions">
-                <button class="canvas-item-btn" @click.stop="startRename(c)" title="이름 변경">✎</button>
-                <button class="canvas-item-btn danger" @click.stop="deleteCanvas(c.id)" title="삭제">✕</button>
+                <button class="canvas-item-btn" @click.stop="startRename(c)" title="이름 변경" aria-label="이름 변경">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                       stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
+                <button class="canvas-item-btn danger" @click.stop="deleteCanvas(c.id)" title="삭제" aria-label="삭제">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                       stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
               </span>
             </div>
-            <button class="canvas-new-btn" @click="createCanvas(); showCanvasMenu = false">+ 새 캔버스</button>
+            <button class="canvas-new-btn" @click="createCanvas(); showCanvasMenu = false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>새 캔버스</span>
+            </button>
           </div>
         </div>
 
         <div
           v-for="grp in PALETTE_GROUPS" :key="grp.cat"
           class="palette-dropdown"
-          :class="{ open: openPalette === grp.cat }"
+          :class="[`cat-${grp.cat}`, { open: openPalette === grp.cat }]"
           @click.stop="openPalette = openPalette === grp.cat ? null : grp.cat"
         >
           <button class="palette-cat-btn" :class="`cat-${grp.cat}`">
-            {{ grp.label }} <span class="pd-arrow">▾</span>
+            <span>{{ grp.label }}</span>
+            <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
           <div class="palette-menu">
             <button
@@ -55,28 +89,72 @@
               @click="addNode(t); openPalette = null"
               class="palette-menu-item" :class="`cat-${grp.cat}`"
             >
-              {{ NODE_DEFS[t].icon }} {{ NODE_DEFS[t].label }}
+              <span class="palette-emoji">{{ NODE_DEFS[t].icon }}</span>
+              <span class="palette-label">{{ NODE_DEFS[t].label }}</span>
             </button>
           </div>
         </div>
       </div>
       <div class="toolbar-right">
         <span class="save-status" :class="saveStatus">
-          <span v-if="saveStatus === 'pending'">대기중...</span>
-          <span v-else-if="saveStatus === 'saving'">저장중...</span>
-          <span v-else-if="saveStatus === 'saved'">✓ 저장됨</span>
+          <span v-if="saveStatus === 'pending'">대기중</span>
+          <span v-else-if="saveStatus === 'saving'">저장중</span>
+          <span v-else-if="saveStatus === 'saved'">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            저장됨
+          </span>
         </span>
-        <button @click="fitToNodes" class="btn-toolbar" title="모든 노드가 보이게 화면 맞춤">⊡ 노드 맞춤</button>
-        <button @click="runAll" class="btn-run-all">▶ 전체 실행</button>
-        <button @click="saveLayout(true)" class="btn-toolbar">💾 저장</button>
-        <button @click="clearCanvas" class="btn-toolbar btn-danger-soft">🗑 초기화</button>
+        <button @click="fitToNodes" class="btn-ghost" title="모든 노드가 보이게 화면 맞춤">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 3 21 3 21 9" />
+            <polyline points="9 21 3 21 3 15" />
+            <line x1="21" y1="3" x2="14" y2="10" />
+            <line x1="3" y1="21" x2="10" y2="14" />
+          </svg>
+          <span>FIT</span>
+        </button>
+        <button @click="runAll" class="btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          <span>RUN ALL</span>
+        </button>
+        <button @click="saveLayout(true)" class="btn-ghost" title="저장">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17 21 17 13 7 13 7 21" />
+            <polyline points="7 3 7 8 15 8" />
+          </svg>
+          <span>SAVE</span>
+        </button>
+        <button @click="clearCanvas" class="btn-ghost btn-danger" title="초기화">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            <path d="M10 11v6M14 11v6" />
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+          </svg>
+          <span>CLEAR</span>
+        </button>
       </div>
     </div>
 
     <!-- ── 연결 오류 토스트 ── -->
     <Transition name="fade">
       <div v-if="connectionError" class="conn-error-toast">
-        ⛔ {{ connectionError }}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+        </svg>
+        <span>{{ connectionError }}</span>
       </div>
     </Transition>
 
@@ -96,13 +174,21 @@
       class="flow-canvas"
     >
       <template #default>
-        <Background :gap="24" pattern-color="#1f2235" />
+        <Background :gap="24" pattern-color="#1c2128" />
         <Controls />
         <MiniMap :node-color="miniMapColor" />
 
         <!-- 빈 캔버스 힌트 -->
         <div v-if="nodes.length === 0" class="canvas-hint">
-          <div class="hint-icon">✦</div>
+          <div class="hint-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m12 4-1.5 4.5L6 10l4.5 1.5L12 16l1.5-4.5L18 10l-4.5-1.5z" />
+              <path d="M19 3v3" />
+              <path d="M17.5 4.5h3" />
+            </svg>
+          </div>
+          <div class="hint-eyebrow">EMPTY CANVAS</div>
           <div class="hint-title">AI 어시스턴트에게 파이프라인 구성을 요청하거나</div>
           <div class="hint-sub">위 팔레트에서 노드를 추가하세요</div>
           <div class="hint-presets">
@@ -118,29 +204,43 @@
     <Transition name="slide-right">
       <div v-if="selectedNode" class="side-panel">
         <div class="panel-header">
-          <div class="panel-title-row">
-            <span class="panel-node-icon">{{ selectedNode.data.icon }}</span>
-            <span class="panel-node-name">{{ selectedNode.data.label }}</span>
-            <span class="panel-cat-badge" :class="`cat-${selectedNode.data.category}`">
-              {{ { source: '소스', strategy: '전략', processing: '처리', output: '출력', config: '설정' }[selectedNode.data.category] }}
+          <div class="panel-head-text">
+            <span class="panel-eyebrow" :class="`cat-${selectedNode.data.category}`">
+              {{ { source: 'SOURCE', strategy: 'STRATEGY', processing: 'PROCESSING', output: 'OUTPUT', config: 'CONFIG' }[selectedNode.data.category] }}
+              <span class="panel-eyebrow-kr">
+                · {{ { source: '소스', strategy: '전략', processing: '처리', output: '출력', config: '설정' }[selectedNode.data.category] }}
+              </span>
             </span>
+            <div class="panel-title-row">
+              <span class="panel-node-icon">{{ selectedNode.data.icon }}</span>
+              <h3 class="panel-node-name">{{ selectedNode.data.label }}</h3>
+            </div>
           </div>
-          <button @click="selectedNode = null" class="close-btn">✕</button>
+          <button @click="selectedNode = null" class="close-btn" aria-label="닫기">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
 
         <div class="panel-body">
           <!-- 상태 -->
           <div class="panel-section">
-            <div class="section-label">상태</div>
+            <div class="section-label">STATUS · 상태</div>
             <div class="status-row">
               <span class="status-dot-lg" :class="selectedNode.data.status || 'idle'" />
               <span class="status-text">{{ STATUS_LABELS[selectedNode.data.status || 'idle'] }}</span>
+            </div>
+            <div v-if="selectedNode.data.error" class="status-error">
+              {{ selectedNode.data.error }}
             </div>
           </div>
 
           <!-- 설정 (일반) -->
           <div class="panel-section" v-if="editableConfig.length">
-            <div class="section-label">설정</div>
+            <div class="section-label">CONFIG · 설정</div>
             <div v-for="field in editableConfig" :key="field.key" class="config-row">
               <label class="config-label">{{ field.label }}</label>
               <!-- bot 선택 -->
@@ -151,7 +251,14 @@
                     {{ b.name }}{{ b.status === 'RUNNING' ? ' (실행중)' : '' }}
                   </option>
                 </select>
-                <button class="btn-new-bot" @click="openNewBotModal">+ 새 봇 생성</button>
+                <button class="btn-new-bot" @click="openNewBotModal">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                       stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  <span>새 봇 생성</span>
+                </button>
               </template>
               <!-- strategy 노드: 전략 선택 -->
               <template v-else-if="field.key === 'strategy_id'">
@@ -201,18 +308,31 @@
 
           <!-- 전략 빌더 패널 (strategyBuilder 노드 전용) -->
           <div v-if="selectedNode?.type === 'strategyBuilder'" class="panel-section">
-            <div class="section-label">전략 빌더</div>
+            <div class="section-label">BUILDER · 전략 빌더</div>
 
             <!-- 타입 토글 -->
             <div class="builder-type-row">
               <button
                 :class="['builder-type-btn', { active: selectedNode.data.config.strategy_type === 'swing' }]"
                 @click="selectedNode.data.config.strategy_type = 'swing'"
-              >📈 스윙</button>
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="3 17 9 11 13 15 21 7" />
+                  <polyline points="14 7 21 7 21 14" />
+                </svg>
+                <span>스윙</span>
+              </button>
               <button
                 :class="['builder-type-btn', { active: selectedNode.data.config.strategy_type === 'scalping' }]"
                 @click="selectedNode.data.config.strategy_type = 'scalping'"
-              >⚡ 단타</button>
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+                <span>단타</span>
+              </button>
             </div>
 
             <!-- 전략명 -->
@@ -220,7 +340,7 @@
               v-model="selectedNode.data.config.name"
               class="config-input"
               placeholder="전략명 입력..."
-              style="margin-bottom:8px"
+              style="margin-bottom: var(--space-3)"
             />
 
             <!-- 프리셋 -->
@@ -238,7 +358,7 @@
             </div>
 
             <!-- 조건 목록 -->
-            <div class="config-label" style="margin-top:8px;margin-bottom:4px">조건 (AND)</div>
+            <div class="config-label" style="margin-top: var(--space-3); margin-bottom: var(--space-1)">조건 (AND)</div>
             <div v-for="(cond, idx) in selectedNode.data.config.conditions" :key="idx" class="builder-cond-row">
               <select v-model="cond.indicator" class="builder-sel-ind">
                 <option v-for="ind in builderIndicators" :key="ind.key" :value="ind.key">{{ ind.label }}</option>
@@ -248,24 +368,41 @@
               </select>
               <input v-model.number="cond.value" class="builder-val" type="number" placeholder="값" />
               <input v-if="cond.condition === 'between'" v-model.number="cond.value2" class="builder-val" type="number" placeholder="상한" />
-              <button class="builder-rm" @click="selectedNode.data.config.conditions.splice(idx,1)">✕</button>
+              <button class="builder-rm" @click="selectedNode.data.config.conditions.splice(idx,1)" aria-label="제거">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
-            <button class="builder-add-btn" @click="addBuilderCondition">+ 조건 추가</button>
+            <button class="builder-add-btn" @click="addBuilderCondition">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>조건 추가</span>
+            </button>
 
             <div v-if="selectedNode.data.config.saved_id" class="builder-saved-info">
-              저장됨 (ID {{ selectedNode.data.config.saved_id }})
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>저장됨 · ID {{ selectedNode.data.config.saved_id }}</span>
             </div>
           </div>
 
           <!-- 포트 -->
           <div class="panel-section">
-            <div class="section-label">포트</div>
+            <div class="section-label">PORTS · 포트</div>
             <div v-if="selectedNode.data.inputs.length" class="port-group">
-              <span class="port-label-head">입력</span>
+              <span class="port-label-head">IN</span>
               <span v-for="h in selectedNode.data.inputs" :key="h.id" class="port-chip port-in">{{ h.label }}</span>
             </div>
             <div v-if="selectedNode.data.outputs.length" class="port-group">
-              <span class="port-label-head">출력</span>
+              <span class="port-label-head">OUT</span>
               <span v-for="h in selectedNode.data.outputs" :key="h.id" class="port-chip port-out">{{ h.label }}</span>
             </div>
           </div>
@@ -275,14 +412,14 @@
             class="panel-section"
             v-if="selectedNode.type === 'mlModel' && selectedNode.data.status === 'success'"
           >
-            <div class="section-label">ML 인사이트</div>
+            <div class="section-label">ML INSIGHT · 인사이트</div>
             <MlInsightPanel :api-base="API" :auth-token="auth.token" :top-n="20" />
           </div>
 
           <!-- 결과 -->
           <div class="panel-section" v-if="selectedNode.data.result">
             <div class="section-label">
-              {{ selectedNode.type === 'mlModel' ? '원시 결과 (디버그)' : '실행 결과' }}
+              {{ selectedNode.type === 'mlModel' ? 'RAW · 원시 결과 (디버그)' : 'RESULT · 실행 결과' }}
             </div>
             <details v-if="selectedNode.type === 'mlModel'" class="raw-result-details">
               <summary>펼쳐서 보기</summary>
@@ -291,10 +428,28 @@
             <pre v-else class="result-json">{{ JSON.stringify(selectedNode.data.result, null, 2) }}</pre>
           </div>
 
-          <button @click="runNode(selectedNode.id)" class="btn-run-full" :disabled="selectedNode.data.status === 'running'">
-            {{ selectedNode.data.status === 'running' ? '실행 중...' : '▶ 실행' }}
-          </button>
-          <button @click="deleteNode(selectedNode.id)" class="btn-delete-node">🗑 노드 삭제</button>
+          <div class="panel-actions">
+            <button @click="runNode(selectedNode.id)" class="btn-run-full" :disabled="selectedNode.data.status === 'running'">
+              <svg v-if="selectedNode.data.status !== 'running'" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              <svg v-else class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-6-8.5" />
+              </svg>
+              <span>{{ selectedNode.data.status === 'running' ? 'RUNNING' : 'RUN' }}</span>
+            </button>
+            <button @click="deleteNode(selectedNode.id)" class="btn-delete-node">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                <path d="M10 11v6M14 11v6" />
+              </svg>
+              <span>노드 삭제</span>
+            </button>
+          </div>
         </div>
       </div>
     </Transition>
@@ -302,22 +457,41 @@
     <!-- ── AI 어시스턴트 ── -->
     <div class="chat-panel" :class="{ expanded: chatExpanded }">
       <div class="chat-toggle" @click="chatExpanded = !chatExpanded">
-        <span>✦ AI 어시스턴트</span>
-        <span class="chat-toggle-icon">{{ chatExpanded ? '▼' : '▲' }}</span>
+        <span class="chat-toggle-title">
+          <svg class="chat-toggle-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 4-1.5 4.5L6 10l4.5 1.5L12 16l1.5-4.5L18 10l-4.5-1.5z" />
+            <path d="M19 3v3" />
+            <path d="M17.5 4.5h3" />
+          </svg>
+          <span>AI · 어시스턴트</span>
+        </span>
+        <svg class="chat-toggle-caret" :class="{ open: chatExpanded }" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </div>
 
       <div v-if="chatExpanded" class="chat-body">
         <div class="chat-messages" ref="chatEl">
           <div v-for="(msg, i) in chatMessages" :key="i" class="chat-msg" :class="msg.role">
+            <div class="msg-label">{{ msg.role === 'user' ? '나' : 'AI' }}</div>
             <div class="msg-bubble">
               <details v-if="msg.thinking" class="thinking-block">
-                <summary class="thinking-summary">💭 생각 과정 보기</summary>
+                <summary class="thinking-summary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                       stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                  </svg>
+                  <span>생각 과정 보기</span>
+                </summary>
                 <pre class="thinking-content">{{ msg.thinking }}</pre>
               </details>
               {{ msg.content }}
             </div>
           </div>
           <div v-if="chatLoading" class="chat-msg assistant">
+            <div class="msg-label">AI</div>
             <div class="msg-bubble typing">
               <span class="dot" /><span class="dot" /><span class="dot" />
             </div>
@@ -338,7 +512,12 @@
             placeholder="캔버스를 자연어로 제어하세요..."
           />
           <button @click="sendChat()" :disabled="chatLoading || !chatInput.trim()" class="chat-send">
-            전송
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+            <span>전송</span>
           </button>
         </div>
       </div>
@@ -347,10 +526,19 @@
   <!-- ── 새 봇 생성 미니 모달 ── -->
   <Teleport to="body">
     <div v-if="newBotModal.open" class="nb-overlay" @click.self="newBotModal.open = false">
-      <div class="nb-modal">
+      <div class="nb-modal" role="dialog" aria-modal="true">
         <div class="nb-header">
-          <span>새 봇 생성</span>
-          <button @click="newBotModal.open = false" class="nb-close">✕</button>
+          <div class="nb-head-text">
+            <span class="nb-eyebrow">NEW BOT · 봇 생성</span>
+            <h3 class="nb-title">새 봇 만들기</h3>
+          </div>
+          <button @click="newBotModal.open = false" class="nb-close" aria-label="닫기">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
         <div class="nb-body">
           <div class="nb-row">
@@ -369,7 +557,7 @@
         <div class="nb-footer">
           <button @click="newBotModal.open = false" class="nb-btn-cancel">취소</button>
           <button @click="createAndSelectBot" :disabled="newBotModal.loading" class="nb-btn-ok">
-            {{ newBotModal.loading ? '생성 중...' : '생성' }}
+            <span>{{ newBotModal.loading ? '생성 중...' : '생성' }}</span>
           </button>
         </div>
       </div>
@@ -1286,7 +1474,7 @@ const chatMessages = ref([...INITIAL_CHAT])
 const chatEl = ref(null)
 
 function miniMapColor(node) {
-  return { source: '#0891b2', strategy: '#d97706', processing: '#7c3aed', output: '#059669', config: '#b45309' }[node.data?.category] ?? '#4b5563'
+  return { source: '#60a5fa', strategy: '#f59e0b', processing: '#a78bfa', output: '#22c55e', config: '#d97706' }[node.data?.category] ?? '#52525b'
 }
 
 // 인사이트 데이터가 필요한 키워드
@@ -1664,505 +1852,1526 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ==========================================================================
+   Root layout
+   ========================================================================== */
 .canvas-view {
   position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #0f1117;
+  background: var(--bg-base);
   overflow: hidden;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
 }
 
-/* ── 툴바 ── */
+/* ==========================================================================
+   Toolbar
+   ========================================================================== */
 .toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
-  height: 56px;
-  background: #1a1d27;
-  border-bottom: 1px solid #2a2d3e;
+  padding: 0 var(--space-5);
+  height: 52px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-faint);
   flex-shrink: 0;
-  gap: 4px;
+  gap: var(--space-2);
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .toolbar-brand {
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 0 0;
+  margin-right: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   font-weight: 700;
-  color: #a78bfa;
+  color: var(--accent);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  border-right: 1px solid var(--border-faint);
+  height: 100%;
   flex-shrink: 0;
-  margin-right: 12px;
 }
 
-.toolbar-left  { display: flex; align-items: center; gap: 4px; flex: 1; }
-.toolbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.brand-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
 
-/* ── 캔버스 선택 ── */
-.canvas-selector { position: relative; }
+/* Caret icons (drop-down arrows) */
+.caret {
+  width: 10px;
+  height: 10px;
+  color: var(--text-muted);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.palette-dropdown.open .caret,
+.canvas-selector.open .caret {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+/* ==========================================================================
+   Canvas selector (multi-canvas dropdown)
+   ========================================================================== */
+.canvas-selector {
+  position: relative;
+}
+
 .canvas-sel-btn {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 12px; border-radius: 6px;
-  border: 1px solid rgba(255,255,255,.08);
-  background: rgba(255,255,255,.04); color: #e5e7eb;
-  font-size: 12px; font-weight: 600; cursor: pointer;
-  max-width: 160px;
-}
-.canvas-sel-btn:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.15); }
-.canvas-sel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
-.canvas-menu {
-  display: none; position: absolute; top: calc(100% + 6px); left: 0;
-  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 8px;
-  padding: 6px; min-width: 200px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4);
-}
-.canvas-selector.open .canvas-menu { display: flex; flex-direction: column; gap: 2px; }
-.canvas-menu-item {
-  display: flex; align-items: center; gap: 4px;
-  padding: 5px 8px; border-radius: 5px;
-}
-.canvas-menu-item:hover { background: rgba(255,255,255,.05); }
-.canvas-menu-item.active { background: rgba(79,158,255,.1); }
-.canvas-item-name {
-  flex: 1; font-size: 12px; color: #d1d5db; cursor: pointer;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.canvas-menu-item.active .canvas-item-name { color: #4f9eff; font-weight: 600; }
-.canvas-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
-.canvas-item-btn {
-  padding: 2px 5px; border-radius: 3px; border: none;
-  background: transparent; color: #6b7280; font-size: 11px; cursor: pointer;
-}
-.canvas-item-btn:hover { background: rgba(255,255,255,.08); color: #9ca3af; }
-.canvas-item-btn.danger:hover { color: #f87171; }
-.canvas-rename-input {
-  flex: 1; background: #0f1117; border: 1px solid #4f9eff; border-radius: 4px;
-  color: #e5e7eb; font-size: 12px; padding: 2px 6px; outline: none;
-}
-.canvas-new-btn {
-  margin-top: 4px; padding: 6px 8px; border-radius: 5px; border: 1px dashed #2a2d3e;
-  background: transparent; color: #6b7280; font-size: 11px; cursor: pointer; text-align: left;
-}
-.canvas-new-btn:hover { border-color: #4f9eff; color: #4f9eff; background: rgba(79,158,255,.06); }
-
-/* ── 드롭다운 팔레트 ── */
-.palette-dropdown { position: relative; }
-.palette-cat-btn {
-  display: flex; align-items: center; gap: 5px;
-  padding: 6px 12px; border-radius: 6px; border: 1px solid transparent;
-  font-size: 12px; font-weight: 500; cursor: pointer; background: transparent;
-  transition: all .15s; white-space: nowrap;
-}
-.palette-cat-btn:hover { background: rgba(255,255,255,.05); }
-.palette-dropdown.open .palette-cat-btn { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.05); }
-.pd-arrow { font-size: 9px; opacity: .5; }
-.palette-menu {
-  display: none; position: absolute; top: calc(100% + 6px); left: 0;
-  background: #1a1d2e; border: 1px solid #2a2d3e; border-radius: 8px;
-  padding: 6px; z-index: 200; min-width: 170px;
-  box-shadow: 0 12px 32px rgba(0,0,0,.5);
-}
-.palette-dropdown.open .palette-menu { display: flex; flex-direction: column; gap: 2px; }
-.palette-menu-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 12px; border-radius: 5px; border: none;
-  font-size: 12px; cursor: pointer; text-align: left; background: transparent;
-  transition: background .1s; white-space: nowrap;
-}
-.palette-menu-item:hover { background: rgba(255,255,255,.07); }
-/* 카테고리별 색상 */
-.palette-cat-btn.cat-source,     .palette-menu-item.cat-source     { color: #22d3ee; }
-.palette-cat-btn.cat-strategy,   .palette-menu-item.cat-strategy   { color: #fbbf24; }
-.palette-cat-btn.cat-processing, .palette-menu-item.cat-processing { color: #a78bfa; }
-.palette-cat-btn.cat-output,     .palette-menu-item.cat-output     { color: #34d399; }
-.palette-cat-btn.cat-config,     .palette-menu-item.cat-config     { color: #f59e0b; }
-
-
-
-.palette-btn {
-  padding: 4px 10px;
-  border-radius: 5px;
-  border: 1px solid transparent;
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
+  max-width: 180px;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+.canvas-sel-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.canvas-sel-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  transition: all 0.15s;
+  max-width: 130px;
 }
-.palette-btn.cat-source     { background: rgba(8,145,178,.12); color: #22d3ee; border-color: rgba(8,145,178,.25); }
-.palette-btn.cat-strategy   { background: rgba(217,119,6,.12); color: #fbbf24; border-color: rgba(217,119,6,.25); }
-.palette-btn.cat-processing { background: rgba(124,58,237,.12); color: #a78bfa; border-color: rgba(124,58,237,.25); }
-.palette-btn.cat-output     { background: rgba(5,150,105,.12); color: #34d399; border-color: rgba(5,150,105,.25); }
-.palette-btn.cat-config     { background: rgba(180,83,9,.12);  color: #f59e0b; border-color: rgba(180,83,9,.25); }
-.palette-btn:hover { opacity: 0.8; }
 
-.btn-run-all {
-  padding: 6px 14px;
-  background: linear-gradient(135deg, #2563eb, #4f9eff);
-  border: none; border-radius: 6px;
-  color: #fff; font-size: 12px; font-weight: 700;
-  cursor: pointer;
+.canvas-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+  min-width: 220px;
+  z-index: var(--z-dropdown);
+  box-shadow: var(--shadow-md);
 }
-.btn-run-all:hover { opacity: 0.85; }
+.canvas-selector.open .canvas-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 
-.btn-toolbar {
-  padding: 5px 12px;
-  background: none;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #6b7280;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
+.canvas-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px var(--space-2);
+  border-radius: var(--radius-sm);
 }
-.btn-toolbar:hover { border-color: #4f9eff; color: #4f9eff; }
-.btn-danger-soft:hover { border-color: #ef4444; color: #ef4444; }
+.canvas-menu-item:hover {
+  background: var(--surface-2);
+}
+.canvas-menu-item.active {
+  background: var(--accent-bg);
+}
+
+.canvas-item-name {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-menu-item.active .canvas-item-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.canvas-item-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.canvas-item-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+.canvas-item-btn svg { width: 12px; height: 12px; }
+.canvas-item-btn:hover { background: var(--surface-2); color: var(--text-secondary); }
+.canvas-item-btn.danger:hover { color: var(--down-strong); }
+
+.canvas-rename-input {
+  flex: 1;
+  background: var(--bg-base);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding: 2px var(--space-2);
+  outline: none;
+}
+
+.canvas-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+.canvas-new-btn svg { width: 11px; height: 11px; }
+.canvas-new-btn:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+/* ==========================================================================
+   Palette dropdowns
+   ========================================================================== */
+.palette-dropdown {
+  position: relative;
+}
+
+.palette-cat-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.palette-cat-btn:hover { background: var(--surface-1); }
+.palette-dropdown.open .palette-cat-btn {
+  border-color: var(--border);
+  background: var(--surface-1);
+}
+
+.palette-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+  z-index: var(--z-dropdown);
+  min-width: 200px;
+  box-shadow: var(--shadow-md);
+}
+.palette-dropdown.open .palette-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.palette-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.palette-menu-item:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.palette-emoji {
+  font-size: 14px;
+  filter: saturate(0.85);
+}
+
+/* Category accent colors */
+.palette-cat-btn.cat-source     { color: var(--info); }
+.palette-cat-btn.cat-strategy   { color: var(--accent); }
+.palette-cat-btn.cat-processing { color: var(--violet); }
+.palette-cat-btn.cat-output     { color: var(--up-strong); }
+.palette-cat-btn.cat-config     { color: var(--accent-dim); }
+
+.palette-menu-item.cat-source     .palette-label { color: var(--info); }
+.palette-menu-item.cat-strategy   .palette-label { color: var(--accent); }
+.palette-menu-item.cat-processing .palette-label { color: var(--violet); }
+.palette-menu-item.cat-output     .palette-label { color: var(--up-strong); }
+.palette-menu-item.cat-config     .palette-label { color: var(--accent-dim); }
+
+/* ==========================================================================
+   Toolbar buttons
+   ========================================================================== */
+.btn-ghost,
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.btn-ghost svg,
+.btn-primary svg {
+  width: 12px;
+  height: 12px;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+}
+.btn-ghost:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.btn-ghost.btn-danger:hover {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--down-strong);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg-base);
+  border: 1px solid var(--accent);
+  box-shadow: var(--shadow-gold);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
 
 .save-status {
-  font-size: 11px;
-  min-width: 56px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  min-width: 64px;
   text-align: right;
-  transition: color 0.2s;
+  justify-content: flex-end;
+  transition: color var(--dur-base) var(--ease-out);
 }
-.save-status.pending { color: #6b7280; }
-.save-status.saving  { color: #4f9eff; }
-.save-status.saved   { color: #10b981; }
+.save-status svg { width: 11px; height: 11px; }
+.save-status.pending { color: var(--text-muted); }
+.save-status.saving  { color: var(--info); }
+.save-status.saved   { color: var(--up-strong); }
 
-/* ── 캔버스 ── */
-.flow-canvas { flex: 1; background: #0f1117; }
+/* ==========================================================================
+   VueFlow canvas
+   ========================================================================== */
+.flow-canvas {
+  flex: 1;
+  background: var(--bg-base);
+  font-family: var(--font-sans);
+}
 
-/* VueFlow 배경 색상 덮어쓰기 */
-:deep(.vue-flow__background) { background: #0f1117 !important; }
-:deep(.vue-flow__edge-path) { stroke: #4b5563; }
-:deep(.vue-flow__edge.animated .vue-flow__edge-path) { animation: dashdraw .5s linear infinite; }
-:deep(.vue-flow__controls) { background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 8px; }
-:deep(.vue-flow__controls button) { background: #1a1d27; color: #9ca3af; border-color: #2a2d3e; }
-:deep(.vue-flow__controls button:hover) { background: #2a2d3e; }
-:deep(.vue-flow__minimap) { background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 8px; }
+:deep(.vue-flow__background) {
+  background: var(--bg-base) !important;
+}
+:deep(.vue-flow__edge-path) {
+  stroke: var(--border-strong);
+}
+:deep(.vue-flow__edge.animated .vue-flow__edge-path) {
+  animation: dashdraw 0.5s linear infinite;
+  stroke: var(--info);
+}
 
-/* ── 빈 캔버스 힌트 ── */
+:deep(.vue-flow__controls) {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+:deep(.vue-flow__controls-button) {
+  background: var(--bg-elevated);
+  color: var(--text-tertiary);
+  border-color: var(--border-faint);
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+:deep(.vue-flow__controls-button:hover) {
+  background: var(--surface-2);
+  color: var(--accent);
+}
+:deep(.vue-flow__controls-button svg) {
+  fill: currentColor;
+}
+
+:deep(.vue-flow__minimap) {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+/* ==========================================================================
+   Empty canvas hint
+   ========================================================================== */
 .canvas-hint {
   position: absolute;
-  top: 50%; left: 50%;
+  top: 50%;
+  left: 50%;
   transform: translate(-50%, -50%);
   text-align: center;
   pointer-events: none;
-}
-.canvas-hint * { pointer-events: auto; }
-.hint-icon   { font-size: 32px; color: #2a2d3e; margin-bottom: 12px; }
-.hint-title  { font-size: 14px; color: #4b5563; margin-bottom: 4px; }
-.hint-sub    { font-size: 12px; color: #374151; margin-bottom: 16px; }
-.hint-presets { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-.hint-preset-btn {
-  padding: 6px 14px;
-  background: rgba(167,139,250,.1);
-  border: 1px solid rgba(167,139,250,.3);
-  border-radius: 20px;
-  color: #a78bfa;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.hint-preset-btn:hover { background: rgba(167,139,250,.2); }
-
-/* ── 사이드 패널 ── */
-.side-panel {
-  position: absolute;
-  right: 0; top: 0; bottom: 0;
-  width: 300px;
-  background: #1a1d27;
-  border-left: 1px solid #2a2d3e;
   display: flex;
   flex-direction: column;
-  z-index: 10;
+  align-items: center;
+  gap: var(--space-1);
+}
+.canvas-hint * { pointer-events: auto; }
+
+.hint-icon {
+  color: var(--text-faint);
+  margin-bottom: var(--space-2);
+}
+.hint-icon svg { width: 32px; height: 32px; }
+
+.hint-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.hint-title {
+  font-size: var(--text-md);
+  color: var(--text-tertiary);
+  letter-spacing: var(--tracking-tight);
+  margin-bottom: 2px;
+}
+
+.hint-sub {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.hint-presets {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: center;
+  flex-wrap: wrap;
+  max-width: 520px;
+}
+
+.hint-preset-btn {
+  padding: 5px var(--space-3);
+  background: var(--violet-bg);
+  border: 1px solid var(--violet-border);
+  border-radius: var(--radius-full);
+  color: var(--violet);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.hint-preset-btn:hover {
+  background: rgba(167, 139, 250, 0.2);
+  border-color: var(--violet);
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   Side panel
+   ========================================================================== */
+.side-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 320px;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border-faint);
+  display: flex;
+  flex-direction: column;
+  z-index: var(--z-hud);
   overflow: hidden;
+  box-shadow: var(--shadow-lg);
 }
 
 .panel-header {
-  display: flex; justify-content: space-between; align-items: flex-start;
-  padding: 16px 18px;
-  border-bottom: 1px solid #2a2d3e;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--surface-1);
   flex-shrink: 0;
 }
-.panel-title-row { display: flex; align-items: center; gap: 8px; }
-.panel-node-icon { font-size: 18px; }
-.panel-node-name { font-size: 14px; font-weight: 700; color: #e5e7eb; }
-.panel-cat-badge {
-  font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+
+.panel-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
-.cat-source     { background: rgba(8,145,178,.15); color: #22d3ee; }
-.cat-strategy   { background: rgba(217,119,6,.15); color: #fbbf24; }
-.cat-processing { background: rgba(124,58,237,.15); color: #a78bfa; }
-.cat-output     { background: rgba(5,150,105,.15);  color: #34d399; }
-.cat-config     { background: rgba(180,83,9,.15);   color: #f59e0b; }
 
-.close-btn { background: none; border: none; color: #6b7280; font-size: 16px; cursor: pointer; padding: 0; }
+.panel-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  align-self: flex-start;
+}
+.panel-eyebrow.cat-source     { background: rgba(96, 165, 250, 0.12); color: var(--info); }
+.panel-eyebrow.cat-strategy   { background: var(--accent-bg); color: var(--accent); }
+.panel-eyebrow.cat-processing { background: var(--violet-bg); color: var(--violet); }
+.panel-eyebrow.cat-output     { background: var(--up-bg); color: var(--up-strong); }
+.panel-eyebrow.cat-config     { background: rgba(217, 119, 6, 0.14); color: var(--accent-dim); }
 
-.panel-body { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+.panel-eyebrow-kr {
+  font-weight: 500;
+  opacity: 0.85;
+}
 
-.panel-section {}
-.section-label { font-size: 10px; font-weight: 700; color: #4b5563; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
 
-.status-row { display: flex; align-items: center; gap: 8px; }
-.status-dot-lg { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.status-dot-lg.idle    { background: #4b5563; }
-.status-dot-lg.running { background: #4f9eff; animation: pulse2 1s infinite; }
-.status-dot-lg.success { background: #10b981; }
-.status-dot-lg.error   { background: #ef4444; }
-@keyframes pulse2 { 0%,100% { opacity:1; } 50% { opacity:.3; } }
-.status-text { font-size: 13px; color: #e5e7eb; }
+.panel-node-icon {
+  font-size: 18px;
+  filter: saturate(0.85);
+}
 
-.config-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-.config-label { font-size: 11px; color: #6b7280; }
+.panel-node-name {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+  flex-shrink: 0;
+}
+.close-btn svg { width: 14px; height: 14px; }
+.close-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.status-dot-lg {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot-lg.idle    { background: var(--text-muted); }
+.status-dot-lg.running { background: var(--info); animation: pulse-dot 1s infinite; }
+.status-dot-lg.success { background: var(--up-strong); }
+.status-dot-lg.error   { background: var(--down-strong); }
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.status-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.status-error {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--down-strong);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-sm);
+  line-height: var(--leading-loose);
+  word-break: break-word;
+}
+
+/* Config form */
+.config-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.config-row:last-child { margin-bottom: 0; }
+
+.config-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
+}
+
 .config-input {
-  background: #0f1117; border: 1px solid #2a2d3e; border-radius: 6px;
-  color: #e5e7eb; font-size: 13px; padding: 6px 10px; outline: none;
-  transition: border-color 0.15s;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding: 7px var(--space-3);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
 }
-.config-input:focus { border-color: #4f9eff; }
-.config-checkbox { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: #d1d5db; }
-.config-checkbox input[type="checkbox"] { accent-color: #4f9eff; width: 14px; height: 14px; cursor: pointer; }
+.config-input:hover { border-color: var(--border-strong); }
+.config-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
 
-.port-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.port-label-head { font-size: 10px; color: #4b5563; width: 24px; flex-shrink: 0; }
-.port-chip { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
-.port-in  { background: rgba(8,145,178,.15); color: #22d3ee; }
-.port-out { background: rgba(124,58,237,.15); color: #a78bfa; }
+.config-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.config-checkbox input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
 
+/* Ports */
+.port-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.port-group:last-child { margin-bottom: 0; }
+
+.port-label-head {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wider);
+  color: var(--text-faint);
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.port-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+}
+.port-in {
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--info);
+}
+.port-out {
+  background: var(--violet-bg);
+  color: var(--violet);
+}
+
+/* Result JSON */
 .result-json {
-  background: #0f1117; border: 1px solid #2a2d3e; border-radius: 6px;
-  padding: 10px 12px; font-size: 11px; color: #9ca3af;
-  overflow: auto; max-height: 200px; white-space: pre-wrap; word-break: break-all;
+  background: var(--bg-base);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  overflow: auto;
+  max-height: 220px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: var(--leading-loose);
+}
+
+.raw-result-details summary {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+  letter-spacing: var(--tracking-wide);
+}
+.raw-result-details summary:hover { color: var(--accent); }
+
+/* Panel actions */
+.panel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .btn-run-full {
-  width: 100%; padding: 9px 0;
-  background: linear-gradient(135deg, #1d4ed8, #4f9eff);
-  border: none; border-radius: 7px; color: #fff;
-  font-size: 13px; font-weight: 700; cursor: pointer;
-  transition: opacity 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 10px 0;
+  background: var(--accent);
+  color: var(--bg-base);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: var(--shadow-gold);
+  transition: all var(--dur-fast) var(--ease-out);
 }
-.btn-run-full:hover:not(:disabled) { opacity: 0.85; }
-.btn-run-full:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-run-full svg { width: 13px; height: 13px; }
+.btn-run-full:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+.btn-run-full:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
 
 .btn-delete-node {
-  width: 100%; padding: 8px 0; margin-top: 4px;
-  background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.25);
-  border-radius: 7px; color: #ef4444; font-size: 13px; cursor: pointer;
-  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 9px 0;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--down-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
 }
-.btn-delete-node:hover { background: rgba(239,68,68,.2); }
+.btn-delete-node svg { width: 12px; height: 12px; }
+.btn-delete-node:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+}
 
-/* 사이드 패널 애니메이션 */
-.slide-right-enter-active, .slide-right-leave-active { transition: transform 0.2s ease; }
-.slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); }
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
-/* ── AI 채팅 ── */
+/* Side panel transitions */
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform var(--dur-base) var(--ease-out-expo);
+}
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(100%);
+}
+
+/* ==========================================================================
+   Strategy builder
+   ========================================================================== */
+.builder-type-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.builder-type-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  flex: 1;
+  padding: 7px var(--space-2);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.builder-type-btn svg { width: 12px; height: 12px; }
+.builder-type-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.builder-type-btn:not(.active):hover {
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.builder-preset-wrap {
+  margin-bottom: var(--space-1);
+}
+
+.builder-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.builder-preset-btn {
+  padding: 3px var(--space-3);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-full);
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.builder-preset-btn:hover {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: var(--accent);
+}
+
+.builder-cond-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: var(--space-2);
+}
+
+.builder-sel-ind,
+.builder-sel-cond,
+.builder-val {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  padding: 5px 6px;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+.builder-sel-ind { flex: 2; min-width: 0; }
+.builder-sel-cond { flex: 1.5; min-width: 0; }
+.builder-val {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.builder-sel-ind:focus,
+.builder-sel-cond:focus,
+.builder-val:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
+}
+
+.builder-rm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: var(--radius-xs);
+  transition: color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+.builder-rm svg { width: 12px; height: 12px; }
+.builder-rm:hover {
+  color: var(--down-strong);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.builder-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 6px 0;
+  margin-top: var(--space-1);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.builder-add-btn svg { width: 11px; height: 11px; }
+.builder-add-btn:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.builder-saved-info {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: 4px var(--space-2);
+  background: var(--up-bg);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: var(--radius-xs);
+  color: var(--up-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+}
+.builder-saved-info svg { width: 11px; height: 11px; }
+
+/* New-bot button inside config row */
+.btn-new-bot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  margin-top: 6px;
+  width: 100%;
+  padding: 6px 0;
+  background: transparent;
+  border: 1px dashed var(--accent-border);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.btn-new-bot svg { width: 11px; height: 11px; }
+.btn-new-bot:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+/* ==========================================================================
+   AI chat panel (bottom-fixed)
+   ========================================================================== */
 .chat-panel {
   position: absolute;
-  bottom: 0; left: 0; right: 0;
-  background: #1a1d27;
-  border-top: 1px solid #2a2d3e;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border-faint);
   z-index: 20;
-  transition: height 0.2s ease;
+  transition: height var(--dur-base) var(--ease-out);
+  box-shadow: 0 -8px 24px -16px rgba(0, 0, 0, 0.6);
 }
 
 .chat-toggle {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-5);
   cursor: pointer;
-  font-size: 13px; font-weight: 600; color: #a78bfa;
   user-select: none;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border-faint);
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.chat-toggle:hover { background: rgba(167,139,250,.06); }
-.chat-toggle-icon { font-size: 10px; color: #6b7280; }
+.chat-toggle:hover {
+  background: var(--surface-2);
+}
 
-.chat-body { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 14px; }
+.chat-toggle-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--violet);
+}
+.chat-toggle-icon-svg {
+  width: 13px;
+  height: 13px;
+  color: var(--violet);
+}
+
+.chat-toggle-caret {
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.chat-toggle-caret.open {
+  transform: rotate(180deg);
+}
+
+.chat-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+}
 
 .chat-messages {
-  max-height: 180px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 4px 0;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
 }
 
-.chat-msg { display: flex; }
-.chat-msg.user     { justify-content: flex-end; }
-.chat-msg.assistant { justify-content: flex-start; }
+.chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.msg-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+.chat-msg.user .msg-label {
+  color: var(--accent);
+  align-self: flex-end;
+}
+.chat-msg.assistant .msg-label {
+  color: var(--violet);
+}
 
 .msg-bubble {
-  max-width: 80%; padding: 8px 12px; border-radius: 10px;
-  font-size: 12px; line-height: 1.5;
+  max-width: 85%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: var(--leading-loose);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.user .msg-bubble     { background: rgba(79,158,255,.2); color: #e5e7eb; border-radius: 10px 10px 2px 10px; }
-.assistant .msg-bubble { background: rgba(167,139,250,.12); color: #d1d5db; border-radius: 10px 10px 10px 2px; }
-.thinking-block { margin-bottom: 8px; border: 1px solid rgba(167,139,250,.25); border-radius: 6px; overflow: hidden; }
-.thinking-summary { padding: 5px 8px; font-size: 11px; color: #a78bfa; cursor: pointer; user-select: none; list-style: none; }
-.thinking-summary::-webkit-details-marker { display: none; }
-.thinking-summary:hover { background: rgba(167,139,250,.1); }
-.thinking-content { margin: 0; padding: 8px; font-size: 11px; color: #9ca3af; white-space: pre-wrap; word-break: break-word; line-height: 1.5; max-height: 300px; overflow-y: auto; border-top: 1px solid rgba(167,139,250,.15); }
+.chat-msg.user .msg-bubble {
+  align-self: flex-end;
+  background: var(--accent-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-border);
+  border-bottom-right-radius: var(--radius-xs);
+}
+.chat-msg.assistant .msg-bubble {
+  align-self: flex-start;
+  background: var(--violet-bg);
+  color: var(--text-secondary);
+  border: 1px solid var(--violet-border);
+  border-bottom-left-radius: var(--radius-xs);
+}
 
-.typing { display: flex; align-items: center; gap: 4px; padding: 10px 14px; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: #a78bfa; animation: bounce .8s infinite; }
-.dot:nth-child(2) { animation-delay: .15s; }
-.dot:nth-child(3) { animation-delay: .3s; }
-@keyframes bounce { 0%,80%,100% { transform: scale(0.6); } 40% { transform: scale(1); } }
-
-.chat-presets { display: flex; flex-wrap: wrap; gap: 6px; }
-.preset-btn {
-  padding: 4px 12px;
-  background: rgba(167,139,250,.08); border: 1px solid rgba(167,139,250,.2);
-  border-radius: 20px; color: #a78bfa; font-size: 11px; cursor: pointer;
-  transition: all 0.15s;
-}
-.preset-btn:hover { background: rgba(167,139,250,.18); border-color: #a78bfa; }
-
-.chat-input-row { display: flex; gap: 8px; }
-.chat-input {
-  flex: 1; background: #0f1117; border: 1px solid #2a2d3e;
-  border-radius: 8px; color: #e5e7eb; font-size: 13px; padding: 8px 12px;
-  outline: none; transition: border-color 0.15s;
-}
-.chat-input:focus { border-color: #a78bfa; }
-.chat-send {
-  padding: 8px 16px; background: linear-gradient(135deg, #7c3aed, #a855f7);
-  border: none; border-radius: 8px; color: #fff; font-size: 13px;
-  font-weight: 700; cursor: pointer; transition: opacity 0.15s;
-}
-.chat-send:hover:not(:disabled) { opacity: 0.85; }
-.chat-send:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* ── 새 봇 생성 버튼 ── */
-.btn-new-bot {
-  margin-top: 6px;
-  width: 100%;
-  padding: 5px 0;
-  background: none;
-  border: 1px dashed #4f9eff;
-  border-radius: 5px;
-  color: #4f9eff;
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.btn-new-bot:hover { background: rgba(79,158,255,.08); }
-
-/* ── 새 봇 생성 미니 모달 ── */
-.nb-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 9999;
-}
-.nb-modal {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 10px;
-  width: 320px;
+.thinking-block {
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--violet-border);
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--bg-base);
 }
+.thinking-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--violet);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.thinking-summary svg { width: 11px; height: 11px; }
+.thinking-summary::-webkit-details-marker { display: none; }
+.thinking-summary:hover { background: var(--violet-bg); }
+.thinking-content {
+  margin: 0;
+  padding: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: var(--leading-loose);
+  max-height: 300px;
+  overflow-y: auto;
+  border-top: 1px solid var(--violet-border);
+}
+
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px var(--space-3);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--violet);
+  animation: bounce 0.8s infinite;
+  display: inline-block;
+}
+.dot:nth-child(2) { animation-delay: 0.15s; }
+.dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0.6); }
+  40% { transform: scale(1); }
+}
+
+.chat-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.preset-btn {
+  padding: 4px var(--space-3);
+  background: var(--violet-bg);
+  border: 1px solid var(--violet-border);
+  border-radius: var(--radius-full);
+  color: var(--violet);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.preset-btn:hover {
+  background: rgba(167, 139, 250, 0.22);
+  border-color: var(--violet);
+}
+
+.chat-input-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chat-input {
+  flex: 1;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding: 8px var(--space-3);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+.chat-input:hover { border-color: var(--border-strong); }
+.chat-input:focus {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.15);
+}
+.chat-input::placeholder { color: var(--text-faint); }
+
+.chat-send {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px var(--space-4);
+  background: var(--violet);
+  border: 1px solid var(--violet);
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.chat-send svg { width: 12px; height: 12px; }
+.chat-send:hover:not(:disabled) {
+  background: var(--violet-strong);
+  border-color: var(--violet-strong);
+  transform: translateY(-1px);
+}
+.chat-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   New-bot mini modal
+   ========================================================================== */
+.nb-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  animation: nb-fade-in var(--dur-fast) var(--ease-out);
+}
+@keyframes nb-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.nb-modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 360px;
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  animation: nb-scale-in var(--dur-base) var(--ease-out-expo);
+}
+@keyframes nb-scale-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
 .nb-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #2a2d3e;
-  font-weight: 600; font-size: 14px; color: #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--surface-1);
 }
+
+.nb-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nb-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.nb-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
 .nb-close {
-  background: none; border: none; color: #6b7280;
-  font-size: 14px; cursor: pointer; padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
 }
-.nb-close:hover { color: #e5e7eb; }
-.nb-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-.nb-row { display: flex; flex-direction: column; gap: 4px; }
-.nb-row label { font-size: 11px; color: #6b7280; }
+.nb-close svg { width: 14px; height: 14px; }
+.nb-close:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.nb-body {
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.nb-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nb-row label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+}
+
 .nb-input {
-  background: #0f1117; border: 1px solid #2a2d3e;
-  border-radius: 6px; color: #e5e7eb; font-size: 13px;
-  padding: 6px 10px; outline: none;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding: 8px var(--space-3);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
 }
-.nb-input:focus { border-color: #4f9eff; }
-.nb-error { color: #ef4444; font-size: 11px; margin: 0; }
+.nb-input:hover { border-color: var(--border-strong); }
+.nb-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.nb-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--down-strong);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-sm);
+}
+
 .nb-footer {
-  display: flex; justify-content: flex-end; gap: 8px;
-  padding: 10px 16px;
-  border-top: 1px solid #2a2d3e;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-faint);
+  background: var(--surface-1);
 }
-.nb-btn-cancel {
-  padding: 6px 14px; background: none;
-  border: 1px solid #2a2d3e; border-radius: 6px;
-  color: #6b7280; font-size: 12px; cursor: pointer;
-}
-.nb-btn-cancel:hover { border-color: #4f9eff; color: #4f9eff; }
+
+.nb-btn-cancel,
 .nb-btn-ok {
-  padding: 6px 14px;
-  background: #4f9eff; border: none; border-radius: 6px;
-  color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;
-}
-.nb-btn-ok:hover:not(:disabled) { background: #3b82f6; }
-.nb-btn-ok:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* ── 전략 빌더 ── */
-.builder-type-row { display: flex; gap: 6px; margin-bottom: 10px; }
-.builder-type-btn {
-  flex: 1; padding: 5px 0;
-  background: #0f1117; border: 1px solid #2a2d3e;
-  border-radius: 6px; color: #6b7280; font-size: 12px; cursor: pointer;
-  transition: all 0.15s;
-}
-.builder-type-btn.active { border-color: #fbbf24; color: #fbbf24; background: rgba(217,119,6,.1); }
-.builder-type-btn:not(.active):hover { border-color: #4b5563; color: #9ca3af; }
-
-.builder-preset-wrap { margin-bottom: 2px; }
-.builder-presets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.builder-preset-btn {
-  padding: 3px 10px;
-  background: rgba(217,119,6,.08); border: 1px solid rgba(217,119,6,.25);
-  border-radius: 20px; color: #fbbf24; font-size: 11px; cursor: pointer;
-  transition: all 0.15s;
-}
-.builder-preset-btn:hover { background: rgba(217,119,6,.18); }
-
-.builder-cond-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
-.builder-sel-ind {
-  flex: 2; background: #0f1117; border: 1px solid #2a2d3e; border-radius: 5px;
-  color: #e5e7eb; font-size: 11px; padding: 5px 6px; outline: none;
-}
-.builder-sel-cond {
-  flex: 1.5; background: #0f1117; border: 1px solid #2a2d3e; border-radius: 5px;
-  color: #e5e7eb; font-size: 11px; padding: 5px 4px; outline: none;
-}
-.builder-val {
-  flex: 1; background: #0f1117; border: 1px solid #2a2d3e; border-radius: 5px;
-  color: #e5e7eb; font-size: 11px; padding: 5px 6px; outline: none;
-  min-width: 0;
-}
-.builder-val:focus, .builder-sel-ind:focus, .builder-sel-cond:focus { border-color: #fbbf24; }
-.builder-rm {
-  background: none; border: none; color: #6b7280; font-size: 12px; cursor: pointer;
-  padding: 2px 4px; flex-shrink: 0; transition: color 0.15s;
-}
-.builder-rm:hover { color: #ef4444; }
-
-.builder-add-btn {
-  width: 100%; padding: 5px 0; margin-top: 2px;
-  background: none; border: 1px dashed #2a2d3e;
-  border-radius: 5px; color: #6b7280; font-size: 11px; cursor: pointer;
-  transition: all 0.15s;
-}
-.builder-add-btn:hover { border-color: #fbbf24; color: #fbbf24; }
-
-.builder-saved-info {
-  margin-top: 8px; padding: 4px 8px;
-  background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.2);
-  border-radius: 5px; color: #10b981; font-size: 11px;
+  padding: 7px var(--space-4);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
 }
 
-/* ── 연결 오류 토스트 ── */
+.nb-btn-cancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+}
+.nb-btn-cancel:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.nb-btn-ok {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--bg-base);
+  box-shadow: var(--shadow-gold);
+}
+.nb-btn-ok:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+.nb-btn-ok:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ==========================================================================
+   Connection error toast
+   ========================================================================== */
 .conn-error-toast {
-  position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
-  background: #1f1b2e; border: 1px solid #ef4444;
-  color: #fca5a5; padding: 10px 20px; border-radius: 8px;
-  font-size: 13px; z-index: 9999; pointer-events: none;
-  box-shadow: 0 4px 20px rgba(239,68,68,.25);
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--bg-elevated);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: var(--down-soft);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding: 10px var(--space-5);
+  border-radius: var(--radius-md);
+  z-index: var(--z-toast);
+  pointer-events: none;
+  box-shadow: 0 8px 28px rgba(239, 68, 68, 0.22);
 }
-.fade-enter-active, .fade-leave-active { transition: opacity .3s, transform .3s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
+.conn-error-toast svg {
+  width: 14px;
+  height: 14px;
+  color: var(--down-strong);
+  flex-shrink: 0;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--dur-base), transform var(--dur-base);
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
 </style>
