@@ -1,27 +1,79 @@
 <template>
   <div class="market">
-    <div class="page-header">
-      <h2 class="page-title">주식 데이터</h2>
-      <button class="collect-btn" :disabled="collecting" @click="triggerCollect">
-        {{ collecting ? '수집 중...' : '전체 수집' }}
+    <header class="page-header">
+      <div class="page-head-left">
+        <span class="page-eyebrow">DATA / 마켓</span>
+        <h1 class="page-title">주식 데이터</h1>
+      </div>
+      <button
+        class="collect-btn"
+        type="button"
+        :disabled="collecting"
+        @click="triggerCollect"
+      >
+        <svg
+          v-if="!collecting"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12a9 9 0 1 1-9-9" />
+          <polyline points="21 4 21 10 15 10" />
+        </svg>
+        <svg
+          v-else
+          class="spin"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12a9 9 0 1 1-6-8.5" />
+        </svg>
+        <span>{{ collecting ? 'COLLECTING' : 'COLLECT ALL' }}</span>
       </button>
-    </div>
+    </header>
 
     <!-- 검색 & 필터 -->
-    <div class="search-bar">
-      <input
-        v-model="search"
-        class="search-input"
-        type="text"
-        placeholder="종목명 또는 티커 검색"
-        @input="onSearch"
-      />
-      <div class="market-tabs">
+    <div class="control-bar">
+      <div class="search-wrap">
+        <svg
+          class="search-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <line x1="20" y1="20" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          v-model="search"
+          class="search-input"
+          type="text"
+          placeholder="종목명 또는 티커 검색"
+          @input="onSearch"
+        />
+      </div>
+      <div class="market-tabs" role="tablist">
         <button
-          v-for="m in ['전체', 'KOSPI', 'KOSDAQ']"
+          v-for="m in markets"
           :key="m"
           class="tab-btn"
+          type="button"
           :class="{ active: marketFilter === m }"
+          role="tab"
+          :aria-selected="marketFilter === m"
           @click="setMarket(m)"
         >
           {{ m }}
@@ -30,13 +82,32 @@
     </div>
 
     <!-- 알림 메시지 -->
-    <div v-if="message" class="message" :class="messageType">{{ message }}</div>
+    <div v-if="message" class="message" :class="messageType">
+      <span class="msg-tag">{{ messageType === 'error' ? 'ERR' : 'INFO' }}</span>
+      <span>{{ message }}</span>
+    </div>
 
-    <!-- 데이터 없음 안내 -->
+    <!-- 데이터 없음 -->
     <div v-if="!loading && total === 0 && !search" class="empty-state">
-      <p>아직 수집된 종목 데이터가 없습니다.</p>
-      <p>우측 상단 <strong>전체 수집</strong> 버튼을 클릭해 데이터를 수집하세요.</p>
-      <p class="empty-note">초회 수집은 수천 개 종목을 처리하므로 시간이 걸립니다.</p>
+      <div class="empty-icon" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <ellipse cx="12" cy="5" rx="9" ry="3" />
+          <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+          <path d="M3 12a9 3 0 0 0 18 0" />
+        </svg>
+      </div>
+      <p class="empty-title">수집된 종목 데이터가 없습니다</p>
+      <p class="empty-desc">
+        상단의 <strong>COLLECT ALL</strong> 버튼으로 종목 데이터를 수집하세요.
+      </p>
+      <p class="empty-note">초회 수집은 수천 종목을 처리하므로 시간이 걸립니다.</p>
     </div>
 
     <!-- 종목 테이블 -->
@@ -44,18 +115,18 @@
       <table class="stock-table">
         <thead>
           <tr>
-            <th>티커</th>
+            <th class="th-ticker">티커</th>
             <th>종목명</th>
             <th>시장</th>
             <th>섹터</th>
-            <th></th>
+            <th class="th-action"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="5" class="loading">로딩 중...</td>
+            <td colspan="5" class="loading">LOADING...</td>
           </tr>
-          <tr v-for="stock in stocks" :key="stock.ticker" class="stock-row">
+          <tr v-for="stock in stocks" v-else :key="stock.ticker" class="stock-row">
             <td class="ticker">{{ stock.ticker }}</td>
             <td class="company">{{ stock.company_name }}</td>
             <td>
@@ -64,9 +135,10 @@
               </span>
             </td>
             <td class="sector">{{ stock.sector ?? '-' }}</td>
-            <td>
+            <td class="td-action">
               <RouterLink :to="`/market/${stock.ticker}`" class="detail-link">
-                차트 보기
+                차트
+                <span aria-hidden="true">→</span>
               </RouterLink>
             </td>
           </tr>
@@ -76,9 +148,29 @@
 
     <!-- 페이지네이션 -->
     <div v-if="total > limit" class="pagination">
-      <button :disabled="page === 1" @click="changePage(page - 1)">이전</button>
-      <span>{{ page }} / {{ totalPages }}</span>
-      <button :disabled="page >= totalPages" @click="changePage(page + 1)">다음</button>
+      <button
+        class="page-btn"
+        type="button"
+        :disabled="page === 1"
+        @click="changePage(page - 1)"
+      >
+        <span aria-hidden="true">←</span>
+        <span>이전</span>
+      </button>
+      <span class="page-indicator">
+        <span class="page-num">{{ page }}</span>
+        <span class="page-sep">/</span>
+        <span class="page-total">{{ totalPages }}</span>
+      </span>
+      <button
+        class="page-btn"
+        type="button"
+        :disabled="page >= totalPages"
+        @click="changePage(page + 1)"
+      >
+        <span>다음</span>
+        <span aria-hidden="true">→</span>
+      </button>
     </div>
   </div>
 </template>
@@ -86,6 +178,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api/index'
+
+const markets = ['전체', 'KOSPI', 'KOSDAQ']
 
 const stocks = ref([])
 const total = ref(0)
@@ -160,158 +254,321 @@ onMounted(fetchStocks)
 
 <style scoped>
 .market {
-  max-width: 1000px;
+  max-width: var(--content-max);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
 }
+
+/* ==========================================================================
+   Page header
+   ========================================================================== */
 
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
 }
 
-.page-title {
-  font-size: 22px;
+.page-head-left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.page-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  letter-spacing: var(--tracking-hud);
+  text-transform: uppercase;
   font-weight: 600;
 }
 
+.page-title {
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+  margin: 0;
+}
+
 .collect-btn {
-  padding: 8px 18px;
-  background: #1e3a5f;
-  border: 1px solid #4f9eff;
-  border-radius: 8px;
-  color: #4f9eff;
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 9px var(--space-4);
+  background: var(--accent);
+  color: var(--bg-base);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+  box-shadow: var(--shadow-gold);
+}
+
+.collect-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .collect-btn:hover:not(:disabled) {
-  background: #4f9eff;
-  color: #fff;
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-gold-strong);
+}
+
+.collect-btn:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .collect-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
-.search-bar {
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==========================================================================
+   Control bar (search + market tabs)
+   ========================================================================== */
+
+.control-bar {
   display: flex;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: center;
-  margin-bottom: 20px;
+}
+
+.search-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.search-icon {
+  position: absolute;
+  left: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
 .search-input {
-  flex: 1;
-  padding: 10px 14px;
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
-  color: #e5e7eb;
-  font-size: 14px;
+  width: 100%;
+  padding: 10px var(--space-3) 10px 40px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-md);
   outline: none;
-  transition: border-color 0.15s;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.search-input:hover {
+  border-color: var(--border-strong);
 }
 
 .search-input:focus {
-  border-color: #4f9eff;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
 }
 
 .search-input::placeholder {
-  color: #4b5563;
+  color: var(--text-faint);
 }
 
 .market-tabs {
-  display: flex;
-  gap: 4px;
+  display: inline-flex;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
 }
 
 .tab-btn {
-  padding: 8px 14px;
-  background: none;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #6b7280;
-  font-size: 13px;
+  padding: 7px var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .tab-btn:hover {
-  border-color: #4f9eff;
-  color: #4f9eff;
+  color: var(--text-primary);
 }
 
 .tab-btn.active {
-  background: #1e3a5f;
-  border-color: #4f9eff;
-  color: #4f9eff;
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
+/* ==========================================================================
+   Message banner
+   ========================================================================== */
+
 .message {
-  padding: 12px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  border: 1px solid;
 }
 
 .message.info {
-  background: #1e3a5f;
-  border: 1px solid #4f9eff;
-  color: #93c5fd;
+  background: rgba(96, 165, 250, 0.08);
+  border-color: rgba(96, 165, 250, 0.25);
+  color: var(--loss-soft);
 }
 
 .message.error {
-  background: #3b1a1a;
-  border: 1px solid #ef4444;
-  color: #fca5a5;
+  background: var(--profit-bg);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--profit-soft);
 }
+
+.msg-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ==========================================================================
+   Empty state
+   ========================================================================== */
 
 .empty-state {
   text-align: center;
-  padding: 60px 20px;
-  color: #6b7280;
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 10px;
-  line-height: 2;
+  padding: var(--space-16) var(--space-5);
+  background: var(--surface-1);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.empty-icon {
+  color: var(--text-faint);
+  margin-bottom: var(--space-3);
+}
+
+.empty-icon svg {
+  width: 44px;
+  height: 44px;
+}
+
+.empty-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.empty-desc {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.empty-desc strong {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
 }
 
 .empty-note {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #4b5563;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  margin-top: var(--space-2);
 }
 
+/* ==========================================================================
+   Stock table
+   ========================================================================== */
+
 .table-wrap {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 .stock-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--text-sm);
 }
 
 .stock-table thead th {
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   text-align: left;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #6b7280;
-  border-bottom: 1px solid #2a2d3e;
+  letter-spacing: var(--tracking-wider);
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.th-ticker {
+  width: 110px;
+}
+
+.th-action {
+  width: 100px;
+  text-align: right;
 }
 
 .stock-row td {
-  padding: 12px 16px;
-  border-bottom: 1px solid #1e2130;
-  transition: background 0.1s;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
 .stock-row:last-child td {
@@ -319,84 +576,159 @@ onMounted(fetchStocks)
 }
 
 .stock-row:hover td {
-  background: #1e2130;
+  background: var(--surface-2);
 }
 
 .ticker {
-  font-family: monospace;
-  color: #9ca3af;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-wide);
 }
 
 .company {
   font-weight: 500;
+  color: var(--text-primary);
 }
 
 .sector {
-  color: #6b7280;
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }
 
 .badge {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
 }
 
 .badge.kospi {
-  background: #1e3a5f;
-  color: #4f9eff;
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .badge.kosdaq {
-  background: #1e3b2a;
-  color: #4ade80;
+  background: var(--up-bg);
+  color: var(--up-strong);
 }
 
 .detail-link {
-  color: #4f9eff;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   text-decoration: none;
-  font-size: 13px;
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 .detail-link:hover {
+  color: var(--accent-hover);
   text-decoration: underline;
+}
+
+.td-action {
+  text-align: right;
 }
 
 .loading {
   text-align: center;
-  padding: 40px;
-  color: #6b7280;
+  padding: var(--space-12);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-wider);
 }
+
+/* ==========================================================================
+   Pagination
+   ========================================================================== */
 
 .pagination {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 16px;
-  margin-top: 20px;
-  color: #6b7280;
-  font-size: 14px;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
 }
 
-.pagination button {
-  padding: 6px 14px;
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #9ca3af;
+.page-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px var(--space-3);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: var(--text-sm);
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 
-.pagination button:hover:not(:disabled) {
-  border-color: #4f9eff;
-  color: #4f9eff;
+.page-btn:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
 }
 
-.pagination button:disabled {
-  opacity: 0.4;
+.page-btn:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
+}
+
+.page-indicator {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.page-num {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.page-sep {
+  color: var(--text-faint);
+}
+
+.page-total {
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 720px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .control-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .market-tabs {
+    justify-content: stretch;
+  }
+  .market-tabs .tab-btn {
+    flex: 1;
+  }
 }
 </style>
