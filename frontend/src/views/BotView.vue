@@ -1,115 +1,290 @@
 <template>
   <div class="bot-view">
-    <div class="page-header">
-      <h1>자동매매 봇</h1>
-      <div class="header-actions">
-        <button class="btn-emergency" @click="emergencyStop" :disabled="!hasRunning">⛔ 비상정지</button>
-        <button class="btn-primary" @click="openCreate">+ 봇 생성</button>
+    <header class="page-header">
+      <div class="page-head-left">
+        <span class="page-eyebrow">FLEET / 봇 운영</span>
+        <h1 class="page-title">자동매매 봇</h1>
       </div>
-    </div>
+      <div class="header-actions">
+        <button
+          class="btn-emergency"
+          type="button"
+          :disabled="!hasRunning"
+          @click="emergencyStop"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polygon
+              points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"
+            />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>EMERGENCY STOP</span>
+        </button>
+        <button class="btn-primary" type="button" @click="openCreate">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          <span>봇 생성</span>
+        </button>
+      </div>
+    </header>
 
-    <!-- 봇 카드 목록 -->
+    <!-- 빈 상태 -->
     <div v-if="bots.length === 0 && !loading" class="empty-state">
-      <p>생성된 봇이 없습니다. 봇을 생성하여 자동매매를 시작하세요.</p>
+      <div class="empty-icon" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="4" y="6" width="16" height="14" rx="2" />
+          <path d="M12 6V3" />
+          <path d="M10 3h4" />
+          <circle cx="9" cy="13" r="1" />
+          <circle cx="15" cy="13" r="1" />
+          <path d="M9 17h6" />
+        </svg>
+      </div>
+      <p class="empty-title">생성된 봇이 없습니다</p>
+      <p class="empty-desc">상단의 <strong>봇 생성</strong>으로 자동매매를 시작하세요.</p>
     </div>
 
-    <div class="bot-grid">
-      <div
+    <!-- 봇 카드 그리드 -->
+    <div v-else class="bot-grid">
+      <article
         v-for="bot in bots"
         :key="bot.id"
         class="bot-card"
         @click="goDetail(bot.id)"
       >
-        <div class="bot-card-header">
+        <header class="bot-card-header">
           <div class="bot-name-row">
             <span class="bot-name">{{ bot.name }}</span>
-            <span v-if="bot.bot_type === 'scalping'" class="type-badge type-scalping">⚡ SCALPING</span>
+            <div class="bot-tags">
+              <span v-if="bot.bot_type === 'scalping'" class="type-badge type-scalping">
+                <span class="t-dot"></span>
+                SCALPING
+              </span>
+              <span v-else class="type-badge type-swing">SWING</span>
+              <span class="mode-badge" :class="modeClass(bot.mode)">{{ bot.mode }}</span>
+            </div>
           </div>
-          <div class="badges">
-            <span class="mode-badge" :class="modeClass(bot.mode)">{{ bot.mode }}</span>
-            <span class="badge" :class="statusClass(bot.status)">{{ bot.status }}</span>
-          </div>
-        </div>
+          <span class="status-badge" :class="statusClass(bot.status)">
+            <span class="s-dot"></span>
+            {{ bot.status }}
+          </span>
+        </header>
+
         <div class="bot-stats">
           <div class="stat">
             <span class="stat-label">초기 자금</span>
-            <span class="stat-value">{{ fmtMoney(bot.initial_cash) }}</span>
+            <span class="stat-value mono">{{ fmtMoney(bot.initial_cash) }}</span>
           </div>
           <div class="stat">
             <span class="stat-label">총자산</span>
-            <span class="stat-value" :class="totalAssetsPnl(bot) >= 0 ? 'profit' : 'loss'">
+            <span class="stat-value mono" :class="totalAssetsPnl(bot) >= 0 ? 'profit' : 'loss'">
               {{ fmtMoney(bot.total_assets ?? bot.cash) }}
             </span>
           </div>
           <div class="stat">
             <span class="stat-label">예수금</span>
-            <span class="stat-value">{{ fmtMoney(bot.cash) }}</span>
+            <span class="stat-value mono">{{ fmtMoney(bot.cash) }}</span>
           </div>
           <div class="stat">
             <span class="stat-label">수익률</span>
-            <span class="stat-value" :class="totalAssetsPnl(bot) >= 0 ? 'profit' : 'loss'">
+            <span class="stat-value mono" :class="totalAssetsPnl(bot) >= 0 ? 'profit' : 'loss'">
               {{ totalAssetsPnl(bot) >= 0 ? '+' : '' }}{{ totalAssetsPnl(bot).toFixed(2) }}%
             </span>
           </div>
           <div class="stat">
-            <span class="stat-label">종목 수</span>
-            <span class="stat-value">{{ (bot.tickers || []).length }}개</span>
+            <span class="stat-label">종목</span>
+            <span class="stat-value mono">{{ (bot.tickers || []).length }}</span>
           </div>
           <div class="stat">
             <span class="stat-label">손절 / 익절</span>
-            <span class="stat-value">{{ bot.stop_loss_pct }}% / {{ bot.take_profit_pct }}%</span>
+            <span class="stat-value mono">
+              {{ bot.stop_loss_pct }}% / {{ bot.take_profit_pct }}%
+            </span>
           </div>
         </div>
-        <div class="bot-tickers">
-          <span v-for="t in (bot.tickers || []).slice(0, 4)" :key="t" class="ticker-tag">{{ t }}</span>
-          <span v-if="(bot.tickers || []).length > 4" class="ticker-more">+{{ (bot.tickers || []).length - 4 }}</span>
+
+        <div v-if="(bot.tickers || []).length > 0" class="bot-tickers">
+          <span
+            v-for="t in (bot.tickers || []).slice(0, 6)"
+            :key="t"
+            class="ticker-tag"
+          >{{ t }}</span>
+          <span v-if="(bot.tickers || []).length > 6" class="ticker-more">
+            +{{ (bot.tickers || []).length - 6 }}
+          </span>
         </div>
+
         <div class="bot-actions" @click.stop>
           <button
             v-if="bot.status !== 'RUNNING'"
-            class="btn-start"
+            class="btn-action btn-start"
+            type="button"
             @click="startBot(bot)"
-          >▶ 시작</button>
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <polygon points="6 4 20 12 6 20 6 4" />
+            </svg>
+            <span>START</span>
+          </button>
           <button
             v-if="bot.status === 'RUNNING'"
-            class="btn-stop"
+            class="btn-action btn-stop"
+            type="button"
             @click="stopBot(bot)"
-          >⏹ 정지</button>
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <rect x="6" y="6" width="12" height="12" rx="1.5" />
+            </svg>
+            <span>STOP</span>
+          </button>
           <button
             v-if="bot.status !== 'RUNNING'"
-            class="btn-danger"
+            class="btn-action btn-delete"
+            type="button"
             @click="deleteBot(bot)"
-          >삭제</button>
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" />
+            </svg>
+            <span>삭제</span>
+          </button>
         </div>
-      </div>
+      </article>
     </div>
 
-    <!-- 생성 모달 (타입만 선택 → 즉시 생성) -->
-    <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
-      <div class="modal modal-compact">
-        <div class="modal-header">
-          <h2>어떤 봇을 만들까요?</h2>
-          <button class="close-btn" @click="closeModal">✕</button>
-        </div>
-        <div class="modal-body">
-          <p class="create-hint">타입만 고르면 바로 생성됩니다. 전략·리스크는 봇 페이지에서 설정해요.</p>
-          <div class="type-choice">
-            <button class="type-choice-btn" :disabled="submitting" @click="createBot('swing')">
-              <span class="tc-emoji">📈</span>
-              <span class="tc-title">스윙</span>
-              <span class="tc-desc">일봉 기반 · 5분 주기</span>
-            </button>
-            <button class="type-choice-btn" :disabled="submitting" @click="createBot('scalping')">
-              <span class="tc-emoji">⚡</span>
-              <span class="tc-title">단타</span>
-              <span class="tc-desc">분봉 기반 · 1분 주기</span>
+    <!-- 생성 모달 -->
+    <Teleport to="body">
+      <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
+        <div class="modal" role="dialog" aria-modal="true">
+          <div class="modal-header">
+            <div class="modal-head-text">
+              <span class="modal-eyebrow">CREATE / 봇</span>
+              <h2 class="modal-title">어떤 봇을 만들까요?</h2>
+            </div>
+            <button
+              class="close-btn"
+              type="button"
+              aria-label="닫기"
+              @click="closeModal"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
-          <p v-if="submitting" class="creating-msg">생성 중…</p>
-          <p v-if="error" class="error-msg">{{ error }}</p>
+          <div class="modal-body">
+            <p class="create-hint">
+              타입만 고르면 바로 생성됩니다. 전략·리스크는 봇 상세 페이지에서 설정합니다.
+            </p>
+            <div class="type-choice">
+              <button
+                class="type-choice-btn type-choice-swing"
+                type="button"
+                :disabled="submitting"
+                @click="createBot('swing')"
+              >
+                <svg
+                  class="tc-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="3 17 9 11 13 15 21 7" />
+                  <polyline points="14 7 21 7 21 14" />
+                </svg>
+                <span class="tc-title">스윙</span>
+                <span class="tc-desc">일봉 기반 · 5분 주기</span>
+              </button>
+              <button
+                class="type-choice-btn type-choice-scalping"
+                type="button"
+                :disabled="submitting"
+                @click="createBot('scalping')"
+              >
+                <svg
+                  class="tc-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+                <span class="tc-title">단타</span>
+                <span class="tc-desc">분봉 기반 · 1분 주기</span>
+              </button>
+            </div>
+            <p v-if="submitting" class="creating-msg">
+              <span class="loader-dot"></span>
+              <span>봇 생성 중...</span>
+            </p>
+            <p v-if="error" class="msg msg-fail">
+              <span class="msg-tag">ERR</span>
+              <span>{{ error }}</span>
+            </p>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -156,9 +331,7 @@ const defaultForm = () => ({
   max_positions: 5,
   max_order_amount: 1000000,
   trading_start_time: '09:00',
-  // 스윙 기본값
   ...SWING_DEFAULTS,
-  // 단타 설정
   bot_type: 'swing',
   candle_interval: 1,
   intraday_close: false,
@@ -218,7 +391,7 @@ async function createBot(type) {
     if (!res.ok) { error.value = '생성 실패'; return }
     const newBot = await res.json()
     showModal.value = false
-    router.push(`/bots/${newBot.id}`)  // 캔버스 탭에서 전략·리스크 설정
+    router.push(`/bots/${newBot.id}`)
   } finally {
     submitting.value = false
   }
@@ -266,9 +439,9 @@ async function emergencyStop() {
 }
 
 function statusClass(status) {
-  if (status === 'RUNNING') return 'badge-green'
-  if (status === 'ERROR') return 'badge-red'
-  return 'badge-gray'
+  if (status === 'RUNNING') return 'badge-running'
+  if (status === 'ERROR') return 'badge-error'
+  return 'badge-stopped'
 }
 
 function modeClass(mode) {
@@ -293,7 +466,6 @@ let pollTimer = null
 
 onMounted(async () => {
   await fetchBots()
-  // 5초마다 봇 상태 갱신 (다른 탭에서 시작/정지 반영)
   pollTimer = setInterval(fetchBots, 5000)
 })
 
@@ -303,378 +475,615 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.bot-view { max-width: 1200px; }
+.bot-view {
+  max-width: var(--content-max);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ==========================================================================
+   Page header
+   ========================================================================== */
 
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 28px;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
 }
 
-.header-actions { display: flex; gap: 10px; }
+.page-head-left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
 
-.btn-emergency {
-  padding: 8px 16px;
-  background: rgba(239,68,68,.15);
-  border: 1px solid rgba(239,68,68,.3);
-  border-radius: 6px;
-  color: #ef4444;
-  font-size: 13px;
+.page-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  letter-spacing: var(--tracking-hud);
+  text-transform: uppercase;
   font-weight: 600;
-  cursor: pointer;
 }
-.btn-emergency:hover { background: rgba(239,68,68,.25); }
-.btn-emergency:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.page-header h1 {
-  font-size: 22px;
+.page-title {
+  font-size: var(--text-3xl);
   font-weight: 700;
-  color: #e5e7eb;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
   margin: 0;
 }
 
-.empty-state {
-  text-align: center;
-  color: #6b7280;
-  padding: 80px 0;
-  font-size: 15px;
+.header-actions {
+  display: flex;
+  gap: var(--space-2);
 }
+
+.btn-emergency {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 9px var(--space-4);
+  background: var(--profit-bg);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  color: var(--profit);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.btn-emergency svg {
+  width: 14px;
+  height: 14px;
+}
+
+.btn-emergency:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.btn-emergency:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 9px var(--space-4);
+  background: var(--accent);
+  color: var(--bg-base);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+  box-shadow: var(--shadow-gold);
+}
+
+.btn-primary svg {
+  width: 14px;
+  height: 14px;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-gold-strong);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Empty state
+   ========================================================================== */
+
+.empty-state {
+  background: var(--surface-1);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-xl);
+  padding: var(--space-16) var(--space-5);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.empty-icon {
+  color: var(--text-faint);
+  margin-bottom: var(--space-3);
+}
+
+.empty-icon svg {
+  width: 48px;
+  height: 48px;
+}
+
+.empty-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.empty-desc {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.empty-desc strong {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* ==========================================================================
+   Bot grid
+   ========================================================================== */
 
 .bot-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--space-4);
 }
 
 .bot-card {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 12px;
-  padding: 20px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
   cursor: pointer;
-  transition: border-color 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
-.bot-card:hover { border-color: #4f9eff; }
+.bot-card:hover {
+  border-color: var(--accent-border);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
 
 .bot-card-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 16px;
+  gap: var(--space-3);
 }
 
 .bot-name-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
 }
 
-.bot-name { font-size: 16px; font-weight: 600; color: #e5e7eb; }
+.bot-name {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+  word-break: keep-all;
+}
+
+.bot-tags {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
 
 .type-badge {
-  display: inline-block;
-  padding: 2px 7px;
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.03em;
-}
-.type-scalping {
-  background: rgba(251,191,36,.15);
-  color: #fbbf24;
-  border: 1px solid rgba(251,191,36,.25);
+  letter-spacing: var(--tracking-wider);
+  border: 1px solid;
 }
 
-.badges { display: flex; gap: 6px; align-items: center; }
+.type-swing {
+  background: rgba(96, 165, 250, 0.1);
+  color: var(--info);
+  border-color: rgba(96, 165, 250, 0.25);
+}
+
+.type-scalping {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.type-scalping .t-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: tDotPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tDotPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
 
 .mode-badge {
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-family: var(--font-mono);
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: 700;
+  letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
 }
-.mode-mock { background: rgba(79,158,255,.15); color: #4f9eff; }
-.mode-paper { background: rgba(245,158,11,.15); color: #f59e0b; }
-.mode-real { background: rgba(239,68,68,.15); color: #ef4444; }
 
-.warning-box {
-  background: rgba(239,68,68,.08);
-  border: 1px solid rgba(239,68,68,.3);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 13px;
-  color: #ef4444;
+.mode-mock {
+  background: rgba(96, 165, 250, 0.14);
+  color: var(--info);
 }
 
-.badge {
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
+.mode-paper {
+  background: var(--accent-bg);
+  color: var(--accent);
 }
-.badge-green { background: rgba(16,185,129,.2); color: #10b981; }
-.badge-red { background: rgba(239,68,68,.2); color: #ef4444; }
-.badge-gray { background: rgba(107,114,128,.2); color: #9ca3af; }
+
+.mode-real {
+  background: var(--profit-bg);
+  color: var(--profit);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  padding: 4px 9px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.s-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+.badge-running {
+  background: var(--up-bg);
+  color: var(--up-strong);
+}
+.badge-running .s-dot {
+  background: var(--up-strong);
+  box-shadow: 0 0 6px var(--up-strong);
+  animation: tDotPulse 2s ease-in-out infinite;
+}
+
+.badge-stopped {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.badge-stopped .s-dot {
+  background: var(--text-muted);
+}
+
+.badge-error {
+  background: var(--profit-bg);
+  color: var(--profit);
+}
+.badge-error .s-dot {
+  background: var(--profit);
+  box-shadow: 0 0 6px var(--profit);
+}
+
+/* ==========================================================================
+   Bot stats
+   ========================================================================== */
 
 .bot-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 14px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-base);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
 }
 
-.stat { display: flex; flex-direction: column; gap: 2px; }
-.stat-label { font-size: 11px; color: #6b7280; }
-.stat-value { font-size: 13px; color: #e5e7eb; font-weight: 500; }
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.stat-value.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-wide);
+}
+
+.profit {
+  color: var(--profit);
+}
+
+.loss {
+  color: var(--loss);
+}
+
+/* ==========================================================================
+   Tickers
+   ========================================================================== */
 
 .bot-tickers {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 16px;
-  min-height: 24px;
+  gap: var(--space-2);
 }
 
 .ticker-tag {
-  background: #2a2d3e;
-  color: #9ca3af;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  color: var(--text-tertiary);
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  letter-spacing: var(--tracking-wide);
 }
 
-.ticker-more { color: #6b7280; font-size: 12px; align-self: center; }
+.ticker-more {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 11px;
+  align-self: center;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* ==========================================================================
+   Actions
+   ========================================================================== */
 
 .bot-actions {
   display: flex;
-  gap: 8px;
-  border-top: 1px solid #2a2d3e;
-  padding-top: 14px;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-faint);
 }
 
-.btn-start, .btn-stop, .btn-danger {
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  border: none;
-  cursor: pointer;
-  font-weight: 500;
-}
-.btn-start { background: rgba(16,185,129,.2); color: #10b981; }
-.btn-start:hover { background: rgba(16,185,129,.3); }
-.btn-stop { background: rgba(239,68,68,.2); color: #ef4444; }
-.btn-stop:hover { background: rgba(239,68,68,.3); }
-.btn-danger { background: rgba(107,114,128,.15); color: #9ca3af; margin-left: auto; }
-.btn-danger:hover { background: rgba(239,68,68,.2); color: #ef4444; }
-
-/* 봇 타입 탭 */
-.bot-type-tabs {
-  display: flex;
-  border-bottom: 1px solid #2a2d3e;
-}
-
-.type-tab {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.btn-action {
+  display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 12px 16px;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: #6b7280;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-  margin-bottom: -1px;
-}
-
-.type-tab:hover { color: #9ca3af; background: rgba(255,255,255,.03); }
-
-.type-tab.active {
-  color: #e5e7eb;
-  border-bottom-color: #4f9eff;
-}
-
-.type-tab.active:last-child {
-  border-bottom-color: #fbbf24;
-  color: #fbbf24;
-}
-
-.tab-desc {
-  font-size: 11px;
-  font-weight: 400;
-  color: #4b5563;
-}
-
-.type-tab.active .tab-desc { color: #6b7280; }
-
-/* 단타 설정 섹션 */
-.scalping-section {
-  background: rgba(251,191,36,.05);
-  border: 1px solid rgba(251,191,36,.2);
-  border-radius: 8px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.section-title {
-  font-size: 12px;
+  gap: var(--space-2);
+  padding: 7px var(--space-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   font-weight: 700;
-  color: #fbbf24;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
-.intraday-close-group { justify-content: flex-start; }
+.btn-action svg {
+  width: 12px;
+  height: 12px;
+}
 
-.toggle-row {
+.btn-start {
+  color: var(--up-strong);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.btn-start:hover {
+  background: var(--up-bg);
+}
+
+.btn-stop {
+  color: var(--profit);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.btn-stop:hover {
+  background: var(--profit-bg);
+}
+
+.btn-delete {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.btn-delete:hover {
+  color: var(--profit);
+  border-color: rgba(239, 68, 68, 0.3);
+  background: var(--profit-bg);
+}
+
+/* ==========================================================================
+   Create modal
+   ========================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 2px;
+  justify-content: center;
+  z-index: var(--z-modal);
+  animation: overlayIn var(--dur-base) var(--ease-out);
 }
 
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 36px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
-
-.toggle-slider {
-  position: absolute;
-  inset: 0;
-  background: #2a2d3e;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.toggle-slider::before {
-  content: '';
-  position: absolute;
-  width: 14px; height: 14px;
-  left: 3px; top: 3px;
-  background: #6b7280;
-  border-radius: 50%;
-  transition: transform 0.2s, background 0.2s;
-}
-
-.toggle-switch input:checked + .toggle-slider { background: rgba(251,191,36,.2); }
-.toggle-switch input:checked + .toggle-slider::before {
-  transform: translateX(16px);
-  background: #fbbf24;
-}
-
-.time-inline {
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #e5e7eb;
-  padding: 5px 8px;
-  font-size: 13px;
-  width: 100px;
-}
-.time-inline:focus { outline: none; border-color: #fbbf24; }
-
-.toggle-off-label { font-size: 12px; color: #4b5563; }
-.label-hint { font-size: 10px; color: #4b5563; font-weight: 400; }
-
-/* 모달 */
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 1000;
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .modal {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 12px;
-  width: 560px;
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
+  width: 480px;
+  max-width: 92vw;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  animation: modalIn var(--dur-slow) var(--ease-out);
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid #2a2d3e;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--surface-1);
 }
 
-.modal-header h2 { margin: 0; font-size: 17px; color: #e5e7eb; }
+.modal-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modal-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: var(--tracking-hud);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.modal-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
 
 .close-btn {
-  background: none; border: none; color: #6b7280; font-size: 18px; cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.close-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.close-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .modal-body {
-  padding: 20px 24px;
-  overflow-y: auto;
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
-.modal-footer {
+.create-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+
+.type-choice {
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 24px;
-  border-top: 1px solid #2a2d3e;
+  gap: var(--space-3);
 }
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 1;
-}
-
-.form-group label { font-size: 12px; color: #9ca3af; }
-
-.form-group input,
-.form-group select {
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #e5e7eb;
-  padding: 8px 10px;
-  font-size: 14px;
-}
-
-.form-group input:focus,
-.form-group select:focus {
-  outline: none;
-  border-color: #4f9eff;
-}
-
-.form-row {
-  display: flex;
-  gap: 12px;
-}
-
-.error-msg { color: #ef4444; font-size: 13px; }
-
-.modal-compact { width: 420px; }
-
-.create-hint { margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.5; }
-
-.type-choice { display: flex; gap: 12px; }
 
 .type-choice-btn {
   flex: 1;
@@ -682,51 +1091,132 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 20px 12px;
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 10px;
-  color: #e5e7eb;
+  padding: var(--space-5) var(--space-3);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: border-color .12s, background .12s;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
-.type-choice-btn:hover:not(:disabled) {
-  border-color: #4f9eff;
-  background: rgba(79,158,255,.08);
+.type-choice-swing:hover:not(:disabled) {
+  border-color: var(--info);
+  background: rgba(96, 165, 250, 0.05);
+  transform: translateY(-2px);
 }
 
-.type-choice-btn:disabled { opacity: .5; cursor: not-allowed; }
-
-.tc-emoji { font-size: 26px; }
-.tc-title { font-size: 15px; font-weight: 700; }
-.tc-desc { font-size: 11px; color: #6b7280; }
-
-.creating-msg { margin: 0; font-size: 13px; color: #9ca3af; text-align: center; }
-
-.btn-primary {
-  background: #4f9eff;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 18px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
+.type-choice-scalping:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(245, 158, 11, 0.05);
+  transform: translateY(-2px);
 }
-.btn-primary:hover { background: #3b8ae8; }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn-secondary {
-  background: none;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #9ca3af;
-  padding: 8px 18px;
-  font-size: 14px;
-  cursor: pointer;
+.type-choice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
-.btn-secondary:hover { border-color: #4b5563; color: #e5e7eb; }
-.profit { color: #ef4444; }
-.loss { color: #60a5fa; }
+
+.tc-icon {
+  width: 28px;
+  height: 28px;
+  margin-bottom: var(--space-1);
+}
+
+.type-choice-swing .tc-icon {
+  color: var(--info);
+}
+
+.type-choice-scalping .tc-icon {
+  color: var(--accent);
+}
+
+.tc-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+}
+
+.tc-desc {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
+}
+
+.creating-msg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
+}
+
+.loader-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  animation: loaderBlink 1s ease-in-out infinite;
+}
+
+@keyframes loaderBlink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.msg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  border: 1px solid;
+  margin: 0;
+}
+
+.msg-fail {
+  background: var(--profit-bg);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--profit-soft);
+}
+
+.msg-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 720px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .header-actions {
+    justify-content: space-between;
+  }
+  .bot-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
