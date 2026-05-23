@@ -1,42 +1,63 @@
 <template>
-  <div class="bot-canvas" v-if="!loading">
+  <div v-if="!loading" class="bot-canvas">
     <div class="canvas-layout">
       <!-- 좌측: 현재 전략 + risk_params -->
       <div class="left-area">
-        <div class="summary-block">
-          <div class="block-title">
-            <span>📋 strategy.conditions</span>
+        <div class="block">
+          <div class="block-head">
+            <span class="block-title">STRATEGY · 조건</span>
             <span class="block-count">{{ conditionsCount }}건</span>
           </div>
           <div v-if="conditionsCount === 0" class="block-empty">
             조건이 없습니다. 우측 AI 어시스턴트에게 도움을 요청하세요.
           </div>
-          <table v-else class="conditions-table">
+          <table v-else class="data-table">
             <thead>
-              <tr><th>지표</th><th>조건</th><th>값</th></tr>
+              <tr>
+                <th>지표</th>
+                <th>조건</th>
+                <th class="th-num">값</th>
+              </tr>
             </thead>
             <tbody>
               <tr v-for="(c, i) in strategy.conditions" :key="i">
                 <td class="indicator">{{ c.indicator }}</td>
                 <td>{{ c.condition }}</td>
-                <td>{{ formatValue(c) }}</td>
+                <td class="td-num">{{ formatValue(c) }}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <div class="summary-block">
-          <div class="block-title">
-            <span>⚙️ risk_params</span>
-            <button class="btn-small" @click="undoLast" :disabled="undoing">
-              {{ undoing ? '복원 중...' : '↶ 되돌리기' }}
+        <div class="block">
+          <div class="block-head">
+            <span class="block-title">RISK · 파라미터</span>
+            <button
+              class="btn-ghost-sm"
+              type="button"
+              :disabled="undoing"
+              @click="undoLast"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              <span>{{ undoing ? 'UNDOING' : '되돌리기' }}</span>
             </button>
           </div>
           <table class="risk-table">
             <tbody>
               <tr v-for="(v, k) in riskParams" :key="k">
                 <td class="rk-key">{{ riskLabel(k) }}</td>
-                <td class="rk-val">{{ v }}</td>
+                <td class="rk-val mono">{{ v }}</td>
               </tr>
             </tbody>
           </table>
@@ -45,20 +66,60 @@
 
       <!-- 우측: AI 어시스턴트 -->
       <div class="right-area">
-        <div class="assistant-block">
-          <div class="block-title">
-            <span>🤖 AI 튜닝 어시스턴트</span>
-            <button class="btn-small" @click="autoGenerate" :disabled="generating">
-              {{ generating ? '진단 중...' : '🔍 자동 진단' }}
+        <div class="block assistant-block">
+          <div class="block-head">
+            <span class="block-title">
+              <svg
+                class="block-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m12 4-1.5 4.5L6 10l4.5 1.5L12 16l1.5-4.5L18 10l-4.5-1.5z" />
+                <path d="M19 3v3" />
+                <path d="M17.5 4.5h3" />
+              </svg>
+              AI · 튜닝 어시스턴트
+            </span>
+            <button
+              class="btn-llm-sm"
+              type="button"
+              :disabled="generating"
+              @click="autoGenerate"
+            >
+              <svg
+                :class="{ spin: generating }"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path v-if="!generating" d="M21 12a9 9 0 1 1-9-9" />
+                <path v-if="!generating" d="M21 4v6h-6" />
+                <path v-else d="M21 12a9 9 0 1 1-6-8.5" />
+              </svg>
+              <span>{{ generating ? 'DIAGNOSING' : '자동 진단' }}</span>
             </button>
           </div>
 
           <!-- 대화 히스토리 -->
-          <div class="chat-history" ref="chatHistoryEl">
+          <div ref="chatHistoryEl" class="chat-history">
             <div v-if="chatLog.length === 0" class="chat-empty">
-              메시지를 보내거나 [자동 진단] 버튼을 눌러보세요.
+              메시지를 보내거나 자동 진단을 실행하세요.
             </div>
-            <div v-for="(msg, i) in chatLog" :key="i" class="chat-msg" :class="`msg-${msg.role}`">
+            <div
+              v-for="(msg, i) in chatLog"
+              :key="i"
+              class="chat-msg"
+              :class="`msg-${msg.role}`"
+            >
               <div class="msg-label">{{ msg.role === 'user' ? '나' : 'AI' }}</div>
               <div class="msg-body">{{ msg.content }}</div>
             </div>
@@ -68,85 +129,159 @@
                 <span class="thinking-dot"></span>
                 <span class="thinking-dot"></span>
                 <span class="thinking-dot"></span>
-                <span class="thinking-label">{{ generating ? '자동 진단 중…' : '응답 생성 중…' }}</span>
+                <span class="thinking-label">
+                  {{ generating ? '자동 진단 중...' : '응답 생성 중...' }}
+                </span>
               </div>
             </div>
           </div>
 
-          <!-- 입력창 -->
+          <!-- 입력 -->
           <div class="chat-input">
             <input
               v-model="userMessage"
               type="text"
-              placeholder="이 봇을 어떻게 손볼지 물어보세요 (예: RSI 좀 더 보수적으로)"
-              @keydown.enter="sendChat"
+              placeholder="이 봇을 어떻게 손볼지 물어보세요 (예: RSI 더 보수적으로)"
               :disabled="chatting"
+              @keydown.enter="sendChat"
             />
-            <button @click="sendChat" :disabled="chatting || !userMessage.trim()">
-              {{ chatting ? '...' : '보내기' }}
+            <button
+              type="button"
+              :disabled="chatting || !userMessage.trim()"
+              @click="sendChat"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+              <span>{{ chatting ? '...' : '보내기' }}</span>
             </button>
           </div>
 
-          <!-- 현재 제안 (diff) -->
+          <!-- 현재 제안 -->
           <div v-if="currentProposal" class="proposal">
-            <div class="proposal-title">📝 변경 제안</div>
+            <div class="proposal-head">
+              <span class="proposal-tag">PROPOSAL</span>
+              <span class="proposal-title">변경 제안</span>
+            </div>
             <div v-if="currentProposal.diagnosis" class="proposal-diag">
-              <strong>진단:</strong> {{ currentProposal.diagnosis }}
+              <span class="diag-label">DIAGNOSIS</span>
+              <span class="diag-text">{{ currentProposal.diagnosis }}</span>
             </div>
 
             <div v-if="proposedRiskDiff.length" class="diff-block">
-              <div class="diff-label">risk_params 변경 ({{ proposedRiskDiff.length }}건)</div>
+              <div class="diff-label">
+                risk_params 변경 · {{ proposedRiskDiff.length }}건
+              </div>
               <table class="diff-table">
                 <thead>
-                  <tr><th>항목</th><th>현재</th><th>→</th><th>제안</th></tr>
+                  <tr>
+                    <th>항목</th>
+                    <th class="th-num">현재</th>
+                    <th>→</th>
+                    <th class="th-num">제안</th>
+                  </tr>
                 </thead>
                 <tbody>
                   <tr v-for="d in proposedRiskDiff" :key="d.key">
                     <td>{{ riskLabel(d.key) }}</td>
-                    <td class="v-before">{{ d.before }}</td>
+                    <td class="td-num v-before">{{ d.before }}</td>
                     <td class="arrow">→</td>
-                    <td class="v-after">{{ d.after }}</td>
+                    <td class="td-num v-after">{{ d.after }}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <div v-if="currentProposal.proposed_conditions !== null && currentProposal.proposed_conditions !== undefined" class="diff-block">
-              <div class="diff-label">strategy.conditions 변경 ({{ currentProposal.proposed_conditions.length }}건 전체 교체)</div>
+            <div
+              v-if="currentProposal.proposed_conditions !== null && currentProposal.proposed_conditions !== undefined"
+              class="diff-block"
+            >
+              <div class="diff-label">
+                strategy.conditions 변경 · {{ currentProposal.proposed_conditions.length }}건 전체 교체
+              </div>
               <table class="diff-table">
                 <thead>
-                  <tr><th>지표</th><th>조건</th><th>값</th></tr>
+                  <tr>
+                    <th>지표</th>
+                    <th>조건</th>
+                    <th class="th-num">값</th>
+                  </tr>
                 </thead>
                 <tbody>
                   <tr v-for="(c, i) in currentProposal.proposed_conditions" :key="i">
                     <td class="indicator">{{ c.indicator }}</td>
                     <td>{{ c.condition }}</td>
-                    <td>{{ formatValue(c) }}</td>
+                    <td class="td-num">{{ formatValue(c) }}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             <div class="proposal-actions">
-              <button class="btn-apply" @click="applyProposal" :disabled="applying">
-                {{ applying ? '적용 중...' : '✓ 적용' }}
+              <button
+                class="btn-apply"
+                type="button"
+                :disabled="applying"
+                @click="applyProposal"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>{{ applying ? 'APPLYING' : '적용' }}</span>
               </button>
-              <button class="btn-dismiss" @click="dismissProposal" :disabled="applying">
-                ✗ 기각
+              <button
+                class="btn-ghost-sm"
+                type="button"
+                :disabled="applying"
+                @click="dismissProposal"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+                <span>기각</span>
               </button>
             </div>
           </div>
 
-          <div v-if="errorMessage" class="error-banner">⚠ {{ errorMessage }}</div>
+          <div v-if="errorMessage" class="msg msg-fail">
+            <span class="msg-tag">ERR</span>
+            <span>{{ errorMessage }}</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 알림함: pending suggestions -->
+    <!-- 하단: 튜닝 제안함 + 변경 이력 -->
     <div class="lower-section">
-      <div class="summary-block">
-        <div class="block-title">
-          <span>🔔 튜닝 제안함</span>
+      <div class="block">
+        <div class="block-head">
+          <span class="block-title">PENDING · 튜닝 제안함</span>
           <span class="block-count">{{ pendingSuggestions.length }}건 대기</span>
         </div>
         <div v-if="pendingSuggestions.length === 0" class="block-empty">
@@ -155,29 +290,35 @@
         <div v-else class="suggestions-list">
           <div v-for="s in pendingSuggestions" :key="s.id" class="suggestion-row">
             <div class="sg-header">
-              <span class="sg-date">{{ fmtDate(s.created_at) }}</span>
+              <span class="sg-date mono">{{ fmtDate(s.created_at) }}</span>
               <div class="sg-actions">
-                <button class="btn-apply-sm" @click="applySuggestion(s)" :disabled="applyingSugg === s.id">
-                  {{ applyingSugg === s.id ? '...' : '✓ 적용' }}
-                </button>
-                <button class="btn-dismiss-sm" @click="dismissSuggestion(s)">✗ 기각</button>
+                <button
+                  class="btn-apply-sm"
+                  type="button"
+                  :disabled="applyingSugg === s.id"
+                  @click="applySuggestion(s)"
+                >{{ applyingSugg === s.id ? '...' : '적용' }}</button>
+                <button
+                  class="btn-dismiss-sm"
+                  type="button"
+                  @click="dismissSuggestion(s)"
+                >기각</button>
               </div>
             </div>
             <div class="sg-diag">{{ s.diagnosis_text }}</div>
-            <div v-if="s.suggested_risk_params" class="sg-diff">
+            <div v-if="s.suggested_risk_params" class="sg-diff mono">
               risk_params: {{ JSON.stringify(s.suggested_risk_params) }}
             </div>
-            <div v-if="s.suggested_conditions" class="sg-diff">
+            <div v-if="s.suggested_conditions" class="sg-diff mono">
               conditions: {{ s.suggested_conditions.length }}건
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 변경 이력 -->
-      <div class="summary-block">
-        <div class="block-title">
-          <span>📜 변경 이력</span>
+      <div class="block">
+        <div class="block-head">
+          <span class="block-title">HISTORY · 변경 이력</span>
           <span class="block-count">{{ history.length }}건</span>
         </div>
         <div v-if="history.length === 0" class="block-empty">
@@ -186,25 +327,47 @@
         <div v-else class="history-list">
           <div v-for="h in history" :key="h.id" class="history-row">
             <div class="hist-header">
-              <span class="hist-date">{{ fmtDate(h.applied_at) }}</span>
+              <span class="hist-date mono">{{ fmtDate(h.applied_at) }}</span>
               <span class="hist-source" :class="`src-${h.source}`">{{ h.source }}</span>
             </div>
             <div v-if="h.llm_reasoning" class="hist-reason">{{ h.llm_reasoning }}</div>
-            <div class="hist-diff">
-              <span v-if="h.before_risk_params && h.after_risk_params">risk_params 변경</span>
-              <span v-if="h.before_conditions !== null && h.after_conditions !== null">conditions 변경</span>
+            <div class="hist-diff mono">
+              <span v-if="h.before_risk_params && h.after_risk_params">
+                risk_params 변경
+              </span>
+              <span
+                v-if="h.before_conditions !== null && h.after_conditions !== null"
+              >
+                conditions 변경
+              </span>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 노드 편집기 (기존 CanvasView 임베드) -->
+    <!-- 노드 편집기 -->
     <div class="flow-section">
       <div class="flow-header">
-        <span>🎨 노드 편집기</span>
-        <button class="btn-small" @click="showFlow = !showFlow">
-          {{ showFlow ? '접기 ▲' : '펼치기 ▼' }}
+        <span class="block-title">CANVAS · 노드 편집기</span>
+        <button
+          class="btn-ghost-sm"
+          type="button"
+          @click="showFlow = !showFlow"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            :class="{ 'rot-180': showFlow }"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+          <span>{{ showFlow ? '접기' : '펼치기' }}</span>
         </button>
       </div>
       <div v-show="showFlow" class="flow-container">
@@ -212,7 +375,7 @@
       </div>
     </div>
   </div>
-  <div v-else class="loading">전략 정보 불러오는 중...</div>
+  <div v-else class="loading">LOADING · 전략 정보 불러오는 중...</div>
 </template>
 
 <script setup>
@@ -232,8 +395,8 @@ const strategy = ref({ conditions: [], risk_params: {} })
 const bot = ref(null)
 
 const userMessage = ref('')
-const chatLog = ref([])  // [{role: 'user'|'assistant', content: str}]
-const currentProposal = ref(null)  // 마지막 LLM 응답
+const chatLog = ref([])
+const currentProposal = ref(null)
 const chatting = ref(false)
 const generating = ref(false)
 const applying = ref(false)
@@ -243,7 +406,7 @@ const chatHistoryEl = ref(null)
 const history = ref([])
 const pendingSuggestions = ref([])
 const applyingSugg = ref(null)
-const showFlow = ref(true)  // 노드 편집기 펼침 (기본 펼침)
+const showFlow = ref(true)
 
 function headers() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -278,7 +441,7 @@ async function fetchChatHistory() {
   const res = await fetch(`${API}/trading/bots/${props.botId}/strategy/chat-history?limit=200`, { headers: headers() })
   if (res.ok) {
     const rows = await res.json()
-    chatLog.value = rows.map(r => ({ role: r.role, content: r.content }))
+    chatLog.value = rows.map((r) => ({ role: r.role, content: r.content }))
   }
 }
 
@@ -323,7 +486,7 @@ async function dismissSuggestion(s) {
     })
     await fetchSuggestions()
   } catch {
-    /* 백그라운드 동작 */
+    /* 백그라운드 */
   }
 }
 
@@ -364,7 +527,7 @@ async function sendChat() {
   await scrollChatToBottom()
 
   chatting.value = true
-  await scrollChatToBottom()  // 'AI 응답 생성 중…' 인디케이터가 보이도록
+  await scrollChatToBottom()
   try {
     const result = await callTuning('chat', { message: msg })
     chatLog.value.push({ role: 'assistant', content: result.reply })
@@ -378,7 +541,6 @@ async function sendChat() {
 }
 
 function hasProposalChanges(result) {
-  // 진단·답변만 있고 실제 변경안이 없으면 [적용]/[기각] 패널을 띄우지 않는다
   return result && (result.proposed_conditions != null || result.proposed_risk_params != null)
 }
 
@@ -386,7 +548,7 @@ async function autoGenerate() {
   if (generating.value) return
   generating.value = true
   errorMessage.value = ''
-  await scrollChatToBottom()  // '자동 진단 중…' 인디케이터가 보이도록
+  await scrollChatToBottom()
   try {
     const result = await callTuning('ai-generate', null)
     chatLog.value.push({ role: 'user', content: '[자동 진단 요청]' })
@@ -419,8 +581,11 @@ async function applyProposal() {
     })
     await handleResponse(res)
     currentProposal.value = null
-    chatLog.value.push({ role: 'assistant', content: '✓ 적용 완료. 다음 사이클부터 새 설정 반영.' })
-    await load()  // 새 상태 다시 로드
+    chatLog.value.push({
+      role: 'assistant',
+      content: '✓ 적용 완료. 다음 사이클부터 새 설정 반영.',
+    })
+    await load()
   } catch (e) {
     errorMessage.value = `적용 실패: ${e.message}`
   } finally {
@@ -430,7 +595,6 @@ async function applyProposal() {
 
 function dismissProposal() {
   if (currentProposal.value?.suggestion_id) {
-    // suggestion 기각 API 호출 (백그라운드, 실패해도 무시)
     fetch(`${API}/trading/bots/${props.botId}/suggestions/${currentProposal.value.suggestion_id}/dismiss`, {
       method: 'POST',
       headers: headers(),
@@ -515,422 +679,769 @@ onMounted(() => load())
 
 <style scoped>
 .bot-canvas {
-  padding: 16px 0;
+  padding: var(--space-3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .canvas-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
-.left-area, .right-area {
+.left-area,
+.right-area {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
-.summary-block, .assistant-block {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 16px;
+/* ==========================================================================
+   Block (shared card pattern)
+   ========================================================================== */
+
+.block {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
-.block-title {
+.assistant-block {
+  border-color: var(--violet-border);
+}
+
+.block-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #e5e7eb;
-  font-weight: 600;
-  margin-bottom: 12px;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--bg-elevated);
+}
+
+.assistant-block .block-head {
+  background: var(--violet-bg);
+}
+
+.block-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.block-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--violet);
 }
 
 .block-count {
-  color: #9ca3af;
-  font-weight: normal;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
 }
 
-.block-empty, .chat-empty {
-  color: #6b7280;
-  font-size: 13px;
-  padding: 8px 0;
+.block-empty,
+.chat-empty {
+  padding: var(--space-5) var(--space-4);
+  text-align: center;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
 }
 
-.conditions-table, .risk-table, .diff-table {
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+.data-table,
+.risk-table,
+.diff-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
-.conditions-table th,
-.conditions-table td,
-.diff-table th,
-.diff-table td {
+.data-table th,
+.diff-table th {
+  padding: var(--space-2) var(--space-4);
   text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  color: #d1d5db;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-faint);
 }
 
-.conditions-table th, .diff-table th {
-  color: #9ca3af;
-  font-weight: normal;
-  font-size: 12px;
+.data-table th.th-num,
+.diff-table th.th-num {
+  text-align: right;
+}
+
+.data-table td,
+.diff-table td {
+  padding: var(--space-2) var(--space-4);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.data-table td.td-num,
+.diff-table td.td-num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table tbody tr:last-child td,
+.diff-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .indicator {
-  color: #4f9eff;
-  font-family: monospace;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+}
+
+.risk-table {
+  padding: var(--space-2) 0;
 }
 
 .risk-table td {
-  padding: 6px 0;
-  color: #d1d5db;
+  padding: 6px var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.risk-table tr:last-child td {
+  border-bottom: none;
 }
 
 .risk-table .rk-key {
-  color: #9ca3af;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
 }
 
 .risk-table .rk-val {
   text-align: right;
-  font-family: monospace;
-  color: #e5e7eb;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
-/* AI 어시스턴트 패널 */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.btn-ghost-sm,
+.btn-llm-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.btn-ghost-sm svg,
+.btn-llm-sm svg {
+  width: 11px;
+  height: 11px;
+}
+
+.btn-ghost-sm {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+}
+
+.btn-ghost-sm:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.btn-ghost-sm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-llm-sm {
+  background: var(--violet-bg);
+  border: 1px solid var(--violet-border);
+  color: var(--violet);
+}
+
+.btn-llm-sm:hover:not(:disabled) {
+  background: rgba(167, 139, 250, 0.2);
+  border-color: var(--violet);
+}
+
+.btn-llm-sm:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rot-180 {
+  transform: rotate(180deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+/* ==========================================================================
+   Chat
+   ========================================================================== */
+
 .chat-history {
-  max-height: 260px;
-  min-height: 120px;
+  max-height: 280px;
+  min-height: 140px;
   overflow-y: auto;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
-  padding: 8px;
-  margin-bottom: 8px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-faint);
+  padding: var(--space-3) var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-3);
 }
 
 .chat-msg {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .msg-label {
-  font-size: 11px;
-  color: #6b7280;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.msg-user .msg-label {
+  color: var(--accent);
+}
+
+.msg-assistant .msg-label {
+  color: var(--violet);
 }
 
 .msg-body {
-  font-size: 13px;
-  line-height: 1.55;
-  color: #d1d5db;
+  font-size: var(--text-sm);
+  line-height: var(--leading-loose);
+  color: var(--text-secondary);
   white-space: pre-wrap;
 }
 
 .msg-user .msg-body {
-  color: #93c5fd;
+  color: var(--text-primary);
 }
 
 .chat-thinking .msg-body {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .thinking-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
-  background: #4f9eff;
+  border-radius: var(--radius-full);
+  background: var(--violet);
   display: inline-block;
   animation: thinking-bounce 1.2s infinite ease-in-out;
 }
 
-.thinking-dot:nth-child(2) { animation-delay: 0.15s; }
-.thinking-dot:nth-child(3) { animation-delay: 0.30s; }
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
 
 .thinking-label {
   margin-left: 4px;
-  font-size: 12px;
-  color: #9ca3af;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
 }
 
 @keyframes thinking-bounce {
-  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
-  40% { opacity: 1; transform: translateY(-3px); }
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
 }
 
 .chat-input {
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .chat-input input {
   flex: 1;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 8px 10px;
-  color: #e5e7eb;
-  font-size: 13px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px var(--space-3);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.chat-input input:hover {
+  border-color: var(--border-strong);
 }
 
 .chat-input input:focus {
-  outline: none;
-  border-color: #4f9eff;
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.15);
 }
 
-.chat-input button, .btn-small {
-  background: #4f9eff;
-  color: white;
+.chat-input input::placeholder {
+  color: var(--text-faint);
+}
+
+.chat-input button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--violet);
+  color: #fff;
   border: none;
-  border-radius: 6px;
-  padding: 8px 14px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  padding: 8px var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
-.chat-input button:disabled, .btn-small:disabled {
+.chat-input button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.chat-input button:hover:not(:disabled) {
+  background: var(--violet-strong);
+  transform: translateY(-1px);
+}
+
+.chat-input button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.btn-small {
-  padding: 4px 10px;
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #d1d5db;
-}
+/* ==========================================================================
+   Proposal
+   ========================================================================== */
 
-.btn-small:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-/* 제안 영역 */
 .proposal {
-  margin-top: 12px;
-  background: rgba(79, 158, 255, 0.05);
-  border: 1px solid rgba(79, 158, 255, 0.3);
-  border-radius: 6px;
-  padding: 12px;
+  background: var(--violet-bg);
+  border-top: 1px solid var(--violet-border);
+  padding: var(--space-4);
+}
+
+.proposal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.proposal-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  padding: 3px 7px;
+  background: var(--violet);
+  color: #fff;
+  border-radius: var(--radius-xs);
 }
 
 .proposal-title {
-  color: #4f9eff;
-  font-weight: 600;
-  margin-bottom: 8px;
-  font-size: 13px;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--violet);
+  letter-spacing: var(--tracking-tight);
 }
 
 .proposal-diag {
-  color: #d1d5db;
-  font-size: 12px;
-  line-height: 1.55;
-  margin-bottom: 8px;
+  background: var(--bg-base);
+  border-left: 2px solid var(--violet);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-loose);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diag-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--violet);
+  letter-spacing: var(--tracking-wider);
+}
+
+.diag-text {
+  color: var(--text-secondary);
 }
 
 .diff-block {
-  margin-top: 8px;
+  margin-top: var(--space-3);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
 .diff-label {
-  color: #9ca3af;
-  font-size: 12px;
-  margin-bottom: 4px;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--surface-1);
+}
+
+.diff-table {
+  margin: 0;
 }
 
 .v-before {
-  color: #f87171;
+  color: var(--profit);
   text-decoration: line-through;
-  font-family: monospace;
 }
 
 .v-after {
-  color: #34d399;
-  font-family: monospace;
+  color: var(--up-strong);
 }
 
 .arrow {
-  color: #6b7280;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
   text-align: center;
-  width: 20px;
+  width: 30px;
 }
 
 .proposal-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .btn-apply {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   flex: 1;
+  padding: 9px var(--space-3);
+  background: var(--up-strong);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.btn-apply svg {
+  width: 13px;
+  height: 13px;
+}
+
+.btn-apply:hover:not(:disabled) {
   background: #16a34a;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 8px;
-  cursor: pointer;
-  font-size: 13px;
+  transform: translateY(-1px);
 }
 
-.btn-apply:hover:not(:disabled) { background: #15803d; }
-.btn-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-apply:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
-.btn-dismiss {
+.msg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 0;
+  font-size: var(--text-sm);
+  border-top: 1px solid;
+  margin: 0;
+}
+
+.msg-fail {
+  background: var(--profit-bg);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--profit-soft);
+}
+
+.msg-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
   background: rgba(255, 255, 255, 0.08);
-  color: #d1d5db;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 14px;
-  cursor: pointer;
-  font-size: 13px;
 }
 
-.btn-dismiss:hover:not(:disabled) { background: rgba(255, 255, 255, 0.15); }
-
-.error-banner {
-  margin-top: 8px;
-  padding: 8px;
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.3);
-  border-radius: 6px;
-  color: #f87171;
-  font-size: 12px;
-}
+/* ==========================================================================
+   Loading
+   ========================================================================== */
 
 .loading {
-  color: #6b7280;
+  color: var(--text-muted);
   text-align: center;
-  padding: 40px;
+  padding: var(--space-16);
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-wider);
+  font-size: var(--text-sm);
 }
 
-/* 하단 섹션 (suggestions + history) */
+/* ==========================================================================
+   Lower section (suggestions + history)
+   ========================================================================== */
+
 .lower-section {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 16px;
+  gap: var(--space-4);
 }
 
-.suggestions-list, .history-list {
+.suggestions-list,
+.history-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 280px;
+  max-height: 320px;
   overflow-y: auto;
 }
 
-.suggestion-row, .history-row {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
+.suggestion-row,
+.history-row {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+  font-size: var(--text-sm);
 }
 
-.sg-header, .hist-header {
+.suggestion-row:last-child,
+.history-row:last-child {
+  border-bottom: none;
+}
+
+.sg-header,
+.hist-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-2);
 }
 
-.sg-date, .hist-date {
-  color: #9ca3af;
-  font-size: 11px;
+.sg-date,
+.hist-date {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 
 .sg-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .btn-apply-sm {
-  background: #16a34a;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
+  background: var(--up-bg);
+  color: var(--up-strong);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-xs);
+  padding: 3px var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
-.btn-apply-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-apply-sm:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.btn-apply-sm:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .btn-dismiss-sm {
-  background: rgba(255, 255, 255, 0.08);
-  color: #d1d5db;
-  border: none;
-  border-radius: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 3px var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
-.sg-diag, .hist-reason {
-  color: #d1d5db;
-  line-height: 1.5;
+.btn-dismiss-sm:hover {
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.sg-diag,
+.hist-reason {
+  color: var(--text-secondary);
+  line-height: var(--leading-loose);
   margin-bottom: 4px;
+  font-size: var(--text-sm);
 }
 
-.sg-diff, .hist-diff {
-  color: #9ca3af;
-  font-size: 11px;
-  font-family: monospace;
+.sg-diff,
+.hist-diff {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
 }
 
 .hist-source {
+  font-family: var(--font-mono);
   font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #9ca3af;
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
 }
 
-.hist-source.src-ai_chat { background: rgba(79, 158, 255, 0.15); color: #4f9eff; }
-.hist-source.src-ai_suggestion { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
-.hist-source.src-manual { background: rgba(156, 163, 175, 0.15); color: #9ca3af; }
+.hist-source.src-ai_chat {
+  background: var(--violet-bg);
+  color: var(--violet);
+}
 
-/* 노드 편집기 섹션 */
+.hist-source.src-ai_suggestion {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+.hist-source.src-manual {
+  background: var(--surface-2);
+  color: var(--text-tertiary);
+}
+
+/* ==========================================================================
+   Flow section (node editor embed)
+   ========================================================================== */
+
 .flow-section {
-  margin-top: 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 16px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
 .flow-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #e5e7eb;
-  font-weight: 600;
-  margin-bottom: 12px;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--bg-elevated);
 }
 
 .flow-container {
   position: relative;
-  /* CanvasView가 height:100%이라 부모는 명시적 height 필요 (auto/min-height만으론 자식이 0으로 collapse) */
   height: 800px;
-  border-radius: 6px;
-  /* overflow visible — palette 드롭다운 메뉴가 toolbar 위로 펼쳐질 때 잘리지 않게 */
   overflow: visible;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-base);
 }
 
-.flow-note {
-  margin-top: 8px;
-  padding: 6px 10px;
-  background: rgba(248, 187, 113, 0.08);
-  border-left: 2px solid rgba(248, 187, 113, 0.6);
-  color: #fcd34d;
-  font-size: 11px;
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  .canvas-layout {
+    grid-template-columns: 1fr;
+  }
+  .lower-section {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
