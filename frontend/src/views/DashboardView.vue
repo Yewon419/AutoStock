@@ -18,27 +18,6 @@
       </div>
     </div>
 
-    <!-- AI 캔버스 히어로 -->
-    <div class="hero-card" @click="$router.push('/canvas')">
-      <div class="hero-bg"></div>
-      <div class="hero-content">
-        <div class="hero-icon">✦</div>
-        <div class="hero-text">
-          <div class="hero-title">AI 캔버스</div>
-          <div class="hero-desc">전략 설계부터 자동매매 적용까지 — AI와 함께 파이프라인을 구성하세요</div>
-        </div>
-        <div class="hero-arrow">→</div>
-      </div>
-      <div class="canvas-chips" v-if="canvasList.length" @click.stop>
-        <div
-          v-for="c in canvasList.slice(0, 4)"
-          :key="c.id"
-          class="canvas-chip"
-          @click="goCanvas(c.id)"
-        >{{ c.name }}</div>
-      </div>
-    </div>
-
     <!-- 요약 카드 -->
     <div class="stats-row">
       <div class="stat-card">
@@ -178,18 +157,15 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const router = useRouter()
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
 
 const summary = ref({ running: 0, stopped: 0, error: 0, total_assets: 0, total_pnl: 0, mock_assets: 0, mock_pnl: 0, paper_assets: 0, paper_pnl: 0, real_assets: 0, real_pnl: 0, daily_pnl: 0, today_trades: 0 })
 const botSnapshots = ref([])
 const alerts = ref([])
 const brokerStatus = ref({ mode: 'mock', connected: null })
-const canvasList = ref([])
 const showTradesModal = ref(false)
 const todayTrades = ref([])
 
@@ -238,18 +214,6 @@ async function fetchAll() {
     if (b) botSnapshots.value = b
     if (br) brokerStatus.value = br
   } catch { /* ignore */ }
-}
-
-async function fetchCanvasList() {
-  try {
-    const res = await fetch(`${API}/ai/canvases`, { headers: headers() })
-    if (res.ok) canvasList.value = await res.json()
-  } catch { /* ignore */ }
-}
-
-function goCanvas(canvasId) {
-  localStorage.setItem('autostock-last-canvas', canvasId)
-  router.push('/canvas')
 }
 
 async function emergencyStop() {
@@ -323,7 +287,6 @@ function fmtDatetime(dt) {
 
 onMounted(() => {
   fetchAll()
-  fetchCanvasList()
   refreshTimer = setInterval(fetchAll, 30000)
 })
 
@@ -363,40 +326,6 @@ onUnmounted(() => {
 }
 .btn-emergency:hover { background: rgba(239,68,68,.22); }
 .btn-emergency:disabled { opacity: 0.35; cursor: not-allowed; }
-
-/* 히어로 */
-.hero-card {
-  position: relative; border-radius: 14px; overflow: hidden;
-  border: 1px solid rgba(167,139,250,.25);
-  background: linear-gradient(135deg, #1a1d27 0%, #1e1730 100%);
-  cursor: pointer; transition: border-color .2s;
-}
-.hero-card:hover { border-color: rgba(167,139,250,.5); }
-.hero-bg {
-  position: absolute; inset: 0;
-  background: radial-gradient(ellipse at top right, rgba(139,92,246,.12) 0%, transparent 60%);
-  pointer-events: none;
-}
-.hero-content {
-  position: relative; display: flex; align-items: center; gap: 18px;
-  padding: 22px 24px 16px;
-}
-.hero-icon { font-size: 28px; color: #a78bfa; flex-shrink: 0; line-height: 1; }
-.hero-title { font-size: 18px; font-weight: 700; color: #e5e7eb; margin-bottom: 4px; }
-.hero-desc { font-size: 12px; color: #9ca3af; line-height: 1.5; }
-.hero-text { flex: 1; }
-.hero-arrow { font-size: 20px; color: #6b7280; flex-shrink: 0; }
-.hero-card:hover .hero-arrow { color: #a78bfa; }
-
-.canvas-chips {
-  position: relative; display: flex; gap: 8px; padding: 0 24px 18px; flex-wrap: wrap;
-}
-.canvas-chip {
-  padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
-  background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.2);
-  color: #c4b5fd; cursor: pointer; transition: all .15s;
-}
-.canvas-chip:hover { background: rgba(167,139,250,.2); color: #e9d5ff; }
 
 /* 요약 카드 */
 .stats-row {
