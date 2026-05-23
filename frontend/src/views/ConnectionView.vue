@@ -1,13 +1,19 @@
 <template>
   <div class="connection-view">
-    <h1>연결 설정</h1>
+    <header class="page-header">
+      <span class="page-eyebrow">SETUP / 연결</span>
+      <h1 class="page-title">연결 설정</h1>
+    </header>
 
     <!-- 브로커 상태 카드 -->
-    <div class="section">
-      <h2>브로커 상태</h2>
+    <section class="section">
+      <div class="section-head">
+        <span class="section-title">브로커 상태</span>
+      </div>
+
       <div class="broker-card">
         <div class="broker-info">
-          <div class="mode-badge" :class="modeBadgeClass">{{ modeLabel }}</div>
+          <span class="mode-badge" :class="modeBadgeClass">{{ modeLabel }}</span>
           <div class="conn-status">
             <span class="dot" :class="brokerStatus.connected ? 'dot-green' : 'dot-red'"></span>
             <span>{{ connLabel }}</span>
@@ -16,13 +22,43 @@
         <div class="broker-actions">
           <button
             v-if="brokerStatus.mode !== 'mock'"
-            class="btn-connect"
+            class="btn-primary"
+            type="button"
             :disabled="connecting"
             @click="connectBroker"
           >
-            {{ connecting ? '발급 중...' : 'KIS 토큰 갱신' }}
+            <svg
+              :class="{ spin: connecting }"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 12a9 9 0 1 1-6-8.5" />
+              <path v-if="!connecting" d="M21 4v6h-6" />
+            </svg>
+            <span>{{ connecting ? 'ISSUING' : 'KIS 토큰 갱신' }}</span>
           </button>
-          <button class="btn-refresh" @click="fetchStatus">새로고침</button>
+          <button class="btn-ghost" type="button" @click="fetchStatus">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+              <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+            </svg>
+            <span>새로고침</span>
+          </button>
         </div>
       </div>
 
@@ -30,7 +66,7 @@
       <div v-if="brokerStatus.mode !== 'mock'" class="kis-info">
         <div class="kis-row">
           <span class="kis-label">계좌번호</span>
-          <span class="kis-val">{{ brokerStatus.kis_account || '미설정' }}</span>
+          <span class="kis-val mono">{{ brokerStatus.kis_account || '미설정' }}</span>
         </div>
         <div class="kis-row">
           <span class="kis-label">투자 구분</span>
@@ -40,26 +76,41 @@
         </div>
         <div class="kis-row">
           <span class="kis-label">토큰 만료</span>
-          <span class="kis-val">
+          <span class="kis-val mono">
             {{ brokerStatus.token_ttl ? fmtTtl(brokerStatus.token_ttl) + ' 후 갱신' : '-' }}
           </span>
         </div>
       </div>
 
-      <div v-if="connectMsg" class="connect-result" :class="connectOk ? 'msg-ok' : 'msg-fail'">
-        {{ connectMsg }}
+      <div v-if="connectMsg" class="msg" :class="connectOk ? 'msg-ok' : 'msg-fail'">
+        <span class="msg-tag">{{ connectOk ? 'OK' : 'ERR' }}</span>
+        <span>{{ connectMsg }}</span>
       </div>
-    </div>
+    </section>
 
     <!-- 계좌 관리 -->
-    <div class="section">
-      <div class="section-header">
-        <h2>계좌 관리</h2>
-        <button class="btn-primary" @click="showAddAccount = true">+ 계좌 추가</button>
+    <section class="section">
+      <div class="section-head">
+        <span class="section-title">계좌 관리</span>
+        <button class="btn-primary small" type="button" @click="showAddAccount = true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          <span>계좌 추가</span>
+        </button>
       </div>
 
       <div v-if="accounts.length === 0" class="empty-accounts">
-        등록된 계좌가 없습니다.
+        등록된 계좌가 없습니다
       </div>
 
       <div v-else class="account-list">
@@ -67,88 +118,100 @@
           <div class="acc-info">
             <span class="acc-owner">{{ acc.owner_name }}</span>
             <span class="acc-broker">{{ acc.broker }}</span>
-            <span class="acc-type" :class="acc.account_type === 'real' ? 'type-real' : 'type-paper'">
+            <span
+              class="acc-type"
+              :class="acc.account_type === 'real' ? 'type-real' : 'type-paper'"
+            >
               {{ acc.account_type === 'real' ? '실계좌' : '모의투자' }}
             </span>
           </div>
-          <button class="btn-delete" @click="deleteAccount(acc.id)">삭제</button>
+          <button class="btn-delete" type="button" @click="deleteAccount(acc.id)">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+            </svg>
+            <span>삭제</span>
+          </button>
         </div>
       </div>
 
       <!-- 계좌 추가 폼 -->
       <div v-if="showAddAccount" class="add-account-form">
-        <h3>계좌 추가</h3>
-        <div class="form-group">
-          <label>계좌번호</label>
-          <input v-model="accountForm.account_number" type="text" placeholder="예: XXXXXXXX-XX" />
+        <div class="form-head">
+          <span class="form-title">계좌 추가</span>
         </div>
-        <div class="form-group">
-          <label>예금주</label>
-          <input v-model="accountForm.owner_name" type="text" placeholder="이름" />
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="acc-num">계좌번호</label>
+            <input
+              id="acc-num"
+              v-model="accountForm.account_number"
+              type="text"
+              placeholder="예: XXXXXXXX-XX"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="acc-owner">예금주</label>
+            <input
+              id="acc-owner"
+              v-model="accountForm.owner_name"
+              type="text"
+              placeholder="이름"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="acc-broker">증권사</label>
+            <select id="acc-broker" v-model="accountForm.broker">
+              <option value="kis">한국투자증권 (KIS)</option>
+              <option value="kiwoom">키움증권</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="acc-type">계좌 종류</label>
+            <select id="acc-type" v-model="accountForm.account_type">
+              <option value="paper">모의투자</option>
+              <option value="real">실계좌</option>
+            </select>
+          </div>
         </div>
-        <div class="form-group">
-          <label>증권사</label>
-          <select v-model="accountForm.broker">
-            <option value="kis">한국투자증권 (KIS)</option>
-            <option value="kiwoom">키움증권</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>계좌 종류</label>
-          <select v-model="accountForm.account_type">
-            <option value="paper">모의투자</option>
-            <option value="real">실계좌</option>
-          </select>
-        </div>
-        <p v-if="accountError" class="error-msg">{{ accountError }}</p>
+        <p v-if="accountError" class="msg msg-fail">
+          <span class="msg-tag">ERR</span>
+          <span>{{ accountError }}</span>
+        </p>
         <div class="form-actions">
-          <button class="btn-secondary" @click="showAddAccount = false">취소</button>
-          <button class="btn-primary" @click="addAccount">저장</button>
+          <button class="btn-ghost" type="button" @click="showAddAccount = false">
+            취소
+          </button>
+          <button class="btn-primary" type="button" @click="addAccount">저장</button>
         </div>
       </div>
-    </div>
+    </section>
 
     <!-- 브로커 전환 방법 -->
-    <div class="section guide">
-      <h2>브로커 전환 방법</h2>
-      <div class="guide-steps">
-        <div class="step">
-          <span class="step-num">1</span>
-          <div>
-            <p class="step-title">Mock → KIS 전환</p>
-            <p class="step-desc"><code>.env</code> 파일에서 <code>BROKER_MODE=paper</code> 로 변경</p>
-          </div>
-        </div>
-        <div class="step">
-          <span class="step-num">2</span>
-          <div>
-            <p class="step-title">KIS 키 설정</p>
-            <p class="step-desc"><code>KIS_APP_KEY</code>, <code>KIS_APP_SECRET</code>, <code>KIS_ACCOUNT_NO</code> 입력</p>
-          </div>
-        </div>
-        <div class="step">
-          <span class="step-num">3</span>
-          <div>
-            <p class="step-title">실전 / 모의투자 선택</p>
-            <p class="step-desc">실전: <code>KIS_IS_PAPER=false</code> &nbsp;|&nbsp; 모의투자: <code>KIS_IS_PAPER=true</code></p>
-          </div>
-        </div>
-        <div class="step">
-          <span class="step-num">4</span>
-          <div>
-            <p class="step-title">Docker 재시작</p>
-            <p class="step-desc"><code>docker compose up --force-recreate -d backend celery-worker celery-beat</code></p>
-          </div>
-        </div>
-        <div class="step">
-          <span class="step-num">5</span>
-          <div>
-            <p class="step-title">토큰 확인</p>
-            <p class="step-desc">이 페이지에서 "KIS 토큰 갱신" 버튼 클릭 → 초록 점 확인</p>
-          </div>
-        </div>
+    <section class="section">
+      <div class="section-head">
+        <span class="section-title">브로커 전환 가이드</span>
       </div>
-    </div>
+      <ol class="guide-steps">
+        <li v-for="(s, i) in steps" :key="i" class="step">
+          <span class="step-num">{{ String(i + 1).padStart(2, '0') }}</span>
+          <div class="step-body">
+            <p class="step-title">{{ s.title }}</p>
+            <p class="step-desc" v-html="s.desc"></p>
+          </div>
+        </li>
+      </ol>
+    </section>
   </div>
 </template>
 
@@ -168,15 +231,38 @@ const showAddAccount = ref(false)
 const accountError = ref('')
 const accountForm = ref({ account_number: '', owner_name: '', broker: 'kis', account_type: 'real' })
 
+const steps = [
+  {
+    title: 'Mock → KIS 전환',
+    desc: '<code>.env</code> 파일에서 <code>BROKER_MODE=paper</code> 로 변경',
+  },
+  {
+    title: 'KIS 키 설정',
+    desc: '<code>KIS_APP_KEY</code>, <code>KIS_APP_SECRET</code>, <code>KIS_ACCOUNT_NO</code> 입력',
+  },
+  {
+    title: '실전 / 모의투자 선택',
+    desc: '실전: <code>KIS_IS_PAPER=false</code> &nbsp;|&nbsp; 모의: <code>KIS_IS_PAPER=true</code>',
+  },
+  {
+    title: 'Docker 재시작',
+    desc: '<code>docker compose up --force-recreate -d backend celery-worker celery-beat</code>',
+  },
+  {
+    title: '토큰 발급 확인',
+    desc: '이 페이지의 <strong>KIS 토큰 갱신</strong> 버튼 → 초록 점 확인',
+  },
+]
+
 function headers() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
 
 const modeLabel = computed(() => {
   const m = brokerStatus.value.mode
-  if (m === 'paper') return 'KIS (paper)'
-  if (m === 'real') return 'KIS (real)'
-  return 'Mock (가상)'
+  if (m === 'paper') return 'KIS · PAPER'
+  if (m === 'real') return 'KIS · REAL'
+  return 'MOCK · 가상'
 })
 
 const modeBadgeClass = computed(() => {
@@ -255,198 +341,625 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.connection-view { max-width: 800px; }
-
-h1 { font-size: 22px; font-weight: 700; color: #e5e7eb; margin: 0 0 28px; }
-h2 { font-size: 16px; font-weight: 600; color: #e5e7eb; margin: 0 0 16px; }
-h3 { font-size: 14px; font-weight: 600; color: #e5e7eb; margin: 0 0 14px; }
-
-.section {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 20px;
+.connection-view {
+  max-width: 880px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
 }
 
-.section-header {
+/* ==========================================================================
+   Page header
+   ========================================================================== */
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.page-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  letter-spacing: var(--tracking-hud);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.page-title {
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+  margin: 0;
+}
+
+/* ==========================================================================
+   Section
+   ========================================================================== */
+
+.section {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.section-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border-faint);
+  background: var(--bg-elevated);
 }
-.section-header h2 { margin: 0; }
 
-/* 브로커 카드 */
+.section-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.section > .broker-card,
+.section > .kis-info,
+.section > .msg,
+.section > .empty-accounts,
+.section > .account-list,
+.section > .add-account-form,
+.section > .guide-steps {
+  margin: var(--space-5);
+}
+
+.section > .kis-info,
+.section > .msg,
+.section > .add-account-form {
+  margin-top: 0;
+}
+
+/* ==========================================================================
+   Broker card
+   ========================================================================== */
+
 .broker-card {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
-  background: #0f1117;
-  border-radius: 8px;
-  border: 1px solid #2a2d3e;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-base);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-faint);
 }
 
-.broker-info { display: flex; align-items: center; gap: 16px; }
+.broker-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
 
 .mode-badge {
-  padding: 4px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 5px var(--space-3);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
 }
-.mode-real  { background: rgba(239,68,68,.15); color: #ef4444; }
-.mode-paper { background: rgba(245,158,11,.15); color: #f59e0b; }
-.mode-mock  { background: rgba(79,158,255,.15); color: #4f9eff; }
 
-.conn-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #9ca3af; }
+.mode-real {
+  background: var(--profit-bg);
+  color: var(--profit);
+}
 
-.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.dot-green { background: #10b981; box-shadow: 0 0 6px #10b981; }
-.dot-red   { background: #ef4444; }
+.mode-paper {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
 
-.broker-actions { display: flex; gap: 8px; }
+.mode-mock {
+  background: rgba(96, 165, 250, 0.14);
+  color: var(--info);
+}
 
-/* KIS 계좌 정보 */
+.conn-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.dot-green {
+  background: var(--up-strong);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+.dot-red {
+  background: var(--profit);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
+.broker-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ==========================================================================
+   KIS info rows
+   ========================================================================== */
+
 .kis-info {
-  margin-top: 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  background: #0f1117;
-  border-radius: 8px;
-  border: 1px solid #2a2d3e;
+  gap: 6px;
+  padding: var(--space-4);
+  background: var(--bg-base);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-faint);
 }
 
-.kis-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
-.kis-label { color: #6b7280; width: 80px; flex-shrink: 0; }
-.kis-val { color: #e5e7eb; font-weight: 500; }
-.val-paper { color: #f59e0b; }
-.val-real  { color: #ef4444; }
-
-.connect-result {
-  margin-top: 12px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 13px;
+.kis-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  padding: 4px 0;
 }
-.msg-ok   { background: rgba(16,185,129,.1); color: #10b981; border: 1px solid rgba(16,185,129,.2); }
-.msg-fail { background: rgba(239,68,68,.1);  color: #ef4444; border: 1px solid rgba(239,68,68,.2); }
 
-/* 버튼 */
-.btn-connect {
-  padding: 8px 18px;
-  background: #10b981;
-  color: #fff;
+.kis-label {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  width: 92px;
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.kis-val {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.kis-val.mono {
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-wide);
+}
+
+.val-paper {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.val-real {
+  color: var(--profit);
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 9px var(--space-4);
+  background: var(--accent);
+  color: var(--bg-base);
   border: none;
-  border-radius: 6px;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+  box-shadow: var(--shadow-gold);
+}
+
+.btn-primary svg {
+  width: 14px;
+  height: 14px;
+}
+
+.btn-primary.small {
+  padding: 7px var(--space-3);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-gold-strong);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px var(--space-4);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
-.btn-connect:hover { background: #059669; }
-.btn-connect:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn-refresh {
-  padding: 8px 14px;
-  background: none;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #9ca3af;
-  font-size: 13px;
+.btn-ghost svg {
+  width: 14px;
+  height: 14px;
+}
+
+.btn-ghost:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.btn-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 6px var(--space-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
-.btn-refresh:hover { border-color: #4b5563; color: #e5e7eb; }
 
-/* 계좌 목록 */
-.empty-accounts { color: #4b5563; font-size: 14px; text-align: center; padding: 24px 0; }
-.account-list { display: flex; flex-direction: column; gap: 8px; }
+.btn-delete svg {
+  width: 13px;
+  height: 13px;
+}
+
+.btn-delete:hover {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--profit);
+  background: var(--profit-bg);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==========================================================================
+   Messages
+   ========================================================================== */
+
+.msg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  border: 1px solid;
+  margin: var(--space-3) 0 0;
+}
+
+.msg-ok {
+  background: var(--up-bg);
+  border-color: rgba(34, 197, 94, 0.25);
+  color: var(--up-strong);
+}
+
+.msg-fail {
+  background: var(--profit-bg);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--profit-soft);
+}
+
+.msg-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ==========================================================================
+   Account list
+   ========================================================================== */
+
+.empty-accounts {
+  text-align: center;
+  padding: var(--space-10) var(--space-5);
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
 
 .account-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-base);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
-.acc-info { display: flex; align-items: center; gap: 12px; }
-.acc-owner { font-size: 14px; color: #e5e7eb; font-weight: 500; }
-.acc-broker { font-size: 12px; color: #6b7280; background: #2a2d3e; padding: 2px 8px; border-radius: 4px; }
-.acc-type { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
-.type-paper { background: rgba(245,158,11,.15); color: #f59e0b; }
-.type-real  { background: rgba(239,68,68,.15); color: #ef4444; }
-
-.btn-delete {
-  padding: 5px 12px;
-  background: none;
-  border: 1px solid #374151;
-  border-radius: 6px;
-  color: #6b7280;
-  font-size: 12px;
-  cursor: pointer;
+.account-item:hover {
+  border-color: var(--border-strong);
 }
-.btn-delete:hover { border-color: #ef4444; color: #ef4444; }
 
-/* 계좌 추가 폼 */
+.acc-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.acc-owner {
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.acc-broker {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  background: var(--surface-2);
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.acc-type {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.type-paper {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.type-real {
+  background: var(--profit-bg);
+  color: var(--profit);
+}
+
+/* ==========================================================================
+   Add account form
+   ========================================================================== */
+
 .add-account-form {
-  margin-top: 16px;
-  padding: 16px;
-  background: #0f1117;
-  border: 1px solid #2a2d3e;
-  border-radius: 8px;
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-base);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
 }
 
-.form-group { margin-bottom: 12px; }
-.form-group label { display: block; font-size: 12px; color: #9ca3af; margin-bottom: 6px; }
-.form-group input, .form-group select {
+.form-head {
+  margin-bottom: var(--space-4);
+}
+
+.form-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.form-group input,
+.form-group select {
   width: 100%;
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
-  border-radius: 6px;
-  color: #e5e7eb;
-  padding: 8px 10px;
-  font-size: 14px;
+  padding: 9px var(--space-3);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-md);
+  outline: none;
   box-sizing: border-box;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
-.form-group input:focus, .form-group select:focus { outline: none; border-color: #4f9eff; }
 
-.form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-.error-msg { color: #ef4444; font-size: 13px; margin: 8px 0 0; }
+.form-group input::placeholder {
+  color: var(--text-faint);
+}
 
-/* 가이드 */
-.guide .guide-steps { display: flex; flex-direction: column; gap: 16px; }
-.step { display: flex; gap: 14px; align-items: flex-start; }
+.form-group input:hover,
+.form-group select:hover {
+  border-color: var(--border-strong);
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* ==========================================================================
+   Guide steps
+   ========================================================================== */
+
+.guide-steps {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.step {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-base);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+}
 
 .step-num {
-  width: 28px; height: 28px;
-  background: #4f9eff;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700; color: #fff;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
   flex-shrink: 0;
+  letter-spacing: var(--tracking-wide);
 }
 
-.step-title { font-size: 14px; color: #e5e7eb; font-weight: 500; margin: 0 0 4px; }
-.step-desc { font-size: 13px; color: #6b7280; margin: 0; }
-.step-desc code { background: #2a2d3e; padding: 1px 6px; border-radius: 4px; font-family: monospace; color: #9ca3af; }
-
-/* 공통 버튼 */
-.btn-primary {
-  background: #4f9eff; color: #fff;
-  border: none; border-radius: 6px;
-  padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-.btn-primary:hover { background: #3b8ae8; }
 
-.btn-secondary {
-  background: none; border: 1px solid #2a2d3e;
-  border-radius: 6px; color: #9ca3af;
-  padding: 8px 18px; font-size: 14px; cursor: pointer;
+.step-title {
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  font-weight: 600;
+  margin: 0;
 }
-.btn-secondary:hover { border-color: #4b5563; color: #e5e7eb; }
+
+.step-desc {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+  margin: 0;
+}
+
+.step-desc :deep(code) {
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: var(--tracking-wide);
+}
+
+.step-desc :deep(strong) {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 720px) {
+  .broker-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .broker-info {
+    justify-content: space-between;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
