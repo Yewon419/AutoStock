@@ -162,7 +162,7 @@
     <section class="tickers-row">
       <span class="tickers-label">TICKERS · 대상 종목</span>
       <div class="ticker-tags">
-        <span v-for="t in bot.tickers || []" :key="t" class="ticker-tag">{{ t }}</span>
+        <StockLink v-for="t in bot.tickers || []" :key="t" :ticker="t" class="ticker-tag">{{ t }}</StockLink>
         <span v-if="!(bot.tickers || []).length" class="no-tickers">종목 없음</span>
       </div>
     </section>
@@ -204,7 +204,7 @@
           </thead>
           <tbody>
             <tr v-for="pos in positions" :key="pos.id">
-              <td class="ticker-cell">{{ pos.ticker }}</td>
+              <td class="ticker-cell"><StockLink :ticker="pos.ticker" /></td>
               <td class="td-num">{{ pos.quantity.toLocaleString() }}</td>
               <td class="td-num">{{ fmtPrice(pos.avg_price) }}</td>
               <td class="td-num">{{ fmtPrice(pos.current_price) }}</td>
@@ -239,7 +239,7 @@
           <tbody>
             <tr v-for="o in orders" :key="o.id">
               <td class="time-cell">{{ fmtDatetime(o.created_at) }}</td>
-              <td class="ticker-cell">{{ o.ticker }}</td>
+              <td class="ticker-cell"><StockLink :ticker="o.ticker" /></td>
               <td>
                 <span class="type-badge" :class="o.order_type === 'BUY' ? 'type-buy' : 'type-sell'">
                   {{ o.order_type }}
@@ -322,7 +322,7 @@
                 "
               >
                 <td class="time-cell">{{ fmtDatetime(e.executed_at) }}</td>
-                <td class="ticker-cell">{{ tickerName(e.ticker) }}</td>
+                <td class="ticker-cell"><StockLink :ticker="e.ticker">{{ tickerName(e.ticker) }}</StockLink></td>
                 <td>
                   <span
                     class="type-badge"
@@ -755,6 +755,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import BotCanvas from '@/components/BotCanvas.vue'
+import StockLink from '@/components/StockLink.vue'
 
 const route = useRoute()
 const router = useRouter()

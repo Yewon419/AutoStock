@@ -108,7 +108,7 @@
             class="ticker-card"
           >
             <div class="tc-head">
-              <span class="tc-ticker">{{ ti.ticker }}</span>
+              <StockLink :ticker="ti.ticker" class="tc-ticker">{{ ti.ticker }}</StockLink>
               <span class="tc-score" :class="scoreClass(ti.score)">
                 {{ ti.score.toFixed(1) }}
               </span>
@@ -136,6 +136,7 @@
 
 <script setup>
 import { onMounted, ref, computed } from 'vue'
+import StockLink from '@/components/StockLink.vue'
 
 const props = defineProps({
   apiBase: { type: String, required: true },

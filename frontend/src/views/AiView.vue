@@ -139,7 +139,7 @@
           <tbody>
             <tr v-for="(item, idx) in topScores" :key="item.ticker">
               <td class="rank mono">{{ String(idx + 1).padStart(2, '0') }}</td>
-              <td class="ticker-cell">{{ item.ticker }}</td>
+              <td class="ticker-cell"><StockLink :ticker="item.ticker" /></td>
               <td class="score-val td-num" :style="{ color: scoreColor(item.score) }">
                 {{ item.score.toFixed(1) }}
               </td>
@@ -872,6 +872,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import StockLink from '@/components/StockLink.vue'
 
 const router = useRouter()
 const auth = useAuthStore()

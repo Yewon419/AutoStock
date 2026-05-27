@@ -210,7 +210,7 @@
                 <td>
                   <span class="mode-tag" :class="modeClass(t.bot_mode)">{{ t.bot_mode }}</span>
                 </td>
-                <td class="td-ticker">{{ t.ticker }}</td>
+                <td class="td-ticker"><StockLink :ticker="t.ticker" /></td>
                 <td>
                   <span
                     class="type-badge"
@@ -237,6 +237,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import StockLink from '@/components/StockLink.vue'
 
 const auth = useAuthStore()
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'

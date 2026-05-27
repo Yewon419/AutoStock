@@ -110,7 +110,7 @@
               </thead>
               <tbody>
                 <tr v-for="(t, idx) in sellTrades" :key="idx" :class="t.pnl >= 0 ? 'win' : 'loss'">
-                  <td class="ticker-col">{{ t.ticker }}</td>
+                  <td class="ticker-col"><StockLink :ticker="t.ticker" /></td>
                   <td>{{ t.buy_date }}</td>
                   <td>{{ t.date }}</td>
                   <td>{{ t.buy_price?.toLocaleString() }}</td>
@@ -144,7 +144,7 @@
               </thead>
               <tbody>
                 <tr v-for="(v, ticker) in result.per_ticker" :key="ticker">
-                  <td class="ticker-col">{{ ticker }}</td>
+                  <td class="ticker-col"><StockLink :ticker="String(ticker)" /></td>
                   <td>{{ v.final_value?.toLocaleString() }}원</td>
                   <td :class="v.total_return_pct >= 0 ? 'pos' : 'neg'">
                     {{ v.total_return_pct >= 0 ? '+' : '' }}{{ v.total_return_pct }}%
@@ -165,6 +165,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api/index'
+import StockLink from '@/components/StockLink.vue'
 
 const route = useRoute()
 const strategyId = route.params.id
