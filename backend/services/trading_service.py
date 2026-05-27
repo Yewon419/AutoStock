@@ -296,42 +296,99 @@ def rebaseline_bot(db: Session, bot_id: int, user_id: int):
 # ── 포지션 / 주문 / 보고서 ─────────────────────────────────────────
 
 def get_positions(db: Session, bot_id: int):
-    from models.market import StockPrice
-    from sqlalchemy import func
+    """포지션 목록 + 한국 증권사 baseline 필드 확장.
+
+    현재가: rt:price(실시간) → StockPrice 최신 close(휴장·오프타임) → avg_price 3단 fallback
+    (enrich_bot_assets와 동일 정책).
+    """
+    import redis as _redis
+    from core.config import settings
+    from models.market import StockPrice, Stock
+
     positions = db.query(Position).filter(Position.bot_id == bot_id).all()
     if not positions:
         return []
     tickers = [p.ticker for p in positions]
-    # 최신 날짜 1회 조회 후 해당 날짜 가격 일괄 로드 (N+1 → 2쿼리)
-    latest_date = (
-        db.query(func.max(StockPrice.date))
-        .filter(StockPrice.ticker.in_(tickers))
-        .scalar()
-    )
-    price_map = {}
-    if latest_date:
-        price_map = {
-            sp.ticker: sp
-            for sp in db.query(StockPrice)
-            .filter(StockPrice.ticker.in_(tickers), StockPrice.date == latest_date)
+
+    # 최신 2개 거래일 일괄 로드 — 전일대비 계산
+    distinct_dates = [
+        d for (d,) in (
+            db.query(StockPrice.date)
+            .filter(StockPrice.ticker.in_(tickers))
+            .distinct()
+            .order_by(StockPrice.date.desc())
+            .limit(2)
             .all()
-        }
-    result = []
+        )
+    ]
+    price_map: dict[str, dict] = {}
+    if distinct_dates:
+        for sp in (
+            db.query(StockPrice)
+            .filter(StockPrice.ticker.in_(tickers), StockPrice.date.in_(distinct_dates))
+            .all()
+        ):
+            price_map.setdefault(sp.ticker, {})[sp.date] = float(sp.close_price)
+    latest_date = distinct_dates[0] if distinct_dates else None
+    prev_date = distinct_dates[1] if len(distinct_dates) > 1 else None
+
+    # 회사명 일괄 로드
+    name_map = {
+        s.ticker: s.company_name
+        for s in db.query(Stock).filter(Stock.ticker.in_(tickers)).all()
+    }
+
+    # 실시간가 일괄 로드 (Redis pipeline)
+    r = _redis.from_url(settings.REDIS_URL)
+    rt_raw = r.mget([f'rt:price:{t}' for t in tickers])
+    rt_map = {
+        t: float(raw) for t, raw in zip(tickers, rt_raw) if raw is not None
+    }
+
+    # 1차 패스: 현재가 결정 + market_value 합산 (비중 분모)
+    enriched = []
+    total_market_value = 0.0
     for pos in positions:
-        latest = price_map.get(pos.ticker)
-        current_price = float(latest.close_price) if latest else float(pos.avg_price)
+        ticker_prices = price_map.get(pos.ticker, {})
+        sp_close = ticker_prices.get(latest_date) if latest_date else None
+        current_price = (
+            rt_map.get(pos.ticker)
+            or sp_close
+            or float(pos.avg_price)
+        )
+        prev_close = ticker_prices.get(prev_date) if prev_date else None
         avg = float(pos.avg_price)
+        market_value = current_price * pos.quantity
+        total_market_value += market_value
+        enriched.append((pos, current_price, prev_close, avg, market_value))
+
+    # 2차 패스: 응답 생성 (비중 계산)
+    result = []
+    for pos, current_price, prev_close, avg, market_value in enriched:
         unrealized_pnl = (current_price - avg) * pos.quantity
         unrealized_pct = (current_price - avg) / avg * 100 if avg else 0
+        if prev_close is not None and prev_close > 0:
+            day_change = current_price - prev_close
+            day_change_pct = (current_price - prev_close) / prev_close * 100
+        else:
+            day_change = None
+            day_change_pct = None
+        weight_pct = (market_value / total_market_value * 100) if total_market_value > 0 else 0
         result.append({
             'id': pos.id,
             'ticker': pos.ticker,
+            'company_name': name_map.get(pos.ticker, pos.ticker),
             'quantity': pos.quantity,
             'avg_price': avg,
             'current_price': current_price,
+            'prev_close': prev_close,
+            'day_change': round(day_change, 2) if day_change is not None else None,
+            'day_change_pct': round(day_change_pct, 2) if day_change_pct is not None else None,
+            'buy_amount': round(avg * pos.quantity, 0),
             'unrealized_pnl': round(unrealized_pnl, 0),
             'unrealized_pct': round(unrealized_pct, 2),
-            'market_value': round(current_price * pos.quantity, 0),
+            'market_value': round(market_value, 0),
+            'weight_pct': round(weight_pct, 2),
             'updated_at': pos.updated_at,
         })
     return result

@@ -78,6 +78,12 @@
         <span class="s-value mono accent">{{ fmtMoney(bot.total_assets || 0) }}</span>
       </div>
       <div class="summary-card">
+        <span class="s-label">총수익률</span>
+        <span class="s-value mono" :class="pnlClass(totalReturnPct)">
+          {{ totalReturnPct > 0 ? '+' : '' }}{{ totalReturnPct.toFixed(2) }}%
+        </span>
+      </div>
+      <div class="summary-card">
         <span class="s-label">손절 / 익절</span>
         <span class="s-value mono">
           {{ bot.stop_loss_pct }}% / {{ bot.take_profit_pct }}%
@@ -182,8 +188,37 @@
     </nav>
 
     <!-- 캔버스 탭 -->
-    <div v-if="activeTab === 'canvas'" class="tab-pane">
-      <BotCanvas :bot-id="Number(botId)" />
+    <div v-if="activeTab === 'canvas'" class="tab-pane canvas-pane">
+      <div class="canvas-main">
+        <BotCanvas :bot-id="Number(botId)" />
+      </div>
+      <aside class="canvas-side">
+        <header class="canvas-side-head">
+          <span class="cs-title">보유 종목</span>
+          <span class="cs-count">{{ positions.length }}건</span>
+        </header>
+        <div v-if="positions.length === 0" class="cs-empty">
+          보유 종목이 없습니다
+        </div>
+        <div v-else class="cs-list">
+          <div v-for="p in positions" :key="p.id" class="cs-row">
+            <div class="cs-name">
+              <span class="cs-company">{{ p.company_name || p.ticker }}</span>
+              <StockLink :ticker="p.ticker" class="cs-ticker" />
+            </div>
+            <div class="cs-mid mono">
+              <span class="cs-qty">{{ p.quantity.toLocaleString() }}주</span>
+              <span class="cs-mv">{{ fmtMoney(p.market_value) }}</span>
+            </div>
+            <div class="cs-pnl mono" :class="pnlClass(p.unrealized_pnl)">
+              <span>{{ fmtPnl(p.unrealized_pnl) }}</span>
+              <span class="cs-pct">
+                {{ (p.unrealized_pct || 0) >= 0 ? '+' : '' }}{{ (p.unrealized_pct || 0).toFixed(2) }}%
+              </span>
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <!-- 포지션 탭 -->
@@ -197,23 +232,47 @@
               <th class="th-num">수량</th>
               <th class="th-num">평균단가</th>
               <th class="th-num">현재가</th>
+              <th class="th-num">전일대비</th>
+              <th class="th-num">매입금액</th>
               <th class="th-num">평가금액</th>
-              <th class="th-num">미실현손익</th>
+              <th class="th-num">평가손익</th>
               <th class="th-num">수익률</th>
+              <th class="th-num">비중</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="pos in positions" :key="pos.id">
-              <td class="ticker-cell"><StockLink :ticker="pos.ticker" /></td>
+              <td class="ticker-cell">
+                <div class="ticker-stack">
+                  <span class="ticker-name">{{ pos.company_name || pos.ticker }}</span>
+                  <StockLink :ticker="pos.ticker" class="ticker-code" />
+                </div>
+              </td>
               <td class="td-num">{{ pos.quantity.toLocaleString() }}</td>
               <td class="td-num">{{ fmtPrice(pos.avg_price) }}</td>
               <td class="td-num">{{ fmtPrice(pos.current_price) }}</td>
+              <td class="td-num" :class="pnlClass(pos.day_change)">
+                <template v-if="pos.day_change != null">
+                  <div>{{ pos.day_change > 0 ? '+' : '' }}{{ fmtPrice(pos.day_change) }}</div>
+                  <div class="day-change-pct">
+                    {{ pos.day_change_pct > 0 ? '+' : '' }}{{ pos.day_change_pct.toFixed(2) }}%
+                  </div>
+                </template>
+                <template v-else>-</template>
+              </td>
+              <td class="td-num">{{ fmtPrice(pos.buy_amount) }}</td>
               <td class="td-num">{{ fmtPrice(pos.market_value) }}</td>
               <td class="td-num" :class="pnlClass(pos.unrealized_pnl)">
                 {{ fmtPnl(pos.unrealized_pnl) }}
               </td>
               <td class="td-num" :class="pnlClass(pos.unrealized_pct)">
                 {{ pos.unrealized_pct > 0 ? '+' : '' }}{{ pos.unrealized_pct.toFixed(2) }}%
+              </td>
+              <td class="td-num weight-cell">
+                <div class="weight-bar-wrap">
+                  <div class="weight-bar" :style="{ width: Math.min(pos.weight_pct, 100) + '%' }"></div>
+                </div>
+                <span class="weight-pct-text">{{ pos.weight_pct.toFixed(1) }}%</span>
               </td>
             </tr>
           </tbody>
@@ -751,7 +810,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import BotCanvas from '@/components/BotCanvas.vue'
@@ -772,6 +831,15 @@ const reportScore = ref(null)
 const reportScoreInsufficient = ref(null)
 const strategies = ref([])
 const activeTab = ref('canvas')
+
+const totalReturnPct = computed(() => {
+  const b = bot.value
+  if (!b) return 0
+  const init = Number(b.initial_cash || 0)
+  const total = Number(b.total_assets || 0)
+  if (init <= 0) return 0
+  return ((total - init) / init) * 100
+})
 const lineChartEl = ref(null)
 const barChartEl = ref(null)
 let lineChart = null
@@ -1095,10 +1163,29 @@ async function renderExecChartForTicker(data, ticker) {
 
 async function switchTab(tab) {
   activeTab.value = tab
+  if (tab === 'canvas') startCanvasPolling()
+  else stopCanvasPolling()
   if (tab === 'positions') await fetchPositions()
   else if (tab === 'orders') await fetchOrders()
   else if (tab === 'executions') await fetchExecutions()
   else if (tab === 'reports') await fetchReports()
+}
+
+let canvasPollTimer = null
+
+function startCanvasPolling() {
+  stopCanvasPolling()
+  canvasPollTimer = setInterval(() => {
+    fetchPositions()
+    fetchBot()
+  }, 30000)
+}
+
+function stopCanvasPolling() {
+  if (canvasPollTimer) {
+    clearInterval(canvasPollTimer)
+    canvasPollTimer = null
+  }
 }
 
 async function startBot() {
@@ -1177,6 +1264,11 @@ function barColor(v) {
 onMounted(async () => {
   await fetchBot()
   await Promise.all([fetchPositions(), fetchPerf(), fetchStrategies(), fetchStockNames()])
+  if (activeTab.value === 'canvas') startCanvasPolling()
+})
+
+onUnmounted(() => {
+  stopCanvasPolling()
 })
 </script>
 
@@ -1567,6 +1659,149 @@ onMounted(async () => {
   gap: var(--space-4);
 }
 
+.canvas-pane {
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--space-4);
+}
+
+.canvas-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.canvas-side {
+  flex: 0 0 300px;
+  background: var(--surface-1, var(--surface-2));
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 80vh;
+  overflow-y: auto;
+  align-self: flex-start;
+  position: sticky;
+  top: var(--space-3);
+}
+
+.canvas-side-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.cs-title {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.cs-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.cs-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  padding: var(--space-4) 0;
+}
+
+.cs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cs-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px var(--space-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-xs);
+  border-left: 2px solid transparent;
+  transition: border-color 120ms ease;
+}
+
+.cs-row:hover {
+  border-left-color: var(--accent, #60a5fa);
+}
+
+.cs-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cs-company {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cs-ticker {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: var(--tracking-wide);
+  flex-shrink: 0;
+}
+
+.cs-mid {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cs-qty {
+  color: var(--text-muted);
+}
+
+.cs-mv {
+  color: var(--text-primary);
+}
+
+.cs-pnl {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.cs-pct {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+@media (max-width: 1100px) {
+  .canvas-pane {
+    flex-direction: column;
+  }
+
+  .canvas-side {
+    flex: none;
+    position: static;
+    max-height: 320px;
+  }
+}
+
 .empty-tab {
   text-align: center;
   color: var(--text-faint);
@@ -1637,6 +1872,68 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: var(--tracking-wide);
+}
+
+.ticker-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 110px;
+}
+
+.ticker-name {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.ticker-stack .ticker-code {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.day-change-pct {
+  font-size: 10px;
+  opacity: 0.85;
+  margin-top: 1px;
+}
+
+.weight-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.weight-bar-wrap {
+  flex: 0 0 56px;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.weight-bar {
+  height: 100%;
+  background: var(--accent, #60a5fa);
+  opacity: 0.7;
+  transition: width 200ms ease;
+}
+
+.weight-pct-text {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  min-width: 38px;
+  text-align: right;
 }
 
 .time-cell {
