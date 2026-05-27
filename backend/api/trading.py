@@ -106,6 +106,8 @@ class BotResponse(BaseModel):
     cash: Optional[float] = None
     total_assets: Optional[float] = None
     holdings_value: Optional[float] = None
+    today_pnl: Optional[float] = None
+    today_pnl_pct: Optional[float] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     max_drawdown_pct: Optional[float] = None

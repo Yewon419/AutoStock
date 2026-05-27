@@ -1,5 +1,5 @@
 import math
-from datetime import time
+from datetime import time, date as _date
 from sqlalchemy.orm import Session
 from models.trading import Account, TradingBot, Order, Execution, Position, BotReport
 from core.security import get_encryption_service
@@ -150,9 +150,25 @@ def enrich_bot_assets(db: Session, bot: TradingBot) -> dict:
 
     total_assets = cash + holdings_value
 
+    # 당일 평가손익 (전일대비). 어제 BotReport 없으면 initial_cash baseline (첫날 처리).
+    prev_report = (
+        db.query(BotReport)
+        .filter(BotReport.bot_id == bot.id, BotReport.date < _date.today())
+        .order_by(BotReport.date.desc())
+        .first()
+    )
+    if prev_report and prev_report.total_assets:
+        prev_assets = float(prev_report.total_assets)
+    else:
+        prev_assets = float(bot.initial_cash or 0)
+    today_pnl = total_assets - prev_assets
+    today_pnl_pct = (today_pnl / prev_assets * 100) if prev_assets > 0 else 0.0
+
     d = {c.key: getattr(bot, c.key) for c in bot.__table__.columns}
     d['total_assets'] = round(total_assets, 2)
     d['holdings_value'] = round(holdings_value, 2)
+    d['today_pnl'] = round(today_pnl, 2)
+    d['today_pnl_pct'] = round(today_pnl_pct, 2)
     return d
 
 

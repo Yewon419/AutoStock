@@ -127,6 +127,12 @@
               {{ bot.stop_loss_pct }}% / {{ bot.take_profit_pct }}%
             </span>
           </div>
+          <div class="stat">
+            <span class="stat-label">오늘 손익</span>
+            <span class="stat-value mono" :class="(bot.today_pnl ?? 0) >= 0 ? 'profit' : 'loss'">
+              {{ fmtTodayPnl(bot) }}
+            </span>
+          </div>
         </div>
 
         <div v-if="(bot.tickers || []).length > 0" class="bot-tickers">
@@ -453,6 +459,13 @@ function modeClass(mode) {
 function fmtMoney(v) {
   if (!v) return '0원'
   return Number(v).toLocaleString('ko-KR') + '원'
+}
+
+function fmtTodayPnl(bot) {
+  const pnl = bot.today_pnl ?? 0
+  const pct = bot.today_pnl_pct ?? 0
+  const sign = pnl >= 0 ? '+' : ''
+  return `${sign}${Number(pnl).toLocaleString('ko-KR')}원 (${sign}${pct.toFixed(2)}%)`
 }
 
 function totalAssetsPnl(bot) {
