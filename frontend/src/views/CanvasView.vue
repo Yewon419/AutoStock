@@ -564,6 +564,15 @@
     </div>
   </Teleport>
 
+  <!-- 참고자료 KB 등록 모달 (봇 모드 전용) -->
+  <KnowledgeSourceModal
+    v-if="props.botId"
+    :open="showKbModal"
+    :bot-id="props.botId"
+    @submitted="onKbSubmitted"
+    @close="onKbClose"
+  />
+
   </div>
 </template>
 
@@ -583,6 +592,7 @@ import '@vue-flow/minimap/dist/style.css'
 
 import FlowNode from '@/components/canvas/FlowNode.vue'
 import MlInsightPanel from '@/components/canvas/MlInsightPanel.vue'
+import KnowledgeSourceModal from '@/components/canvas/KnowledgeSourceModal.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -593,6 +603,7 @@ const nodeTypes = {
   marketContext:    markRaw(FlowNode),
   techIndicators:   markRaw(FlowNode),
   mlScores:         markRaw(FlowNode),
+  knowledgeSource:  markRaw(FlowNode),
   accountConfig:    markRaw(FlowNode),
   riskParams:       markRaw(FlowNode),
   strategy:         markRaw(FlowNode),
@@ -605,7 +616,7 @@ const nodeTypes = {
 }
 
 // ── 노드 정의 ─────────────────────────────────────────────────────
-const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores']
+const SOURCE_TYPES     = ['marketContext', 'techIndicators', 'mlScores', 'knowledgeSource']
 const CONFIG_TYPES     = ['accountConfig', 'riskParams']
 const STRATEGY_TYPES   = ['strategy', 'strategyBuilder']
 const PROCESSING_TYPES = ['mlModel', 'llmGenerator', 'backtest', 'strategyOptimize']
@@ -639,6 +650,21 @@ const NODE_DEFS = {
     description: '저장된 ML 스코어링 결과',
     inputs: [], outputs: [{ id: 'ml_scores', label: 'ML 스코어' }],
     config: {}, apiPath: '/ai/scores', apiMethod: 'GET',
+  },
+  knowledgeSource: {
+    label: '참고자료 (KB)', icon: '📚', category: 'source',
+    description: '책·URL·유튜브 자막 등 KB. 등록 14일간 universe 후보로 자동 합집합',
+    inputs: [], outputs: [{ id: 'kb_tickers', label: 'KB 후보 종목' }],
+    config: {
+      source_id: null,
+      source_type: 'text',     // text | url | youtube | pdf
+      title: '',
+      summary: '',
+      mentioned_tickers: [],
+      kb_status: 'pending',    // pending | ingesting | ready | failed (DB status 별도 보존)
+      error_msg: null,
+    },
+    apiPath: null,
   },
   accountConfig: {
     label: '계좌 설정', icon: '🏦', category: 'config',
@@ -919,6 +945,17 @@ function updateNodeData(nodeId, patch) {
 function addNode(type, x, y) {
   const def = NODE_DEFS[type]
   if (!def) return
+  // KB 노드는 봇 모드 + 모달 등록 흐름 (저장 후 source_id 받아야 의미가 있음)
+  if (type === 'knowledgeSource') {
+    if (!props.botId) {
+      connectionError.value = '참고자료(KB)는 봇 모드에서만 등록 가능합니다'
+      setTimeout(() => { connectionError.value = null }, 4000)
+      return
+    }
+    pendingKbNodePos.value = { x: x ?? null, y: y ?? null }
+    showKbModal.value = true
+    return
+  }
   const id = `${type}-${++nodeCounter}`
   const cx = x ?? 120 + (nodes.value.length % 4) * 220
   const cy = y ?? 160 + Math.floor(nodes.value.length / 4) * 160
@@ -939,8 +976,176 @@ function addNode(type, x, y) {
   }]
 }
 
+// ── KB 노드 모달 ──────────────────────────────────────────────────
+const showKbModal = ref(false)
+const pendingKbNodePos = ref({ x: null, y: null })
+
+function onKbSubmitted(source) {
+  // 모달이 성공적으로 등록을 받으면 노드 생성 (취소면 노드 안 만듦)
+  const def = NODE_DEFS.knowledgeSource
+  const id = `knowledgeSource-${++nodeCounter}`
+  const cx = pendingKbNodePos.value.x ?? 120 + (nodes.value.length % 4) * 220
+  const cy = pendingKbNodePos.value.y ?? 160 + Math.floor(nodes.value.length / 4) * 160
+
+  const kbStatus = source.status || 'pending'
+  nodes.value = [...nodes.value, {
+    id,
+    type: 'knowledgeSource',
+    position: { x: cx, y: cy },
+    data: {
+      ...def,
+      label: source.title ? `📚 ${source.title}` : def.label,
+      inputs:  [...def.inputs],
+      outputs: [...def.outputs],
+      config: {
+        source_id: source.id,
+        source_type: source.source_type,
+        title: source.title,
+        summary: source.summary || '',
+        mentioned_tickers: source.mentioned_tickers || [],
+        kb_status: kbStatus,
+        error_msg: source.error_msg || null,
+      },
+      status: kbStatusToNodeStatus(kbStatus),
+      result: null,
+      error: source.error_msg || null,
+    },
+  }]
+}
+
+function onKbClose() {
+  showKbModal.value = false
+  pendingKbNodePos.value = { x: null, y: null }
+}
+
+function kbStatusToNodeStatus(kbStatus) {
+  // KnowledgeSource.status를 FlowNode status 시스템에 매핑
+  if (kbStatus === 'ready')     return 'success'
+  if (kbStatus === 'failed')    return 'error'
+  if (kbStatus === 'ingesting') return 'running'
+  return 'idle'  // pending
+}
+
+// ── KB 자동 시드 + 폴링 ────────────────────────────────────────────
+const KB_POLL_INTERVAL_MS = 3000
+let _kbPollHandle = null
+
+function _kbNodeFromSource(source, x, y) {
+  const def = NODE_DEFS.knowledgeSource
+  const id = `knowledgeSource-${++nodeCounter}`
+  return {
+    id,
+    type: 'knowledgeSource',
+    position: { x, y },
+    data: {
+      ...def,
+      label: source.title ? `📚 ${source.title}` : def.label,
+      inputs:  [...def.inputs],
+      outputs: [...def.outputs],
+      config: {
+        source_id: source.id,
+        source_type: source.source_type,
+        title: source.title,
+        summary: source.summary || '',
+        mentioned_tickers: source.mentioned_tickers || [],
+        kb_status: source.status,
+        error_msg: source.error_msg || null,
+      },
+      status: kbStatusToNodeStatus(source.status),
+      result: null,
+      error: source.error_msg || null,
+    },
+  }
+}
+
+async function seedKnowledgeSources() {
+  if (!props.botId) return
+  try {
+    const res = await fetch(`${API}/trading/bots/${props.botId}/knowledge-sources`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+    if (!res.ok) return
+    const list = await res.json()
+    const existingIds = new Set(
+      nodes.value
+        .filter(n => n.type === 'knowledgeSource')
+        .map(n => n.data?.config?.source_id)
+        .filter(id => id != null)
+    )
+    const toAdd = list.filter(s => !existingIds.has(s.id))
+    if (toAdd.length === 0) return
+    const newNodes = toAdd.map((source, i) => {
+      const cx = 120 + ((nodes.value.length + i) % 4) * 220
+      const cy = 160 + Math.floor((nodes.value.length + i) / 4) * 160
+      return _kbNodeFromSource(source, cx, cy)
+    })
+    nodes.value = [...nodes.value, ...newNodes]
+  } catch (e) {
+    console.warn('[CanvasView] KB seed 실패:', e)
+  }
+}
+
+async function pollKnowledgeSources() {
+  if (!props.botId) return
+  const pending = nodes.value.filter(
+    n => n.type === 'knowledgeSource' &&
+         ['pending', 'ingesting'].includes(n.data?.config?.kb_status)
+  )
+  if (pending.length === 0) return
+  try {
+    const res = await fetch(`${API}/trading/bots/${props.botId}/knowledge-sources`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+    if (!res.ok) return
+    const list = await res.json()
+    const byId = Object.fromEntries(list.map(s => [s.id, s]))
+    const updatedNodes = nodes.value.map(n => {
+      if (n.type !== 'knowledgeSource') return n
+      const sid = n.data?.config?.source_id
+      if (sid == null) return n
+      const fresh = byId[sid]
+      if (!fresh || fresh.status === n.data.config.kb_status) return n
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          config: {
+            ...n.data.config,
+            summary: fresh.summary || '',
+            mentioned_tickers: fresh.mentioned_tickers || [],
+            kb_status: fresh.status,
+            error_msg: fresh.error_msg || null,
+          },
+          status: kbStatusToNodeStatus(fresh.status),
+          error: fresh.error_msg || null,
+        },
+      }
+    })
+    nodes.value = updatedNodes
+  } catch (e) {
+    console.warn('[CanvasView] KB 폴링 실패:', e)
+  }
+}
+
 // ── 노드 삭제 ─────────────────────────────────────────────────────
-function deleteNode(nodeId) {
+async function deleteNode(nodeId) {
+  const node = nodes.value.find(n => n.id === nodeId)
+  // KB 노드 + source_id 있으면 DB도 함께 삭제 (confirm)
+  if (node && node.type === 'knowledgeSource' && node.data?.config?.source_id) {
+    const ok = window.confirm(
+      `참고자료 "${node.data.config.title || ''}"를 삭제합니다. DB에서도 제거됩니다. 계속할까요?`
+    )
+    if (!ok) return
+    try {
+      const sid = node.data.config.source_id
+      await fetch(`${API}/trading/bots/${props.botId}/knowledge-sources/${sid}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${auth.token}` },
+      })
+    } catch (e) {
+      console.warn('[CanvasView] KB DELETE 실패 (노드는 캔버스에서 제거):', e)
+    }
+  }
   nodes.value = nodes.value.filter(n => n.id !== nodeId)
   edges.value = edges.value.filter(e => e.source !== nodeId && e.target !== nodeId)
   if (selectedNode.value?.id === nodeId) selectedNode.value = null
@@ -1841,6 +2046,12 @@ onMounted(async () => {
     }
   }
 
+  // 봇 모드: 기존 KB 자료를 노드로 자동 시드 + 폴링 시작
+  if (props.botId !== null) {
+    await seedKnowledgeSources()
+    _kbPollHandle = setInterval(pollKnowledgeSources, KB_POLL_INTERVAL_MS)
+  }
+
   // 시드·로드 완료 후 모든 노드가 보이게 화면 맞춤 (임베드 환경에서 fit-view-on-init 타이밍 보강)
   await nextTick()
   setTimeout(fitToNodes, 100)
@@ -1848,6 +2059,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('click', onClickOutside)
+  if (_kbPollHandle) {
+    clearInterval(_kbPollHandle)
+    _kbPollHandle = null
+  }
 })
 </script>
 

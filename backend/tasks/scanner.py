@@ -3,7 +3,8 @@
 - 매일 17:00 (데이터 수집 완료 후) 실행
 - RUNNING 상태 봇의 전략 조건을 전체 종목에 적용해 tickers 자동 갱신
 - 매칭 종목을 ML 점수 우선·거래량 보조로 정렬해 상위 MAX_TICKERS개 선택
-- 보유 포지션 종목은 universe 이탈 방지를 위해 항상 합집합 (청산 신호 누락 방지)
+- 보유 포지션 + 최근 14일 등록된 KB 언급 종목은 universe에 항상 합집합 추가
+  (청산 신호 누락 + KB 후보 확장 보장)
 
 스윙 봇: 일봉 DB 지표로 전체 조건 평가
 단타 봇: 일봉 DB로 평가 가능한 조건만 선(先)스크리닝 → 거래량 상위 필터
@@ -11,6 +12,7 @@
 """
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 import redis as _redis_sync
 
@@ -20,11 +22,13 @@ from core.database import SessionLocal
 from models.trading import TradingBot, Position
 from models.market import TechnicalIndicator, StockPrice
 from models.strategy import Strategy
+from models.knowledge import KnowledgeSource
 from services.backtest_engine import _all_conditions_met, SUPPORTED_INDICATORS, build_vol_ctx
 
 logger = logging.getLogger(__name__)
 
-MAX_TICKERS = 30  # 봇당 최대 종목 수 (보유 포지션은 별도 합집합 → 실제 universe 크기는 30+α 가능)
+MAX_TICKERS = 30  # 봇당 최대 종목 수 (보유 + KB는 별도 합집합 → 실제 universe 크기는 30+α 가능)
+KB_TICKER_TTL_DAYS = 14  # KnowledgeSource 등록일 기준 N일 이내만 universe 합집합 대상
 # stream 자동 동기화 신호 — universe 갱신 후 SET하면 stream task가 다음 30s 안에 정상 종료,
 # watchdog이 다음 분 stale 감지하고 새 universe로 재기동.
 _STREAM_UNIVERSE_DIRTY_KEY = "autostock:price_stream:universe_dirty"
@@ -44,6 +48,30 @@ def _load_ml_scores() -> dict[str, float]:
     except Exception as e:
         logger.warning("[scanner] ML scores 로드 실패 (fallback): %r", e)
         return {}
+
+
+def _load_kb_tickers(db, days: int = KB_TICKER_TTL_DAYS) -> dict[int, set[str]]:
+    """봇별로 status='ready'이고 ingested_at >= NOW-days인 KB 언급 ticker 집합.
+
+    한 번에 모든 봇 로드 → bot_id별 dict로 반환. mentioned_tickers JSON 컬럼을
+    flatten해 중복 제거. KB 없는 봇은 빈 set으로 fallback (호출자가 .get).
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (
+        db.query(KnowledgeSource.bot_id, KnowledgeSource.mentioned_tickers)
+        .filter(
+            KnowledgeSource.status == "ready",
+            KnowledgeSource.ingested_at.isnot(None),
+            KnowledgeSource.ingested_at >= cutoff,
+        )
+        .all()
+    )
+    out: dict[int, set[str]] = {}
+    for bot_id, tickers in rows:
+        if not tickers:
+            continue
+        out.setdefault(bot_id, set()).update(str(t) for t in tickers if t)
+    return out
 
 # 일봉 DB에 없는 인트라데이 전용 지표 — 단타 스캐너에서 건너뜀
 _INTRADAY_ONLY = {'volume_ratio', 'opening_gap', 'bb_upper', 'bb_middle', 'bb_lower',
@@ -120,11 +148,12 @@ def scan_bot_tickers():
         # 인트라데이 indicator(volume_ratio) 평가용 vol_ctx — 전체 종목 한 번 계산
         vol_ctx = build_vol_ctx(db, list(price_row_map.keys()), latest_date)
 
-        # ML 점수 + 봇별 보유 포지션 한 번에 로드
+        # ML 점수 + 봇별 보유 포지션 + 봇별 KB ticker 한 번에 로드
         ml_scores = _load_ml_scores()
         positions_map: dict[int, set[str]] = {}
         for bot_id, ticker in db.query(Position.bot_id, Position.ticker).all():
             positions_map.setdefault(bot_id, set()).add(ticker)
+        kb_map = _load_kb_tickers(db)
 
         results = []
         for bot in bots:
@@ -166,18 +195,22 @@ def scan_bot_tickers():
             matched.sort(key=lambda t: (-ml_scores.get(t, -1.0), -vol_map.get(t, 0)))
             top_matched = matched[:MAX_TICKERS]
 
-            # 보유 종목은 universe 이탈 방지 — 합집합으로 청산 신호 누락 차단.
+            # 보유 종목 + KB 언급 종목은 universe 합집합 — 청산 신호 누락 차단 + KB 후보 확장.
             # dict.fromkeys로 순서 보존 + 중복 제거 (top_matched ML 정렬 순 유지).
             held = positions_map.get(bot.id, set())
+            kb_tickers = kb_map.get(bot.id, set())
             held_outside = sorted(t for t in held if t not in top_matched)
-            final_universe = list(dict.fromkeys(top_matched + held_outside))
+            kb_outside = sorted(t for t in kb_tickers if t not in top_matched and t not in held)
+            final_universe = list(dict.fromkeys(top_matched + held_outside + kb_outside))
 
             old_count = len(bot.tickers or [])
             bot.tickers = final_universe
             mode_label = "단타" if is_scalping else "스윙"
             logger.info(
                 f"[scanner] bot_id={bot.id} ({bot.name}) [{mode_label}]: "
-                f"{old_count}개 → {len(final_universe)}개 (top={len(top_matched)} + 보유유지={len(held_outside)}) | 기준일: {latest_date}"
+                f"{old_count}개 → {len(final_universe)}개 "
+                f"(top={len(top_matched)} + 보유={len(held_outside)} + KB={len(kb_outside)}) "
+                f"| 기준일: {latest_date}"
             )
             results.append({"bot_id": bot.id, "bot_type": mode_label, "ticker_count": len(final_universe)})
 

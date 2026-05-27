@@ -24,6 +24,7 @@ celery_app = Celery(
         "tasks.circuit_breaker_task",
         "tasks.mechanism_audit",
         "tasks.bot_tuning",
+        "tasks.knowledge_ingestion",
     ],
 )
 

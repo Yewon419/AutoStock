@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from core.config import settings
 from core.database import Base, engine
-from api import users, market, strategies, trading, broker, dashboard, ai, bot_canvas
+from api import users, market, strategies, trading, broker, dashboard, ai, bot_canvas, knowledge_sources
 
 # DB 테이블 생성
 Base.metadata.create_all(bind=engine)
@@ -46,6 +46,7 @@ app.include_router(broker.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
 app.include_router(bot_canvas.router, prefix="/api/v1")
+app.include_router(knowledge_sources.router, prefix="/api/v1")
 
 
 @app.get("/health")

@@ -39,21 +39,34 @@
           <div v-if="showDropdown" class="bell-dropdown" role="menu">
             <div class="dd-head">
               <span class="dd-title">PENDING</span>
-              <span class="dd-count-total">{{ pendingSummary.total }}</span>
+              <span class="dd-count-total">{{ pendingSummary.total + kbSummary.total }}</span>
             </div>
-            <div v-if="pendingSummary.by_bot.length === 0" class="dd-empty">
-              대기 중인 제안 없음
+            <div v-if="mergedRows.length === 0" class="dd-empty">
+              대기 중인 알림 없음
             </div>
             <div v-else class="dd-list">
               <button
-                v-for="b in pendingSummary.by_bot"
-                :key="b.bot_id"
+                v-for="row in mergedRows"
+                :key="row.bot_id"
                 class="dd-row"
                 type="button"
-                @click="goBot(b.bot_id)"
+                @click="goBot(row.bot_id)"
               >
-                <span class="dd-bot-name">{{ b.bot_name }}</span>
-                <span class="dd-count" :class="{ unseen: isUnseen(b) }">{{ b.count }}</span>
+                <span class="dd-bot-name">{{ row.bot_name }}</span>
+                <span class="dd-row-counts">
+                  <span
+                    v-if="row.sugg_count > 0"
+                    class="dd-count dd-count-sugg"
+                    :class="{ unseen: row.sugg_unseen }"
+                    title="튜닝 제안"
+                  >✦ {{ row.sugg_count }}</span>
+                  <span
+                    v-if="row.kb_count > 0"
+                    class="dd-count dd-count-kb"
+                    :class="{ unseen: row.kb_unseen }"
+                    title="새 자료 (KB)"
+                  >📚 {{ row.kb_count }}</span>
+                </span>
               </button>
             </div>
           </div>
@@ -201,15 +214,18 @@ const auth = useAuthStore()
 const isCanvas = computed(() => route.name === 'canvas')
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
-const LAST_SEEN_KEY = 'as:lastSeenSuggestionByBot' // { [botId]: lastSeenId }
+const LAST_SEEN_KEY = 'as:lastSeenSuggestionByBot' // { [botId]: lastSeenId } — 튜닝 제안
+const LAST_SEEN_KB_KEY = 'as:lastSeenKbByBot'      // { [botId]: lastSeenKbId } — KB ready
 const pendingSummary = ref({ total: 0, by_bot: [] })
-const lastSeenMap = ref(loadLastSeen())
+const kbSummary      = ref({ total: 0, by_bot: [] })
+const lastSeenMap   = ref(loadLastSeen(LAST_SEEN_KEY))
+const lastSeenKbMap = ref(loadLastSeen(LAST_SEEN_KB_KEY))
 const showDropdown = ref(false)
 let pollTimer = null
 
-function loadLastSeen() {
+function loadLastSeen(key) {
   try {
-    const raw = localStorage.getItem(LAST_SEEN_KEY)
+    const raw = localStorage.getItem(key)
     return raw ? JSON.parse(raw) : {}
   } catch {
     return {}
@@ -220,18 +236,60 @@ function isUnseen(b) {
   return (b.max_id || 0) > (lastSeenMap.value[b.bot_id] || 0)
 }
 
-// 미확인 봇의 카운트만 합산. 행을 클릭해 그 봇 페이지로 이동하면 그 봇의 카운트만 사라짐.
-const unseenCount = computed(() =>
-  pendingSummary.value.by_bot.reduce((sum, b) => sum + (isUnseen(b) ? b.count : 0), 0),
-)
+function isUnseenKb(b) {
+  return (b.max_id || 0) > (lastSeenKbMap.value[b.bot_id] || 0)
+}
+
+// 미확인 봇의 카운트만 합산. 행 클릭으로 봇 페이지 이동 시 그 봇의 카운트만 사라짐.
+// 튜닝 제안 + KB 새 자료 두 도메인 합산.
+const unseenCount = computed(() => {
+  const sugg = pendingSummary.value.by_bot.reduce(
+    (sum, b) => sum + (isUnseen(b) ? b.count : 0), 0,
+  )
+  const kb = kbSummary.value.by_bot.reduce(
+    (sum, b) => sum + (isUnseenKb(b) ? b.count : 0), 0,
+  )
+  return sugg + kb
+})
+
+// 드롭다운용 봇별 통합 행 (튜닝 + KB 같은 봇 1줄로 묶음)
+const mergedRows = computed(() => {
+  const map = {}
+  for (const b of pendingSummary.value.by_bot) {
+    map[b.bot_id] = {
+      bot_id: b.bot_id, bot_name: b.bot_name,
+      sugg_count: b.count, sugg_unseen: isUnseen(b),
+      kb_count: 0, kb_unseen: false,
+    }
+  }
+  for (const b of kbSummary.value.by_bot) {
+    if (!map[b.bot_id]) {
+      map[b.bot_id] = {
+        bot_id: b.bot_id, bot_name: b.bot_name,
+        sugg_count: 0, sugg_unseen: false,
+        kb_count: b.count, kb_unseen: isUnseenKb(b),
+      }
+    } else {
+      map[b.bot_id].kb_count = b.count
+      map[b.bot_id].kb_unseen = isUnseenKb(b)
+    }
+  }
+  return Object.values(map)
+})
 
 async function fetchPendingSummary() {
   if (!auth.token) return
   try {
-    const res = await fetch(`${API}/trading/bots/suggestions/pending-summary`, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    })
-    if (res.ok) pendingSummary.value = await res.json()
+    const [r1, r2] = await Promise.all([
+      fetch(`${API}/trading/bots/suggestions/pending-summary`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      }),
+      fetch(`${API}/trading/bots/knowledge-sources/unread-summary`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      }),
+    ])
+    if (r1.ok) pendingSummary.value = await r1.json()
+    if (r2.ok) kbSummary.value = await r2.json()
   } catch {
     /* 헤더 배지 실패는 무시 */
   }
@@ -243,12 +301,18 @@ function toggleDropdown() {
 }
 
 function goBot(botId) {
-  // 이 봇 행을 클릭해 페이지로 이동 → 이 봇의 max_id를 마지막 본 id로 저장
+  // 이 봇 행을 클릭해 페이지로 이동 → 그 봇의 max_id를 마지막 본 id로 저장 (튜닝 + KB 둘 다)
   const bot = pendingSummary.value.by_bot.find((b) => b.bot_id === botId)
   if (bot) {
     const newMap = { ...lastSeenMap.value, [botId]: bot.max_id || 0 }
     lastSeenMap.value = newMap
     localStorage.setItem(LAST_SEEN_KEY, JSON.stringify(newMap))
+  }
+  const kb = kbSummary.value.by_bot.find((b) => b.bot_id === botId)
+  if (kb) {
+    const newKbMap = { ...lastSeenKbMap.value, [botId]: kb.max_id || 0 }
+    lastSeenKbMap.value = newKbMap
+    localStorage.setItem(LAST_SEEN_KB_KEY, JSON.stringify(newKbMap))
   }
   showDropdown.value = false
   router.push(`/bots/${botId}`)
@@ -571,6 +635,16 @@ onBeforeUnmount(() => {
 .dd-count.unseen {
   background: var(--accent-bg);
   color: var(--accent);
+}
+
+.dd-row-counts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dd-count-sugg, .dd-count-kb {
+  font-size: 10px;
+  padding: 2px 6px;
 }
 
 /* ==========================================================================

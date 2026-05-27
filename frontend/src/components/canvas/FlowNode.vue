@@ -56,6 +56,22 @@
           <span class="rv">{{ val }}</span>
         </div>
       </div>
+      <div v-else-if="isKnowledgeNode" class="body-kb">
+        <div v-if="data.config.summary" class="kb-summary">{{ data.config.summary }}</div>
+        <div v-else class="kb-summary kb-summary-empty">
+          {{ data.config.kb_status === 'pending' ? '분석 대기 중…'
+             : data.config.kb_status === 'ingesting' ? '본문 추출·요약 중…'
+             : '요약 없음' }}
+        </div>
+        <div v-if="data.config.mentioned_tickers && data.config.mentioned_tickers.length"
+             class="kb-tickers">
+          <span v-for="t in data.config.mentioned_tickers.slice(0, 8)" :key="t"
+                class="kb-ticker-chip">{{ t }}</span>
+          <span v-if="data.config.mentioned_tickers.length > 8" class="kb-ticker-more">
+            +{{ data.config.mentioned_tickers.length - 8 }}
+          </span>
+        </div>
+      </div>
       <div v-else-if="conditionRows.length" class="body-config">
         <div v-for="(c, i) in conditionRows" :key="i" class="cfg-row">
           <span class="cfg-key">{{ c.indicator }}</span>
@@ -159,6 +175,11 @@ const conditionRows = computed(() => {
         ? `${c.value} ~ ${c.value2}`
         : `${c.condition} ${c.value ?? ''}`.trim(),
   }))
+})
+
+// KB 노드는 outputs 첫 핸들이 'kb_tickers' — 충돌 안전
+const isKnowledgeNode = computed(() => {
+  return props.data?.outputs?.[0]?.id === 'kb_tickers'
 })
 
 const _CFG_LABELS = {
@@ -409,6 +430,45 @@ const previewResult = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.body-kb {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kb-summary {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  max-height: 64px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+.kb-summary-empty { color: var(--text-muted); font-style: italic; }
+.kb-tickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 2px;
+}
+.kb-ticker-chip {
+  padding: 1px 5px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 3px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.kb-ticker-more {
+  padding: 1px 5px;
+  color: var(--text-muted);
+  font-size: 9px;
 }
 
 .result-row,
