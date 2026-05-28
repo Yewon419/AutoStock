@@ -164,11 +164,30 @@ def enrich_bot_assets(db: Session, bot: TradingBot) -> dict:
     today_pnl = total_assets - prev_assets
     today_pnl_pct = (today_pnl / prev_assets * 100) if prev_assets > 0 else 0.0
 
+    # 당일 실현손익 — KST 자정 이후 SELL 체결의 profit_loss 합
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+    kst_midnight = _dt.now(ZoneInfo('Asia/Seoul')).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_realized = (
+        db.query(Execution)
+        .filter(
+            Execution.bot_id == bot.id,
+            Execution.execution_type == 'SELL',
+            Execution.executed_at >= kst_midnight,
+        )
+        .all()
+    )
+    today_realized_pnl = sum(float(e.profit_loss or 0) for e in today_realized)
+    # 당일 평가손익 = 전체 - 실현 (KST 자정 이후 보유 종목의 가치 변화 + KST 자정 이후 신규 매수 평가 변화)
+    today_evaluation_pnl = today_pnl - today_realized_pnl
+
     d = {c.key: getattr(bot, c.key) for c in bot.__table__.columns}
     d['total_assets'] = round(total_assets, 2)
     d['holdings_value'] = round(holdings_value, 2)
     d['today_pnl'] = round(today_pnl, 2)
     d['today_pnl_pct'] = round(today_pnl_pct, 2)
+    d['today_realized_pnl'] = round(today_realized_pnl, 2)
+    d['today_evaluation_pnl'] = round(today_evaluation_pnl, 2)
     return d
 
 
@@ -310,14 +329,15 @@ def get_positions(db: Session, bot_id: int):
         return []
     tickers = [p.ticker for p in positions]
 
-    # 최신 2개 거래일 일괄 로드 — 전일대비 계산
+    # 최신 7개 거래일 일괄 로드 — 전일대비 + sparkline 계산
+    SPARK_DAYS = 7
     distinct_dates = [
         d for (d,) in (
             db.query(StockPrice.date)
             .filter(StockPrice.ticker.in_(tickers))
             .distinct()
             .order_by(StockPrice.date.desc())
-            .limit(2)
+            .limit(SPARK_DAYS)
             .all()
         )
     ]
@@ -331,6 +351,8 @@ def get_positions(db: Session, bot_id: int):
             price_map.setdefault(sp.ticker, {})[sp.date] = float(sp.close_price)
     latest_date = distinct_dates[0] if distinct_dates else None
     prev_date = distinct_dates[1] if len(distinct_dates) > 1 else None
+    # 오래된→최신 순 sparkline 추출 (None 빈 칸은 제외)
+    spark_dates_asc = sorted(distinct_dates) if distinct_dates else []
 
     # 회사명 일괄 로드
     name_map = {
@@ -344,6 +366,31 @@ def get_positions(db: Session, bot_id: int):
     rt_map = {
         t: float(raw) for t, raw in zip(tickers, rt_raw) if raw is not None
     }
+
+    # 미체결 SELL 주문 합산 (sellable_quantity 계산용) — mock는 즉시 체결이라 거의 0
+    from sqlalchemy import func as _sa_func
+    pending_sell_orders = (
+        db.query(Order.id, Order.ticker, Order.quantity)
+        .filter(
+            Order.bot_id == bot_id,
+            Order.order_type == 'SELL',
+            Order.status.in_(['SUBMITTED', 'PENDING', 'PARTIAL']),
+        )
+        .all()
+    )
+    exec_sum_by_order: dict[int, int] = {}
+    if pending_sell_orders:
+        for order_id, exec_qty in (
+            db.query(Execution.order_id, _sa_func.coalesce(_sa_func.sum(Execution.quantity), 0))
+            .filter(Execution.order_id.in_([o.id for o in pending_sell_orders]))
+            .group_by(Execution.order_id)
+            .all()
+        ):
+            exec_sum_by_order[order_id] = int(exec_qty or 0)
+    pending_sell_by_ticker: dict[str, int] = {}
+    for o in pending_sell_orders:
+        remaining = max(0, int(o.quantity) - exec_sum_by_order.get(o.id, 0))
+        pending_sell_by_ticker[o.ticker] = pending_sell_by_ticker.get(o.ticker, 0) + remaining
 
     # 1차 패스: 현재가 결정 + market_value 합산 (비중 분모)
     enriched = []
@@ -374,12 +421,20 @@ def get_positions(db: Session, bot_id: int):
             day_change = None
             day_change_pct = None
         weight_pct = (market_value / total_market_value * 100) if total_market_value > 0 else 0
+        # BEP: 매수 시 cost = avg*(1+COMMISSION) / 매도 시 net = sell*(1-COMMISSION-TAX) → sell = avg*(1+C)/(1-C-T)
+        # COMMISSION=0.00015·TAX=0.002 (bot_engine.py:34~35와 동일)
+        bep_price = avg * (1 + 0.00015) / (1 - 0.00215) if avg else 0
+        sellable_quantity = max(0, pos.quantity - pending_sell_by_ticker.get(pos.ticker, 0))
+        ticker_prices_map = price_map.get(pos.ticker, {})
+        spark = [ticker_prices_map[d] for d in spark_dates_asc if d in ticker_prices_map]
         result.append({
             'id': pos.id,
             'ticker': pos.ticker,
             'company_name': name_map.get(pos.ticker, pos.ticker),
             'quantity': pos.quantity,
+            'sellable_quantity': sellable_quantity,
             'avg_price': avg,
+            'bep_price': round(bep_price, 2),
             'current_price': current_price,
             'prev_close': prev_close,
             'day_change': round(day_change, 2) if day_change is not None else None,
@@ -389,6 +444,7 @@ def get_positions(db: Session, bot_id: int):
             'unrealized_pct': round(unrealized_pct, 2),
             'market_value': round(market_value, 0),
             'weight_pct': round(weight_pct, 2),
+            'sparkline': spark,
             'updated_at': pos.updated_at,
         })
     return result

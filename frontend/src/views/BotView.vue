@@ -127,10 +127,19 @@
               {{ bot.stop_loss_pct }}% / {{ bot.take_profit_pct }}%
             </span>
           </div>
-          <div class="stat">
+          <div class="stat stat-today">
             <span class="stat-label">오늘 손익</span>
             <span class="stat-value mono" :class="(bot.today_pnl ?? 0) >= 0 ? 'profit' : 'loss'">
               {{ fmtTodayPnl(bot) }}
+            </span>
+            <span class="stat-today-split mono">
+              <span :class="(bot.today_evaluation_pnl ?? 0) >= 0 ? 'profit' : 'loss'">
+                평가 {{ fmtSignedShort(bot.today_evaluation_pnl) }}
+              </span>
+              <span class="t-sep">·</span>
+              <span :class="(bot.today_realized_pnl ?? 0) >= 0 ? 'profit' : 'loss'">
+                실현 {{ fmtSignedShort(bot.today_realized_pnl) }}
+              </span>
             </span>
           </div>
         </div>
@@ -466,6 +475,12 @@ function fmtTodayPnl(bot) {
   const pct = bot.today_pnl_pct ?? 0
   const sign = pnl >= 0 ? '+' : ''
   return `${sign}${Number(pnl).toLocaleString('ko-KR')}원 (${sign}${pct.toFixed(2)}%)`
+}
+
+function fmtSignedShort(v) {
+  const n = Number(v ?? 0)
+  const sign = n >= 0 ? '+' : ''
+  return `${sign}${n.toLocaleString('ko-KR')}`
 }
 
 function totalAssetsPnl(bot) {
@@ -870,6 +885,24 @@ onUnmounted(() => {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--tracking-wide);
+}
+
+.stat-today {
+  grid-column: span 2;
+}
+
+.stat-today-split {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 10px;
+  margin-top: 2px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.t-sep {
+  color: var(--text-faint);
 }
 
 .profit {

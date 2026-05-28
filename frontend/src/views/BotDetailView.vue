@@ -224,14 +224,58 @@
     <!-- 포지션 탭 -->
     <div v-if="activeTab === 'positions'" class="tab-pane">
       <div v-if="positions.length === 0" class="empty-tab">보유 포지션이 없습니다</div>
-      <div v-else class="table-wrap">
+      <template v-else>
+        <div class="positions-summary">
+          <svg class="donut" viewBox="0 0 140 140" role="img" aria-label="포트폴리오 비중">
+            <g transform="translate(70 70) rotate(-90)">
+              <circle r="50" fill="none" stroke="var(--surface-2)" stroke-width="20" />
+              <circle
+                v-for="seg in donutSegments"
+                :key="seg.ticker"
+                r="50"
+                fill="none"
+                :stroke="seg.color"
+                stroke-width="20"
+                :stroke-dasharray="`${seg.length} ${DONUT_CIRC}`"
+                :stroke-dashoffset="-seg.offset"
+              />
+            </g>
+            <text x="70" y="68" text-anchor="middle" class="donut-center-num">{{ positions.length }}</text>
+            <text x="70" y="84" text-anchor="middle" class="donut-center-lbl">종목</text>
+          </svg>
+          <div class="donut-legend">
+            <div
+              v-for="seg in donutSegments.slice(0, 6)"
+              :key="seg.ticker"
+              class="legend-row"
+            >
+              <span class="legend-dot" :style="{ background: seg.color }"></span>
+              <span class="legend-name">{{ seg.company_name }}</span>
+              <span class="legend-pct mono">{{ seg.weight_pct.toFixed(1) }}%</span>
+            </div>
+            <div v-if="donutSegments.length > 6" class="legend-row legend-more">
+              외 {{ donutSegments.length - 6 }}개
+            </div>
+          </div>
+          <div class="positions-sort">
+            <label class="sort-label">정렬</label>
+            <select v-model="positionsSort" class="sort-select">
+              <option value="pnl">평가손익 ↓</option>
+              <option value="pct">수익률 ↓</option>
+              <option value="weight">비중 ↓</option>
+            </select>
+          </div>
+        </div>
+      <div class="table-wrap">
         <table class="data-table">
           <thead>
             <tr>
               <th>종목</th>
               <th class="th-num">수량</th>
               <th class="th-num">평균단가</th>
+              <th class="th-num">손익분기가</th>
               <th class="th-num">현재가</th>
+              <th>7일 추세</th>
               <th class="th-num">전일대비</th>
               <th class="th-num">매입금액</th>
               <th class="th-num">평가금액</th>
@@ -241,16 +285,43 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="pos in positions" :key="pos.id">
+            <tr v-for="pos in sortedPositions" :key="pos.id">
               <td class="ticker-cell">
                 <div class="ticker-stack">
                   <span class="ticker-name">{{ pos.company_name || pos.ticker }}</span>
                   <StockLink :ticker="pos.ticker" class="ticker-code" />
                 </div>
               </td>
-              <td class="td-num">{{ pos.quantity.toLocaleString() }}</td>
+              <td class="td-num">
+                <div>{{ pos.quantity.toLocaleString() }}</div>
+                <div
+                  v-if="pos.sellable_quantity != null && pos.sellable_quantity !== pos.quantity"
+                  class="qty-sub"
+                  :title="'매도 가능 수량 (미체결 매도주문 ' + (pos.quantity - pos.sellable_quantity) + '주 차감)'"
+                >
+                  매도 {{ pos.sellable_quantity.toLocaleString() }}
+                </div>
+              </td>
               <td class="td-num">{{ fmtPrice(pos.avg_price) }}</td>
+              <td class="td-num bep-cell">{{ fmtPrice(pos.bep_price) }}</td>
               <td class="td-num">{{ fmtPrice(pos.current_price) }}</td>
+              <td class="spark-cell">
+                <svg
+                  v-if="(pos.sparkline || []).length >= 2"
+                  viewBox="0 0 60 24"
+                  class="spark-svg"
+                  preserveAspectRatio="none"
+                >
+                  <polyline
+                    :points="sparkPoints(pos.sparkline)"
+                    fill="none"
+                    :stroke="sparkColor(pos.sparkline)"
+                    stroke-width="1.5"
+                    vector-effect="non-scaling-stroke"
+                  />
+                </svg>
+                <span v-else class="spark-empty">-</span>
+              </td>
               <td class="td-num" :class="pnlClass(pos.day_change)">
                 <template v-if="pos.day_change != null">
                   <div>{{ pos.day_change > 0 ? '+' : '' }}{{ fmtPrice(pos.day_change) }}</div>
@@ -278,6 +349,7 @@
           </tbody>
         </table>
       </div>
+      </template>
     </div>
 
     <!-- 주문 탭 -->
@@ -831,6 +903,75 @@ const reportScore = ref(null)
 const reportScoreInsufficient = ref(null)
 const strategies = ref([])
 const activeTab = ref('canvas')
+const positionsSort = ref('pnl')
+
+const DONUT_R = 50
+const DONUT_CIRC = 2 * Math.PI * DONUT_R
+const DONUT_COLORS = [
+  '#60a5fa', '#f59e0b', '#10b981', '#ef4444', '#a78bfa',
+  '#06b6d4', '#84cc16', '#ec4899', '#8b5cf6', '#14b8a6',
+]
+
+function sparkPoints(arr) {
+  if (!arr || arr.length < 2) return ''
+  const min = Math.min(...arr)
+  const max = Math.max(...arr)
+  const range = max - min || 1
+  const w = 60
+  const h = 24
+  const pad = 2
+  const step = w / (arr.length - 1)
+  return arr
+    .map((v, i) => {
+      const x = i * step
+      const y = h - pad - ((v - min) / range) * (h - 2 * pad)
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+}
+
+function sparkColor(arr) {
+  if (!arr || arr.length < 2) return 'var(--text-muted)'
+  // 한국식: 상승=적색, 하락=청색
+  return arr[arr.length - 1] >= arr[0] ? 'var(--profit, #ef4444)' : 'var(--info, #60a5fa)'
+}
+
+function tickerColor(ticker) {
+  let h = 0
+  for (let i = 0; i < ticker.length; i++) h = (h * 31 + ticker.charCodeAt(i)) | 0
+  return DONUT_COLORS[Math.abs(h) % DONUT_COLORS.length]
+}
+
+const sortedPositions = computed(() => {
+  const arr = [...positions.value]
+  if (positionsSort.value === 'pnl') {
+    arr.sort((a, b) => (b.unrealized_pnl || 0) - (a.unrealized_pnl || 0))
+  } else if (positionsSort.value === 'pct') {
+    arr.sort((a, b) => (b.unrealized_pct || 0) - (a.unrealized_pct || 0))
+  } else if (positionsSort.value === 'weight') {
+    arr.sort((a, b) => (b.weight_pct || 0) - (a.weight_pct || 0))
+  }
+  return arr
+})
+
+const donutSegments = computed(() => {
+  // 도넛은 비중 순(정렬 상관없이 큰 것부터)으로 시각 안정. 종목 색상은 ticker hash 고정.
+  const arr = [...positions.value].sort((a, b) => (b.weight_pct || 0) - (a.weight_pct || 0))
+  let offset = 0
+  return arr.map((p) => {
+    const length = ((p.weight_pct || 0) / 100) * DONUT_CIRC
+    const seg = {
+      ticker: p.ticker,
+      company_name: p.company_name || p.ticker,
+      weight_pct: p.weight_pct || 0,
+      color: tickerColor(p.ticker),
+      length,
+      offset,
+    }
+    offset += length
+    return seg
+  })
+})
 
 const totalReturnPct = computed(() => {
   const b = bot.value
@@ -1872,6 +2013,137 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: var(--tracking-wide);
+}
+
+.positions-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  background: var(--surface-1, var(--surface-2));
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+
+.donut {
+  flex: 0 0 140px;
+  width: 140px;
+  height: 140px;
+}
+
+.donut-center-num {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  fill: var(--text-primary);
+}
+
+.donut-center-lbl {
+  font-size: 10px;
+  letter-spacing: var(--tracking-wide);
+  fill: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.donut-legend {
+  flex: 1;
+  min-width: 200px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px var(--space-4);
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  min-width: 0;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.legend-name {
+  flex: 1;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.legend-pct {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.legend-more {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.positions-sort {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.sort-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.sort-select {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 6px var(--space-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.sort-select:focus {
+  outline: none;
+  border-color: var(--accent, #60a5fa);
+}
+
+.bep-cell {
+  color: var(--text-muted);
+}
+
+.qty-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  cursor: help;
+}
+
+.spark-cell {
+  text-align: center;
+  vertical-align: middle;
+  min-width: 70px;
+}
+
+.spark-svg {
+  width: 60px;
+  height: 24px;
+  display: inline-block;
+}
+
+.spark-empty {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
 }
 
 .ticker-stack {

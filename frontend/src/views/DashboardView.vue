@@ -65,6 +65,15 @@
         <div class="stat-value" :class="pnlClass(summary.daily_pnl)">
           {{ fmtPnl(summary.daily_pnl) }}
         </div>
+        <div class="stat-split">
+          <span :class="pnlClass(summary.daily_evaluation_pnl)">
+            평가 {{ fmtPnl(summary.daily_evaluation_pnl) }}
+          </span>
+          <span class="split-sep">·</span>
+          <span :class="pnlClass(summary.daily_realized_pnl)">
+            실현 {{ fmtPnl(summary.daily_realized_pnl) }}
+          </span>
+        </div>
       </div>
       <div class="stat-card stat-card-clickable" @click="openTodayTrades">
         <div class="stat-label">오늘 거래</div>
@@ -242,7 +251,7 @@ import StockLink from '@/components/StockLink.vue'
 const auth = useAuthStore()
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
 
-const summary = ref({ running: 0, stopped: 0, error: 0, total_assets: 0, total_pnl: 0, mock_assets: 0, mock_pnl: 0, paper_assets: 0, paper_pnl: 0, real_assets: 0, real_pnl: 0, daily_pnl: 0, today_trades: 0 })
+const summary = ref({ running: 0, stopped: 0, error: 0, total_assets: 0, total_pnl: 0, mock_assets: 0, mock_pnl: 0, paper_assets: 0, paper_pnl: 0, real_assets: 0, real_pnl: 0, daily_pnl: 0, daily_realized_pnl: 0, daily_evaluation_pnl: 0, today_trades: 0 })
 const botSnapshots = ref([])
 const alerts = ref([])
 const brokerStatus = ref({ mode: 'mock', connected: null })
@@ -572,6 +581,22 @@ onUnmounted(() => {
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
+}
+
+.stat-split {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.split-sep {
+  color: var(--text-faint);
 }
 
 .profit {

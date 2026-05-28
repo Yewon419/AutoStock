@@ -35,7 +35,8 @@ def get_summary(
     stopped = sum(1 for b in bots if b.status == 'STOPPED')
     error = sum(1 for b in bots if b.status == 'ERROR')
 
-    # 전체 총 자산 계산 (mock / paper / real 분리)
+    # 전체 총 자산 계산 (mock / paper / real 분리) — BotDetailView와 동일한 rt:price→StockPrice→avg 3단 fallback
+    from services import trading_service
     total_assets = 0.0
     total_pnl = 0.0
     mock_assets = 0.0
@@ -44,15 +45,11 @@ def get_summary(
     paper_pnl = 0.0
     real_assets = 0.0
     real_pnl = 0.0
+    enriched_bots = []
     for bot in bots:
-        cash = float(bot.cash or 0)
-        positions = db.query(Position).filter(Position.bot_id == bot.id).all()
-        holdings = 0.0
-        for pos in positions:
-            lp = db.query(StockPrice).filter(StockPrice.ticker == pos.ticker).order_by(StockPrice.date.desc()).first()
-            if lp and lp.close_price is not None:
-                holdings += float(lp.close_price) * pos.quantity
-        bot_total = cash + holdings
+        enriched = trading_service.enrich_bot_assets(db, bot)
+        enriched_bots.append(enriched)
+        bot_total = float(enriched['total_assets'])
         bot_pnl = bot_total - float(bot.initial_cash or 0)
         total_assets += bot_total
         total_pnl += bot_pnl
@@ -77,7 +74,10 @@ def get_summary(
         Execution.execution_type == 'SELL',
         Execution.executed_at >= today_start,
     ).all()
-    daily_pnl = sum(float(e.profit_loss or 0) for e in today_sells)
+    daily_realized_pnl = sum(float(e.profit_loss or 0) for e in today_sells)
+    # 당일 평가손익: 봇별 today_evaluation_pnl 합 — enrich_bot_assets에서 이미 계산됨
+    daily_evaluation_pnl = sum(float(b.get('today_evaluation_pnl') or 0) for b in enriched_bots)
+    daily_pnl = daily_realized_pnl + daily_evaluation_pnl
     today_trades = db.query(Execution).join(
         TradingBot, Execution.bot_id == TradingBot.id
     ).filter(
@@ -109,6 +109,8 @@ def get_summary(
         "real_assets": round(real_assets, 0),
         "real_pnl": round(real_pnl, 0),
         "daily_pnl": round(daily_pnl, 0),
+        "daily_realized_pnl": round(daily_realized_pnl, 0),
+        "daily_evaluation_pnl": round(daily_evaluation_pnl, 0),
         "today_trades": today_trades,
         "alerts": alerts,
     }
