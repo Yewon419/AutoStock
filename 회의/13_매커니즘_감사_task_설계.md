@@ -12,7 +12,7 @@
 
 ### 환경
 - 프로젝트: `C:\Users\windg\Desktop\PROJECT\AutoStock`
-- DB: PostgreSQL 5433 (컨테이너 `autostock-postgres`, user/db: `autostock` / pass: `autostock123`)
+- DB: PostgreSQL 5433 (컨테이너 `autostock-postgres`, user/db: `autostock` / pass: .env `POSTGRES_PASSWORD`)
 - Redis: 6379 (`autostock-redis`)
 - Backend API: http://localhost:8001 (`autostock-backend`)
 - Celery worker: `autostock-celery-worker` (concurrency=4, Q=celery)

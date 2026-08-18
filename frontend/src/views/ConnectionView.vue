@@ -157,7 +157,7 @@
               id="acc-num"
               v-model="accountForm.account_number"
               type="text"
-              placeholder="예: XXXXXXXX-XX"
+              placeholder="예: 12345678-01"
             />
           </div>
           <div class="form-group">
