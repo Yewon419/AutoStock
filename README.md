@@ -4,6 +4,16 @@
 
 KOSPI/KOSDAQ 종목을 대상으로 ML 스코어링, Claude AI 전략 생성, 백테스트, KIS 실계좌 자동매매까지 하나의 파이프라인으로 운영하는 풀스택 시스템입니다.
 
+<p align="center">
+  <img src="docs/screenshots/login.png" width="49%" alt="로그인 — 라이브 시세 티커·오더북 카드">
+  <img src="docs/screenshots/bot-dashboard.png" width="49%" alt="봇 상세 — 자산·승률·샤프·보유 종목, AI 튜닝 어시스턴트">
+</p>
+<p align="center">
+  <img src="docs/screenshots/canvas.png" width="49%" alt="AI 캔버스 — 노드 파이프라인 편집기 + AI 어시스턴트">
+  <img src="docs/screenshots/stock-data.png" width="49%" alt="주식 데이터 — 캔들 차트·RSI/MACD 지표">
+</p>
+<p align="center"><sub>로그인 · 봇 상세(mock 계좌) · AI 캔버스 · 주식 데이터</sub></p>
+
 ---
 
 ## 화면 구성
