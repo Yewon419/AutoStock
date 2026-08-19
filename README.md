@@ -5,14 +5,8 @@
 KOSPI/KOSDAQ 종목을 대상으로 ML 스코어링, Claude AI 전략 생성, 백테스트, KIS 실계좌 자동매매까지 하나의 파이프라인으로 운영하는 풀스택 시스템입니다.
 
 <p align="center">
-  <img src="docs/screenshots/login.png" width="49%" alt="로그인 — 라이브 시세 티커·오더북 카드">
-  <img src="docs/screenshots/bot-dashboard.png" width="49%" alt="봇 상세 — 자산·승률·샤프·보유 종목, AI 튜닝 어시스턴트">
+  <img src="docs/screenshots/login.png" width="85%" alt="로그인 — 라이브 시세 티커·오더북 카드">
 </p>
-<p align="center">
-  <img src="docs/screenshots/canvas.png" width="49%" alt="AI 캔버스 — 노드 파이프라인 편집기 + AI 어시스턴트">
-  <img src="docs/screenshots/stock-data.png" width="49%" alt="주식 데이터 — 캔들 차트·RSI/MACD 지표">
-</p>
-<p align="center"><sub>로그인 · 봇 상세(mock 계좌) · AI 캔버스 · 주식 데이터</sub></p>
 
 ---
 
@@ -27,6 +21,11 @@ KOSPI/KOSDAQ 종목을 대상으로 ML 스코어링, Claude AI 전략 생성, �
 | 전략 관리 | 전략 CRUD, 백테스트 실행 |
 | AI 분석 | ML 스코어 조회, 전략 분석 요청 |
 | 연결 설정 | KIS API 키 등록, 브로커 모드 전환 |
+
+<p align="center">
+  <img src="docs/screenshots/stock-data.png" width="85%" alt="주식 데이터 탭 — 일봉 캔들 차트·RSI 지표·최신 지표값">
+</p>
+<p align="center"><sub>주식 데이터 탭 — 일봉 차트 · RSI/MACD/VOL 지표 · 최신 지표값</sub></p>
 
 ---
 
@@ -58,6 +57,11 @@ KOSPI/KOSDAQ 종목을 대상으로 ML 스코어링, Claude AI 전략 생성, �
 - 실시간 ML 스코어·시장 지표·백테스트 결과 기반 전략 자동 최적화
 - 캔버스별 채팅 로그 영구 저장, 마지막 선택 캔버스 복원
 
+<p align="center">
+  <img src="docs/screenshots/canvas.png" width="85%" alt="AI 캔버스 — 전략 빌더·봇 적용 노드 연결, AI 어시스턴트 채팅">
+</p>
+<p align="center"><sub>AI 캔버스 — 노드 편집기에서 전략 빌더를 봇에 연결하고, AI 어시스턴트가 승률 기반 튜닝을 제안</sub></p>
+
 ---
 
 ### ML 스코어링
@@ -81,6 +85,11 @@ KOSPI/KOSDAQ 종목을 대상으로 ML 스코어링, Claude AI 전략 생성, �
 - **단타 봇** (분봉): 트레일링 스탑, confirm bars 연속 신호 확인
 - KIS 모의투자(paper) / 실계좌(real) 자동 전환
 - 실계좌 매수 전 실잔고 확인, DB cash 자동 동기화
+
+<p align="center">
+  <img src="docs/screenshots/bot-dashboard.png" width="85%" alt="봇 상세 — 자산·누적 손익·승률·샤프·보유 종목, AI 튜닝 어시스턴트">
+</p>
+<p align="center"><sub>봇 상세 화면(mock 계좌) — 자산·승률·샤프·최대 낙폭과 보유 종목, AI 튜닝 어시스턴트의 성과 진단</sub></p>
 
 ### 성과 평가 (100점 만점)
 봇 상세 → 일별 보고서 탭에서 확인할 수 있습니다.
